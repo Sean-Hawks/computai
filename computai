@@ -43,6 +43,153 @@ def data_dir():
     return os.path.join(base, "computai")
 
 
+# ---------------------------------------------------------------- 設定檔
+
+# 第一次執行時寫進設定檔目錄的範本。程式只讀檔案，不讀這裡的數字；
+# 使用者改了檔案就以檔案為準。
+DEFAULT_CONFIG = """\
+# ComputAI settings. Lines starting with # are comments.
+
+[general]
+# Shown next to USD totals. Set to 0 to hide.
+usd_to_local = 0
+local_currency = TWD
+
+[plans]
+# Monthly subscription fees, compared against the API-equivalent cost of what you used.
+# Format: <source> = <plan name>, <USD per month>, <date you checked the price>
+claude = Claude Max 5x, 100, 2026-10-03
+codex = ChatGPT Pro, 200, 2026-10-03
+"""
+
+DEFAULT_PRICES = """\
+# API prices in USD per million tokens, used to work out what your usage would
+# cost at pay-as-you-go rates. Edit freely; every section says when it was checked.
+#
+# Section names are model ids. A model with no exact section uses the longest
+# section name that is a prefix of it (claude-opus-5-5-20270101 -> claude-opus-5-5).
+# Keys: input, output, cache_read, cache_write_5m, cache_write_1h, checked, source.
+"""
+
+
+def _ini():
+    import configparser
+    cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=None)
+    cp.optionxform = str
+    return cp
+
+
+def ensure_config():
+    """設定檔目錄裡缺的檔案補上範本；已經存在的檔案不動。"""
+    d = config_dir()
+    os.makedirs(d, exist_ok=True)
+    for name, text in (("config.ini", DEFAULT_CONFIG), ("prices.ini", DEFAULT_PRICES)):
+        path = os.path.join(d, name)
+        if not os.path.exists(path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+
+
+def load_config():
+    cp = _ini()
+    cp.read_string(DEFAULT_CONFIG)
+    cp.read(os.path.join(config_dir(), "config.ini"), encoding="utf-8")
+    return cp
+
+
+def plans(cp=None):
+    """{source: {"name", "usd", "checked"}}，格式錯的那行略過。"""
+    cp = cp or load_config()
+    out = {}
+    if not cp.has_section("plans"):
+        return out
+    for src, val in cp.items("plans"):
+        parts = [p.strip() for p in val.split(",")]
+        try:
+            usd = float(parts[1])
+        except (IndexError, ValueError):
+            continue
+        out[src] = {"name": parts[0], "usd": usd, "checked": parts[2] if len(parts) > 2 else ""}
+    return out
+
+
+PRICE_KEYS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
+
+
+def load_prices(path=None):
+    """{model: {input, output, cache_read, cache_write_5m, cache_write_1h, checked, source}}。"""
+    cp = _ini()
+    if path is None:
+        path = os.path.join(config_dir(), "prices.ini")
+        if not os.path.exists(path):
+            cp.read_string(DEFAULT_PRICES)
+    if path and os.path.exists(path):
+        cp.read(path, encoding="utf-8")
+    out = {}
+    for sec in cp.sections():
+        row = {"checked": cp.get(sec, "checked", fallback=""), "source": cp.get(sec, "source", fallback="")}
+        for k in PRICE_KEYS:
+            try:
+                row[k] = float(cp.get(sec, k, fallback=""))
+            except ValueError:
+                row[k] = None
+        if row["input"] is None or row["output"] is None:
+            continue
+        # 沒寫快取價格就退回輸入價格：寧可高估也不要算成免費
+        for k in ("cache_read", "cache_write_5m", "cache_write_1h"):
+            if row[k] is None:
+                row[k] = row["input"]
+        out[sec.lower()] = row
+    return out
+
+
+def normalize_model(model):
+    """去掉 Claude Code 加的 `[1m]` 這類標記，統一小寫。"""
+    m = (model or "").strip().lower()
+    if "[" in m:
+        m = m.split("[", 1)[0]
+    return m
+
+
+def price_for(model, prices):
+    m = normalize_model(model)
+    if m in prices:
+        return prices[m]
+    best = None
+    for name in prices:
+        if m.startswith(name) and (best is None or len(name) > len(best)):
+            best = name
+    return prices[best] if best else None
+
+
+def secret(name):
+    """金鑰只從環境變數，或權限 600 的 secrets.ini 讀；權限太寬就不讀。"""
+    v = os.environ.get(name)
+    if v:
+        return v
+    path = os.path.join(config_dir(), "secrets.ini")
+    if not os.path.exists(path):
+        return None
+    if os.name != "nt" and os.stat(path).st_mode & 0o077:
+        warn("ignoring %s: permissions must be 600 (run: chmod 600 %s)" % (path, path))
+        return None
+    cp = _ini()
+    try:
+        cp.read(path, encoding="utf-8")
+    except Exception:
+        return None
+    return cp.get("secrets", name, fallback=None) or None
+
+
+_warned = set()
+
+
+def warn(msg):
+    if msg not in _warned:
+        _warned.add(msg)
+        sys.stderr.write("computai: " + msg + "\n")
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
