@@ -190,6 +190,125 @@ def warn(msg):
         sys.stderr.write("computai: " + msg + "\n")
 
 
+# ---------------------------------------------------------------- 帳本
+
+# usage 一列是一次 API 回應（或一段彙總）的 token 用量。
+#   input       沒有命中快取的輸入（OpenAI 的 input 已含 cached，匯入時先減掉）
+#   cache_read  命中快取的輸入
+#   cache_write_5m / cache_write_1h  寫入快取的輸入
+#   output      計費的輸出，包含 reasoning
+#   reasoning   output 裡屬於思考的部分（只是細項，不另外計費）
+#   cost_usd    來源自己給的實際金額（雲端帳單等）；NULL 表示用價目表換算
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS usage (
+    source TEXT NOT NULL,
+    uid TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    project TEXT NOT NULL DEFAULT '',
+    session TEXT NOT NULL DEFAULT '',
+    input INTEGER NOT NULL DEFAULT 0,
+    cache_read INTEGER NOT NULL DEFAULT 0,
+    cache_write_5m INTEGER NOT NULL DEFAULT 0,
+    cache_write_1h INTEGER NOT NULL DEFAULT 0,
+    output INTEGER NOT NULL DEFAULT 0,
+    reasoning INTEGER NOT NULL DEFAULT 0,
+    requests INTEGER NOT NULL DEFAULT 1,
+    subagent INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL,
+    PRIMARY KEY (source, uid)
+);
+CREATE INDEX IF NOT EXISTS usage_ts ON usage (ts);
+CREATE TABLE IF NOT EXISTS limits (
+    source TEXT NOT NULL,
+    name TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    used_percent REAL,
+    window_minutes INTEGER,
+    resets_at INTEGER,
+    plan TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (source, name, ts)
+);
+CREATE TABLE IF NOT EXISTS files (
+    path TEXT PRIMARY KEY,
+    size INTEGER NOT NULL,
+    mtime REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+"""
+
+USAGE_COLS = ("source", "uid", "ts", "model", "project", "session", "input", "cache_read",
+              "cache_write_5m", "cache_write_1h", "output", "reasoning", "requests",
+              "subagent", "cost_usd")
+TOKEN_COLS = ("input", "cache_read", "cache_write_5m", "cache_write_1h", "output", "reasoning")
+
+
+def ledger_path():
+    return os.path.join(data_dir(), "ledger.sqlite")
+
+
+def open_ledger(path=None):
+    import sqlite3
+    path = path or ledger_path()
+    if path != ":memory:":
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    db = sqlite3.connect(path, timeout=30)
+    db.row_factory = sqlite3.Row
+    db.executescript(SCHEMA)
+    return db
+
+
+def add_usage(db, rows):
+    """匯入用量。(source, uid) 一樣的資料只會記一次，所以重複匯入不會重複計算。
+    回傳真正新增的筆數。"""
+    sql = "INSERT OR IGNORE INTO usage (%s) VALUES (%s)" % (
+        ",".join(USAGE_COLS), ",".join("?" * len(USAGE_COLS)))
+    before = db.total_changes
+    defaults = {"model": "", "project": "", "session": "", "requests": 1, "subagent": 0,
+                "cost_usd": None}
+    batch = []
+    for r in rows:
+        batch.append(tuple(r.get(c, defaults.get(c, 0)) for c in USAGE_COLS))
+        if len(batch) >= 2000:
+            db.executemany(sql, batch)
+            batch = []
+    if batch:
+        db.executemany(sql, batch)
+    return db.total_changes - before
+
+
+def add_limits(db, rows):
+    sql = ("INSERT OR IGNORE INTO limits (source, name, ts, used_percent, window_minutes, "
+           "resets_at, plan) VALUES (?,?,?,?,?,?,?)")
+    before = db.total_changes
+    db.executemany(sql, [(r["source"], r["name"], r["ts"], r.get("used_percent"),
+                          r.get("window_minutes"), r.get("resets_at"), r.get("plan") or "")
+                         for r in rows])
+    return db.total_changes - before
+
+
+def file_changed(db, path):
+    """檔案從上次匯入之後有沒有變過（大小或修改時間）。"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    row = db.execute("SELECT size, mtime FROM files WHERE path = ?", (path,)).fetchone()
+    return row is None or row["size"] != st.st_size or row["mtime"] != st.st_mtime
+
+
+def mark_file(db, path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return
+    db.execute("INSERT OR REPLACE INTO files (path, size, mtime) VALUES (?,?,?)",
+               (path, st.st_size, st.st_mtime))
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
