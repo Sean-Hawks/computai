@@ -110,3 +110,27 @@ class Breakdown(unittest.TestCase):
     def test_cell_tail(self):
         self.assertEqual(self.m.cell("abcdef", 3, tail=True), "def")
         self.assertEqual(self.m.cell("專案", 3), "專 ")
+
+
+class TerminalSafety(unittest.TestCase):
+    def test_escape_sequences_in_project_names_are_stripped(self):
+        sb = helpers.Sandbox()
+        try:
+            os.makedirs(sb.data)
+            m = helpers.load()
+            os.environ["COMPUTAI_DATA_DIR"] = sb.data
+            db = m.open_ledger()
+            m.add_usage(db, [dict(source="claude", uid="1", ts=1789000000, model="claude-opus-5-5",
+                                  project="/x/\x1b]52;c;ZXZpbA==\x07evil", output=1)])
+            db.commit()
+            db.close()
+            r = sb.run("--summary", "--month", "2026-09", "--by", "project", "--no-sync")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("\x1b", r.stdout)
+            self.assertNotIn("\x07", r.stdout)
+            self.assertIn("evil", r.stdout)
+            j = sb.run("--summary", "--month", "2026-09", "--by", "project", "--no-sync", "--json")
+            self.assertNotIn("\x1b", j.stdout)
+        finally:
+            os.environ.pop("COMPUTAI_DATA_DIR", None)
+            sb.close()

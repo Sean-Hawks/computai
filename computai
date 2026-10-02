@@ -3685,9 +3685,11 @@ def pick_range(args):
 
 def emit(obj, text, as_json):
     if as_json:
-        print(json.dumps(obj, indent=2, ensure_ascii=False))
+        print(json.dumps(obj, indent=2, ensure_ascii=False))   # JSON 會把控制字元跳脫掉
     else:
-        print(text)
+        # 專案路徑、模型、機器名稱來自 log 和別的機器；資料夾名稱裡的 ESC 序列可以改終端機的畫面、
+        # 標題或剪貼簿，所以文字輸出一律去掉控制字元
+        print(untrusted(text))
 
 
 def main(argv=None):
