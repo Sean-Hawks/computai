@@ -86,7 +86,7 @@ class FakeUpstream(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         n = int(self.headers.get("Content-Length") or 0)
         FakeUpstream.seen.append((self.path, json.loads(self.rfile.read(n) or b"{}"),
-                                  self.headers.get("Authorization")))
+                                  self.headers.get("Authorization"), self.headers.get("Accept-Encoding")))
         if self.path == "/api/chat":
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson")
@@ -157,9 +157,20 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual([tuple(r) for r in rows], [("qwen3:0.6b", 11, 10, "box", 0.0),
                                                     ("qwen3:0.6b", 12, 20, "box", 0.0),
                                                     ("qwen3:0.6b", 11, 10, "box", 0.0)])
-        path, sent, auth = FakeUpstream.seen[2]
+        path, sent, auth, enc = FakeUpstream.seen[2]
+        self.assertEqual(enc, "identity")                          # 不讓上游壓縮回應
         self.assertEqual(sent["stream_options"], {"include_usage": True})
         self.assertEqual(auth, "Bearer local-key")                  # 金鑰照樣轉給上游
+
+    def test_rebinding_host_rejected(self):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.px.server_port, timeout=10)
+        c.request("POST", "/api/generate", body=b"{}", headers={"Host": "evil.example:11435"})
+        r = c.getresponse()
+        r.read()
+        c.close()
+        self.assertEqual(r.status, 403)
+        self.assertEqual(FakeUpstream.seen, [])
 
     def test_upstream_down(self):
         self.up.shutdown()

@@ -1960,7 +1960,7 @@ def prepare_request(body, path, inject=True):
     return body, model
 
 
-def make_proxy(upstream, machine, db_path=None, inject=True):
+def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1"):
     import http.client
     import http.server
     import urllib.parse
@@ -2003,6 +2003,10 @@ def make_proxy(upstream, machine, db_path=None, inject=True):
             return self.rfile.read(n) if n > 0 else b""
 
         def _forward(self):
+            if not host_header_ok(self.headers.get("Host"), bind):
+                # 直接轉給 Ollama 的話，Ollama 自己會擋；我們改寫了 Host，所以要替它擋
+                self.send_error(403, "forbidden host")
+                return
             try:
                 body = self._body()
             except (ValueError, OSError):
@@ -2011,6 +2015,7 @@ def make_proxy(upstream, machine, db_path=None, inject=True):
             body, model = prepare_request(body, self.path, inject)
             headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
             headers["Host"] = up.netloc
+            headers["Accept-Encoding"] = "identity"  # 壓縮過的回應讀不到用量
             if body or self.command in ("POST", "PUT", "PATCH"):
                 headers["Content-Length"] = str(len(body))
             cls = http.client.HTTPSConnection if up.scheme == "https" else http.client.HTTPConnection
@@ -2093,12 +2098,25 @@ def is_loopback(host):
     return host in ("localhost", "::1") or host.startswith("127.")
 
 
+def host_header_ok(header, bind):
+    """只聽本機時，Host 標頭也必須是本機的名字；擋掉 DNS rebinding（別的網站把自己的網域
+    指到 127.0.0.1，瀏覽器就會把它當成同一個來源）。寫法移植自 slurmtop 84cd35d。"""
+    if not is_loopback(bind):
+        return True
+    host = (header or "").strip()
+    if host.startswith("["):
+        name = host[1:].split("]", 1)[0]
+    else:
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    return is_loopback(name)
+
+
 def serve_proxy(listen, upstream, machine, sample_every=60, inject=True):
     import http.server
     host, port = parse_listen(listen, 11435)
     if not is_loopback(host):
         warn("listening on %s: anyone who can reach this port can use your models through it" % host)
-    Handler, holder = make_proxy(upstream, machine, inject=inject)
+    Handler, holder = make_proxy(upstream, machine, inject=inject, bind=host)
 
     class Server(http.server.ThreadingHTTPServer):
         daemon_threads = True
@@ -3266,9 +3284,6 @@ tick();
 setInterval(tick, REFRESH_MS);
 """
 
-LOOPBACK = ("127.0.0.1", "localhost", "::1")
-
-
 def web_handler(state, bind, interval):
     """移植自 slurmtop 84cd35d 的 web_handler：安全標頭、只聽本機時檢查 Host 擋 DNS rebinding。"""
     import http.server
@@ -3295,18 +3310,8 @@ def web_handler(state, bind, interval):
             if self.command != "HEAD":
                 self.wfile.write(data)
 
-        def host_ok(self):
-            if bind not in LOOPBACK:
-                return True
-            host = (self.headers.get("Host") or "").strip()
-            if host.startswith("["):
-                name = host[1:].split("]", 1)[0]
-            else:
-                name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
-            return name in LOOPBACK
-
         def do_GET(self):
-            if not self.host_ok():
+            if not host_header_ok(self.headers.get("Host"), bind):
                 return self.send(403, "forbidden host\n", "text/plain; charset=utf-8")
             path = self.path.split("?", 1)[0]
             with state["lock"]:
