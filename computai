@@ -70,6 +70,12 @@ local_currency = TWD
 claude = Claude Max 5x, 100, 2026-10-03
 codex = ChatGPT Pro, 200, 2026-10-03
 
+[plan_options]
+# Plans the simulator compares: <name> <USD per month> x<usage allowance relative to the
+# smallest plan>. Allowances are the vendors' own "5x / 20x" multipliers, not measured.
+claude = Pro 20 x1, Max 5x 100 x5, Max 20x 200 x20
+codex = Plus 20 x1, Pro 200 x20
+
 [machines]
 # Machines to watch: <name> = local, or an SSH host (passwordless SSH, only sh is needed there).
 # Optional per-machine settings go in a [machine.<name>] section:
@@ -2560,14 +2566,103 @@ def render_forecast(f):
     return "\n".join(lines)
 
 
+def plan_options(cp=None):
+    cp = cp or load_config()
+    out = {}
+    if not cp.has_section("plan_options"):
+        return out
+    for src, val in cp.items("plan_options"):
+        opts = []
+        for item in val.split(","):
+            m = re.match(r"^\s*(.*?)\s+(\d+(?:\.\d+)?)\s+x(\d+(?:\.\d+)?)\s*$", item)
+            if m:
+                opts.append({"name": m.group(1), "usd": float(m.group(2)), "capacity": float(m.group(3))})
+        if opts:
+            out[src] = sorted(opts, key=lambda o: o["usd"])
+    return out
+
+
+def simulate_plans(db, t=None, days=30):
+    """換方案會怎樣：用過去 30 天額度視窗的最高使用率，按方案倍數換算到其他方案；
+    最便宜、而且推估最高使用率還在 90% 以下的就是建議。另外比較同期的等值 API 花費，
+    用得很少時直接付 API 可能比較便宜。"""
+    t = now() if t is None else t
+    current = plans()
+    out = []
+    for src, opts in plan_options().items():
+        cur = current.get(src)
+        cur_opt = None
+        if cur:
+            for o in opts:
+                if o["name"].lower() == cur["name"].lower() or abs(o["usd"] - cur["usd"]) < 0.01:
+                    cur_opt = o
+                    break
+        rows = db.execute("SELECT name, MAX(used_percent) AS peak, COUNT(*) AS n, "
+                          "SUM(CASE WHEN used_percent >= 95 THEN 1 ELSE 0 END) AS hits "
+                          "FROM limits WHERE source = ? AND ts >= ? GROUP BY name",
+                          (src, t - days * 86400)).fetchall()
+        peak = max((r["peak"] for r in rows), default=None)
+        window = max(rows, key=lambda r: r["peak"])["name"] if rows else None
+        api = summary(db, t - days * 86400, t + 1, plan_table={})
+        api_cost = sum(x["cost_usd"] for x in api["sources"] if x["source"] == src)
+        res = {"source": src, "current": cur_opt["name"] if cur_opt else (cur or {}).get("name"),
+               "current_usd": cur_opt["usd"] if cur_opt else (cur or {}).get("usd"),
+               "peak_percent": peak, "peak_window": window, "api_equivalent_usd": round(api_cost, 2),
+               "options": [], "recommend": None, "reason": ""}
+        if peak is not None and cur_opt:
+            for o in opts:
+                proj = peak * cur_opt["capacity"] / o["capacity"]
+                res["options"].append(dict(o, projected_peak=round(proj, 1), fits=proj < 90))
+            fits = [o for o in res["options"] if o["fits"]]
+            best = fits[0] if fits else res["options"][-1]
+            res["recommend"] = best["name"]
+            if best["name"] == cur_opt["name"]:
+                if not fits:
+                    res["reason"] = "reached %d%% of the %s limit and no bigger plan is listed" % (peak, window)
+                elif opts.index(cur_opt) > 0:
+                    res["reason"] = "peak %d%% of the %s limit; a smaller plan would not fit" % (peak, window)
+                else:
+                    res["reason"] = "peak %d%% of the %s limit" % (peak, window)
+            elif best["usd"] < cur_opt["usd"]:
+                res["reason"] = "peak was only %d%% of the %s limit; %s would peak around %d%%" % (
+                    peak, window, best["name"], best["projected_peak"])
+            else:
+                res["reason"] = "you reached %d%% of the %s limit; %s would peak around %d%%" % (
+                    peak, window, best["name"], best["projected_peak"])
+        elif not rows:
+            res["reason"] = "no limit data yet" + (" (set up `computai --statusline`)" if src == "claude" else "")
+        cheapest = (min(o["usd"] for o in opts) if opts else None)
+        if api_cost and cheapest and api_cost < cheapest:
+            res["api_cheaper"] = True
+            res["reason"] += ("; " if res["reason"] else "") + \
+                "pay-as-you-go would have cost only %s" % fmt_usd(api_cost)
+        out.append(res)
+    return out
+
+
+def render_plans(sims):
+    lines = ["Plan check (last 30 days)"]
+    for r in sims:
+        rec = r["recommend"]
+        head = "  %-7s on %s (%s): API-equivalent %s" % (
+            r["source"], r["current"] or "?", fmt_usd(r["current_usd"]), fmt_usd(r["api_equivalent_usd"]))
+        lines.append(head)
+        if rec and rec != r["current"]:
+            lines.append("    -> consider %s: %s" % (rec, r["reason"]))
+        elif r["reason"]:
+            lines.append("    %s" % r["reason"])
+    return "\n".join(lines)
+
+
 def analyze(db, start, end, label=""):
     return {"range": {"start": int(start), "end": int(end), "label": label},
-            "cache": cache_report(db, start, end), "forecast": forecast(db)}
+            "cache": cache_report(db, start, end), "forecast": forecast(db),
+            "plans": simulate_plans(db)}
 
 
 def render_analysis(a):
     parts = ["ComputAI analysis  %s" % a["range"]["label"], render_forecast(a["forecast"]),
-             render_cache(a["cache"])]
+             render_plans(a["plans"]), render_cache(a["cache"])]
     return "\n\n".join(parts)
 
 

@@ -76,3 +76,45 @@ class Forecast(unittest.TestCase):
         self.assertTrue(f["over_budget"])
         self.assertEqual(f["subscription_value_projected"]["claude"], 60.0)   # $20 花了 10 天 -> 30 天 $60
         self.assertIn("! over the $200.00 budget", self.m.render_forecast(f))
+
+
+class Plans(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        os.makedirs(self.sb.config)
+        with open(os.path.join(self.sb.config, "config.ini"), "w") as f:
+            f.write("[plans]\nclaude = Max 20x, 200, x\ncodex = Plus, 20, x\n\n"
+                    "[plan_options]\nclaude = Pro 20 x1, Max 5x 100 x5, Max 20x 200 x20\n"
+                    "codex = Plus 20 x1, Pro 200 x20\n")
+        self.old = dict(os.environ)
+        os.environ["COMPUTAI_CONFIG_DIR"] = self.sb.config
+        self.m = helpers.load()
+        self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def test_downgrade_and_upgrade(self):
+        t = 10 * 86400
+        lim = lambda src, ts, pct: dict(source=src, name="week", ts=ts, used_percent=pct, window_minutes=10080)
+        self.m.add_limits(self.db, [lim("claude", t - 86400, 12.0), lim("claude", t - 3600, 15.0),
+                                    lim("codex", t - 3600, 100.0)])
+        sims = {r["source"]: r for r in self.m.simulate_plans(self.db, t=t)}
+        c = sims["claude"]
+        self.assertEqual(c["peak_percent"], 15.0)
+        # 15% 的 20x -> 5x 約 60%、Pro 約 300%
+        self.assertEqual(c["recommend"], "Max 5x")
+        self.assertEqual([o["projected_peak"] for o in c["options"]], [300.0, 60.0, 15.0])
+        self.assertEqual(sims["codex"]["recommend"], "Pro")
+        text = self.m.render_plans(self.m.simulate_plans(self.db, t=t))
+        self.assertIn("-> consider Max 5x: peak was only 15% of the week limit", text)
+        self.assertIn("-> consider Pro: you reached 100% of the week limit", text)
+
+    def test_api_cheaper(self):
+        self.m.add_usage(self.db, [dict(source="claude", uid="1", ts=100, model="claude-opus-5-5", output=100000)])
+        c = [r for r in self.m.simulate_plans(self.db, t=200) if r["source"] == "claude"][0]
+        self.assertTrue(c["api_cheaper"])
+        self.assertIn("no limit data yet", c["reason"])
