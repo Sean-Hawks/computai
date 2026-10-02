@@ -2612,7 +2612,7 @@ def render_cache(c):
 SUBSCRIPTION_SOURCES = ("claude", "codex")
 
 
-def forecast(db, t=None, ps=None):
+def forecast(db, t=None, ps=None, month_machines=None):
     """這個月月底大概會花多少：訂閱月費 + 到今天為止的變動花費 + 最近 7 天的日均 × 剩下的天數。
     訂閱用量另外推估「照目前速度，這個月的等值 API 花費」，看方案划不划算。"""
     t = now() if t is None else t
@@ -2623,7 +2623,9 @@ def forecast(db, t=None, ps=None):
     fixed = sum(p["usd"] for p in plans().values())
     variable = {x["source"]: x["cost_usd"] for x in s["sources"]
                 if x["source"] not in SUBSCRIPTION_SOURCES and x["source"] != "local"}
-    elec = sum(r["energy_cost_usd"] or 0 for r in machine_report(db, start, t + 1, ps))
+    if month_machines is None:
+        month_machines = machine_report(db, start, t + 1, ps)
+    elec = sum(r["energy_cost_usd"] or 0 for r in month_machines)
     if elec:
         variable["electricity"] = elec
     mtd = sum(variable.values())
@@ -2950,6 +2952,7 @@ def dashboard_state(db):
     ts, te = today_range()
     today = summary(db, ts, te, plan_table={})
     line = line_parts(db)
+    energy = machine_report(db, start, end)
     return {"version": __version__, "time": int(t), "month": label,
             "line": line, "line_text": render_line(line, " | "),
             "today_usd": round(today["total_cost_usd"], 2),
@@ -2960,8 +2963,9 @@ def dashboard_state(db):
                          "output": x["totals"]["output"], "plan": x.get("plan")} for x in s["sources"]],
             "total_cost_usd": s["total_cost_usd"], "unpriced_models": s["unpriced_models"],
             "limits": current_limits(db), "machines": latest_samples(db, t),
-            "energy": machine_report(db, start, end), "cloud": latest_cloud(db),
-            "forecast": forecast(db, t), "alerts": idle_alerts(db, t) + cloud_alerts(db, t)}
+            "energy": energy, "cloud": latest_cloud(db),
+            "forecast": forecast(db, t, month_machines=energy),
+            "alerts": idle_alerts(db, t) + cloud_alerts(db, t)}
 
 
 def _prom_label(v):
