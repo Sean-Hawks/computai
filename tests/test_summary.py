@@ -76,3 +76,37 @@ class Cli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Breakdown(unittest.TestCase):
+    def setUp(self):
+        self.m = helpers.load()
+        self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
+        self.m.add_usage(self.db, [
+            dict(source="claude", uid="1", ts=100, model="claude-opus-5-5", project="/a/專案", output=1000000),
+            dict(source="claude", uid="2", ts=200, model="claude-opus-5-5", project="/a/專案", input=1000000,
+                 subagent=1),
+            dict(source="claude", uid="3", ts=86400 * 3, model="claude-opus-5-5", project="/b/other", input=1),
+        ])
+
+    def test_by_project(self):
+        g = self.m.breakdown(self.db, 0, 86400 * 10, "project", PRICES)
+        self.assertEqual(g[0]["project"], "/a/專案")
+        self.assertEqual(g[0]["requests"], 2)
+        self.assertEqual(g[0]["subagent_requests"], 1)
+        self.assertAlmostEqual(g[0]["cost_usd"], 24.0)
+        text = self.m.render_breakdown(g, "project")
+        self.assertIn("a/專案", text)
+        # 全形字算兩格，欄位仍然對齊
+        lines = text.splitlines()
+        self.assertEqual(self.m.vlen(lines[1]), self.m.vlen(lines[2]))
+
+    def test_by_day_sorted(self):
+        g = self.m.breakdown(self.db, 0, 86400 * 10, "day", PRICES)
+        self.assertEqual(len(g), 2)
+        self.assertLess(g[0]["day"], g[1]["day"])
+
+    def test_cell_tail(self):
+        self.assertEqual(self.m.cell("abcdef", 3, tail=True), "def")
+        self.assertEqual(self.m.cell("專案", 3), "專 ")
