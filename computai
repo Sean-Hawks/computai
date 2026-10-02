@@ -3102,6 +3102,257 @@ def wait_key(timeout):
     return bool(r) and sys.stdin.read(1) in ("q", "Q")
 
 
+# ---- 網頁（--web）
+
+WEB_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>ComputAI</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>ComputAI</h1>
+  <div id="line" class="line">loading...</div>
+</header>
+<main>
+  <section id="compute"><h2>Compute</h2><div class="body"></div></section>
+  <section id="usage"><h2>AI usage</h2><div class="body"></div></section>
+  <section id="alerts"><h2>Alerts</h2><div class="body"></div></section>
+</main>
+<footer id="foot"></footer>
+<script src="/app.js"></script>
+</body>
+</html>
+"""
+
+WEB_CSS = """
+:root { --bg: #fcfcfb; --card: #ffffff; --ink: #0b0b0b; --muted: #52514e; --line: #e4e3df;
+        --accent: #2a78d6; --warn: #b42318; --track: #ecebe7; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #121211; --card: #1a1a19; --ink: #ffffff; --muted: #c3c2b7; --line: #2c2c2a;
+          --accent: #3987e5; --warn: #f97066; --track: #2c2c2a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif; }
+header { padding: 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
+h1 { font-size: 20px; margin: 0; }
+.line { color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+main { display: grid; gap: 12px; padding: 0 16px 16px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                            #alerts { grid-column: 1 / -1; } }
+section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+          min-width: 0; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+.row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0;
+       border-top: 1px solid var(--line); flex-wrap: wrap; }
+.row:first-child { border-top: 0; }
+.name { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.num { font-variant-numeric: tabular-nums; text-align: right; margin-left: auto; }
+.sub { color: var(--muted); font-size: 13px; width: 100%; overflow-wrap: anywhere; }
+.meter { width: 100%; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.meter > i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.alert { color: var(--warn); padding: 6px 0; overflow-wrap: anywhere; }
+.alert::before { content: "\\26A0  "; }
+.empty { color: var(--muted); }
+footer { color: var(--muted); font-size: 12px; padding: 0 16px 24px; }
+"""
+
+WEB_JS = r"""
+"use strict";
+const $ = (sel) => document.querySelector(sel);
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined && text !== null) e.textContent = String(text);   // 一律 textContent，不插 HTML
+  return e;
+}
+const usd = (v) => v === null || v === undefined ? "?" :
+  "$" + (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : v.toFixed(2));
+const pct = (v) => v === null || v === undefined ? "-" : Math.round(v) + "%";
+function tok(n) {
+  n = n || 0;
+  for (const [d, s] of [[1e9, "B"], [1e6, "M"], [1e3, "k"]]) if (Math.abs(n) >= d) return (n / d).toFixed(1) + s;
+  return String(n);
+}
+function dur(s) {
+  if (s === null || s === undefined) return "";
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? d + "d" + h + "h" : h ? h + "h" + String(m).padStart(2, "0") + "m" : m + "m";
+}
+function row(name, value, sub, meter) {
+  const r = el("div", "row");
+  r.append(el("span", "name", name), el("span", "num", value));
+  if (meter !== undefined && meter !== null) {
+    const m = el("div", "meter"), i = el("i");
+    i.style.width = Math.max(0, Math.min(100, meter)) + "%";
+    m.append(i); r.append(m);
+  }
+  if (sub) r.append(el("div", "sub", sub));
+  return r;
+}
+function fill(id, nodes, empty) {
+  const body = $("#" + id + " .body");
+  body.replaceChildren(...(nodes.length ? nodes : [el("div", "empty", empty)]));
+}
+function render(st) {
+  $("#line").textContent = st.line_text;
+  const compute = [];
+  for (const m of st.machines) {
+    const bits = ["CPU " + pct(m.cpu_pct), "GPU " + pct(m.gpu_util)];
+    if (m.power_w !== null) bits.push(Math.round(m.power_w) + " W");
+    if (m.ai_active) bits.push("inference");
+    const loaded = m.loaded.map((x) => x.name + (x.vram_mb ? " (" + x.vram_mb + " MB)" : "")).join(", ");
+    compute.push(row(m.machine, bits.join(" · "), loaded ? "loaded: " + loaded : "", m.gpu_util));
+  }
+  for (const e of st.energy) if (e.kwh) compute.push(row(e.machine + " this month",
+    e.kwh.toFixed(e.kwh < 0.1 ? 3 : 2) + " kWh", "AI share " + (e.ai_share === null ? "-" : Math.round(e.ai_share * 100) + "%") +
+    (e.j_per_token ? " · " + e.j_per_token.toFixed(2) + " J/token" : "")));
+  for (const c of st.cloud) compute.push(row(c.provider + "/" + c.name,
+    c.billing ? usd(c.usd_per_hour) + "/h" : c.status,
+    c.gpu + " x" + (c.gpu_count || 1) + " · GPU " + pct(c.gpu_util), c.gpu_util));
+  fill("compute", compute, "No machines yet. Add them under [machines] in config.ini.");
+
+  const usage = [];
+  for (const l of st.limits) usage.push(row(l.source + " " + l.name + " limit", pct(l.used_percent),
+    l.resets_in === null ? "" : "resets in " + dur(l.resets_in), l.used_percent));
+  for (const s of st.sources) {
+    const sub = [s.requests + " requests", tok(s.tokens) + " tokens"];
+    if (s.plan) sub.push(s.plan.name + " " + usd(s.plan.fee_in_range) + " -> " + (s.plan.value_ratio || 0).toFixed(1) + "x");
+    usage.push(row(s.source, usd(s.cost_usd), sub.join(" · ")));
+  }
+  usage.push(row("Today", usd(st.today_usd)));
+  usage.push(row("Month-end forecast", usd(st.forecast.projected_usd),
+    "subscriptions " + usd(st.forecast.subscriptions_usd) + " + " + usd(st.forecast.daily_rate_usd) + "/day"));
+  fill("usage", usage, "");
+  fill("alerts", st.alerts.map((a) => el("div", "alert", a.message)), "No alerts.");
+  $("#foot").textContent = "ComputAI " + st.version + " · " + st.month + " · updated " +
+    new Date(st.time * 1000).toLocaleTimeString();
+}
+async function tick() {
+  try {
+    const r = await fetch("/api/state", {cache: "no-store"});
+    if (r.ok) render(await r.json());
+  } catch (e) { $("#foot").textContent = "offline: " + e; }
+}
+tick();
+setInterval(tick, REFRESH_MS);
+"""
+
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def web_handler(state, bind, interval):
+    """移植自 slurmtop 84cd35d 的 web_handler：安全標頭、只聽本機時檢查 Host 擋 DNS rebinding。"""
+    import http.server
+    js = WEB_JS.replace("REFRESH_MS", str(int(max(interval, 1) * 1000)))
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        server_version = "computai/" + __version__
+        timeout = 30
+
+        def log_message(self, *a):
+            pass
+
+        def send(self, code, body, ctype):
+            data = body.encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Security-Policy",
+                             "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
+
+        def host_ok(self):
+            if bind not in LOOPBACK:
+                return True
+            host = (self.headers.get("Host") or "").strip()
+            if host.startswith("["):
+                name = host[1:].split("]", 1)[0]
+            else:
+                name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+            return name in LOOPBACK
+
+        def do_GET(self):
+            if not self.host_ok():
+                return self.send(403, "forbidden host\n", "text/plain; charset=utf-8")
+            path = self.path.split("?", 1)[0]
+            with state["lock"]:
+                st, metrics = state.get("state"), state.get("metrics")
+            if path in ("/", "/index.html"):
+                return self.send(200, WEB_HTML, "text/html; charset=utf-8")
+            if path == "/app.css":
+                return self.send(200, WEB_CSS, "text/css; charset=utf-8")
+            if path == "/app.js":
+                return self.send(200, js, "text/javascript; charset=utf-8")
+            if path == "/api/state":
+                if st is None:
+                    return self.send(503, '{"message": "loading"}', "application/json; charset=utf-8")
+                return self.send(200, json.dumps(st, ensure_ascii=False), "application/json; charset=utf-8")
+            if path == "/metrics":
+                if metrics is None:
+                    return self.send(503, "# no sample yet\n", "text/plain; charset=utf-8")
+                return self.send(200, metrics, "text/plain; version=0.0.4; charset=utf-8")
+            if path == "/healthz":
+                return self.send(200, "ok\n", "text/plain; charset=utf-8")
+            return self.send(404, "not found\n", "text/plain; charset=utf-8")
+
+        do_HEAD = do_GET
+
+    return Handler
+
+
+def serve_web(listen, interval, sample_every):
+    import http.server
+    state = {"lock": threading.Lock(), "state": None, "metrics": None}
+    host, port = parse_listen(listen, 8765)
+
+    class Server(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+        address_family = socket.AF_INET6 if ":" in host else socket.AF_INET
+
+        def handle_error(self, request, client_address):
+            err = sys.exc_info()[1]
+            if not isinstance(err, (ConnectionError, socket.timeout)):
+                warn("request failed: %r" % (err,))
+    try:
+        httpd = Server((host, port), web_handler(state, host, interval))
+    except OSError as e:
+        raise SystemExit("computai: cannot serve on %s:%d: %s" % (host, port, e.strerror or e))
+
+    def on_state(st):
+        text = prometheus(st)
+        with state["lock"]:
+            state["state"], state["metrics"] = st, text
+    upd = Updater(sample_every=sample_every)
+    threading.Thread(target=upd.run, args=(on_state, interval), daemon=True).start()
+    shown = "[%s]" % host if ":" in host else host
+    print("computai: dashboard on http://%s:%d/  (metrics at /metrics)" % (shown, httpd.server_address[1]),
+          flush=True)
+    if is_loopback(host):
+        print("  only this computer can open it. From a phone, use an SSH tunnel or Tailscale serve.", flush=True)
+    else:
+        print("  WARNING: anyone who can reach this address sees your usage, project names and machines.",
+              flush=True)
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        upd.stop.set()
+        httpd.server_close()
+    return 0
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
@@ -3146,6 +3397,8 @@ def parse_args(argv=None):
                    help="live terminal dashboard: compute, AI usage, alerts (default on a terminal)")
     p.add_argument("-n", "--interval", type=float, default=5.0, metavar="SEC",
                    help="refresh interval for --live and --web (default 5)")
+    p.add_argument("--web", nargs="?", const="127.0.0.1:8765", metavar="[HOST:]PORT",
+                   help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
@@ -3197,7 +3450,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live")
+ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web")
 
 
 def run(args, db):
@@ -3207,6 +3460,9 @@ def run(args, db):
     if args.live:
         db.close()
         return run_live(args.interval, args.sample_every)
+    if args.web:
+        db.close()
+        return serve_web(args.web, args.interval, args.sample_every)
     if args.proxy:
         db.close()
         return serve_proxy(args.listen, args.upstream, args.machine or default_machine(),

@@ -68,3 +68,47 @@ class Clean(unittest.TestCase):
     def test_clean_strings(self):
         m = helpers.load()
         self.assertEqual(m.clean_strings({"a": ["x\x1b[2Jy", 3], "b": None}), {"a": ["x[2Jy", 3], "b": None})
+
+
+class Web(unittest.TestCase):
+    def setUp(self):
+        import http.server
+        import threading
+        self.m = helpers.load()
+        self.state = {"lock": threading.Lock(), "state": {"x": "<b>"}, "metrics": "computai_x 1.0\n"}
+        self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.m.web_handler(self.state, "127.0.0.1", 5))
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+        self.port = self.srv.server_port
+
+    def tearDown(self):
+        self.srv.shutdown()
+        self.srv.server_close()
+
+    def get(self, path, host=None):
+        import http.client
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", path, headers={"Host": host or "127.0.0.1:%d" % self.port})
+        r = c.getresponse()
+        body = r.read().decode()
+        c.close()
+        return r, body
+
+    def test_pages(self):
+        r, body = self.get("/")
+        self.assertEqual(r.status, 200)
+        self.assertIn('src="/app.js"', body)
+        self.assertIn("frame-ancestors 'none'", r.getheader("Content-Security-Policy"))
+        self.assertEqual(r.getheader("X-Content-Type-Options"), "nosniff")
+        r, body = self.get("/app.js")
+        self.assertIn("setInterval(tick, 5000)", body)
+        self.assertNotIn("innerHTML", body)                 # 資料只用 textContent 放進頁面
+        r, body = self.get("/api/state")
+        self.assertEqual(body, '{"x": "<b>"}')
+        r, body = self.get("/metrics")
+        self.assertIn("version=0.0.4", r.getheader("Content-Type"))
+        self.assertEqual(self.get("/nope")[0].status, 404)
+
+    def test_dns_rebinding_blocked(self):
+        self.assertEqual(self.get("/api/state", host="evil.example:8765")[0].status, 403)
+        self.assertEqual(self.get("/api/state", host="localhost:8765")[0].status, 200)
+        self.assertEqual(self.get("/api/state", host="[::1]:8765")[0].status, 200)
