@@ -459,7 +459,9 @@ CREATE TABLE IF NOT EXISTS limits (
 CREATE TABLE IF NOT EXISTS files (
     path TEXT PRIMARY KEY,
     size INTEGER NOT NULL,
-    mtime REAL NOT NULL
+    mtime REAL NOT NULL,
+    offset INTEGER NOT NULL DEFAULT 0,
+    state TEXT
 );
 CREATE TABLE IF NOT EXISTS samples (
     machine TEXT NOT NULL,
@@ -514,6 +516,10 @@ def open_ledger(path=None, shared=False):
     db = sqlite3.connect(path, timeout=30, check_same_thread=not shared)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
+    cols = [r[1] for r in db.execute("PRAGMA table_info(files)")]
+    if "offset" not in cols:  # 舊版帳本：補上欄位，下次同步從頭讀一次就有讀到哪裡的紀錄
+        db.execute("ALTER TABLE files ADD COLUMN offset INTEGER NOT NULL DEFAULT 0")
+        db.execute("ALTER TABLE files ADD COLUMN state TEXT")
     return db
 
 
@@ -574,14 +580,28 @@ def file_changed(db, path):
     return None if row is not None and (row["size"], row["mtime"]) == sig else sig
 
 
-def mark_file(db, path, sig=None):
+def mark_file(db, path, sig=None, cursor=None):
     if sig is None:
         try:
             st = os.stat(path)
         except OSError:
             return
         sig = (st.st_size, st.st_mtime)
-    db.execute("INSERT OR REPLACE INTO files (path, size, mtime) VALUES (?,?,?)", (path,) + tuple(sig))
+    cursor = cursor or {}
+    db.execute("INSERT OR REPLACE INTO files (path, size, mtime, offset, state) VALUES (?,?,?,?,?)",
+               (path,) + tuple(sig) + (cursor.get("offset", 0), json.dumps(cursor.get("state"))))
+
+
+def file_cursor(db, path):
+    """上次讀到哪裡（byte offset）和解析器留下的狀態。log 只會往後追加，所以從那裡接著讀。"""
+    row = db.execute("SELECT offset, state FROM files WHERE path = ?", (path,)).fetchone()
+    if row is None:
+        return {"offset": 0, "state": None}
+    try:
+        state = json.loads(row["state"]) if row["state"] else None
+    except ValueError:
+        state = None
+    return {"offset": row["offset"] or 0, "state": state}
 
 
 # ---------------------------------------------------------------- 時間
@@ -657,14 +677,29 @@ def day_label(ts):
 SOURCES = []
 
 
-def read_jsonl(path):
-    """逐行讀文字檔；讀不到就警告一次，回傳空的。"""
+def read_jsonl(path, cursor=None):
+    """逐行讀文字檔；讀不到就警告一次，回傳空的。
+    給了 cursor 就從 cursor["offset"] 開始讀，只讀到最後一個完整的行為止，並把 offset 往後推；
+    還沒寫完的最後一行留到下次。檔案變短（被重寫）就從頭讀。"""
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                yield line
+        with open(path, "rb") as f:
+            start = 0
+            if cursor is not None:
+                start = cursor.get("offset") or 0
+                if start > os.fstat(f.fileno()).st_size:
+                    start = 0
+                    cursor["state"] = None
+                f.seek(start)
+            data = f.read()
     except OSError as e:
         warn("cannot read %s: %s" % (path, e.strerror))
+        return
+    end = data.rfind(b"\n") + 1
+    if cursor is not None:
+        data = data[:end]
+        cursor["offset"] = start + end
+    for line in data.decode("utf-8", "replace").splitlines(True):
+        yield line
 
 
 def line_hash(line):
@@ -680,14 +715,15 @@ def walk_files(root, suffix=".jsonl"):
 
 
 def import_files(db, source, paths, parse):
-    """只重讀有變動的檔案；parse(path) 回傳用量列。"""
+    """只讀有變動的檔案、而且只讀新追加的部分；parse(path, cursor) 回傳用量列。"""
     added = 0
     for path in paths:
         sig = file_changed(db, path)
         if sig is None:
             continue
-        added += add_usage(db, parse(path))
-        mark_file(db, path, sig)
+        cursor = file_cursor(db, path)
+        added += add_usage(db, parse(path, cursor))
+        mark_file(db, path, sig, cursor)
     return added
 
 
@@ -711,12 +747,12 @@ def claude_roots():
     return [os.path.join(b, "projects") for b in bases if os.path.isdir(os.path.join(b, "projects"))]
 
 
-def parse_claude_file(path):
+def parse_claude_file(path, cursor=None):
     """只取 assistant 行的用量欄位；訊息內容不看也不存。
     同一則訊息會出現在好幾行（串流途中），用 (message.id, requestId) 去重，留 token 最多的那筆。"""
     best = {}
     sub_path = (os.sep + "subagents" + os.sep) in path
-    for line in read_jsonl(path):
+    for line in read_jsonl(path, cursor):
         if '"usage"' not in line or '"assistant"' not in line:
             continue
         try:
@@ -777,16 +813,17 @@ def codex_usage_row(u, ts, uid, model, session, project):
             "reasoning": _int(u.get("reasoning_output_tokens"))}
 
 
-def parse_codex_file(path):
+def parse_codex_file(path, cursor=None):
     """回傳 (用量列, 額度列)。
     用量來自 event_msg/token_count：每次回應後 Codex 會寫一筆 last_token_usage 和累計的
     total_token_usage。累計值沒變的重複事件略過。加總起來跟 Codex 自己 state_5.sqlite 裡
     threads.tokens_used 一致。（新版另外有 token_usage_record，但它的加總比 Codex 自己記的
     多 2% 左右，對不上帳，所以不用。）"""
     rows, limits = [], []
-    model, session, project = "", "", ""
-    prev = None
-    for line in read_jsonl(path):
+    st = (cursor or {}).get("state") or {}
+    model, session, project = st.get("model", ""), st.get("session", ""), st.get("project", "")
+    prev = st.get("prev")
+    for line in read_jsonl(path, cursor):
         if not any(k in line for k in ('"token_count"', '"turn_context"', '"session_meta"')):
             continue
         try:
@@ -828,6 +865,8 @@ def parse_codex_file(path):
         # 用時間和累計值當 uid：fork 出來的 session 會複製父 session 的事件，這樣不會重複計算
         rows.append(codex_usage_row(u, ts, "tc:%s:%d" % (d.get("timestamp"), tt), model,
                                     session, project))
+    if cursor is not None:
+        cursor["state"] = {"model": model, "session": session, "project": project, "prev": prev}
     return rows, limits
 
 
@@ -864,10 +903,11 @@ def sync_codex(db):
         sig = file_changed(db, path)
         if sig is None:
             continue
-        rows, limits = parse_codex_file(path)
+        cursor = file_cursor(db, path)
+        rows, limits = parse_codex_file(path, cursor)
         added += add_usage(db, rows)
         add_limits(db, limits)
-        mark_file(db, path, sig)
+        mark_file(db, path, sig, cursor)
     return added
 
 

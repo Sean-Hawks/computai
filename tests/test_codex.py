@@ -77,3 +77,29 @@ class CodexSync(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Incremental(unittest.TestCase):
+    def test_codex_continues_from_offset(self):
+        import shutil
+        import tempfile
+        m = helpers.load()
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "rollout.jsonl")
+        with open(NEW, "rb") as f:
+            lines = f.read().splitlines(True)
+        cut = len(lines) - 3                           # 第二筆 token_count 之前切開
+        with open(path, "wb") as f:
+            f.write(b"".join(lines[:cut]) + lines[cut][:10])   # 最後一行只寫了一半
+        cursor = {"offset": 0, "state": None}
+        rows1, _ = m.parse_codex_file(path, cursor)
+        with open(path, "ab") as f:
+            f.write(lines[cut][10:] + b"".join(lines[cut + 1:]))
+        rows2, _ = m.parse_codex_file(path, cursor)
+        full, _ = m.parse_codex_file(NEW)
+        self.assertEqual([r["uid"] for r in rows1 + rows2], [r["uid"] for r in full])
+        self.assertEqual(rows2[-1]["model"], "gpt-5.5")          # 模型名稱從狀態接回來
+        self.assertEqual(rows2[-1]["session"], "s-new")
+        again, _ = m.parse_codex_file(path, cursor)
+        self.assertEqual(again, [])

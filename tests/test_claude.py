@@ -61,3 +61,31 @@ class ClaudeSync(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Incremental(unittest.TestCase):
+    def test_only_new_lines_are_read(self):
+        import shutil
+        import tempfile
+        m = helpers.load()
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        src = os.path.join(ROOT, "projects", "-home-demo-alpha", "sess-1.jsonl")
+        path = os.path.join(d, "s.jsonl")
+        with open(src, "rb") as f:
+            lines = f.read().splitlines(True)
+        with open(path, "wb") as f:
+            f.write(b"".join(lines[:2]))               # 只有半截的 msg_A
+        cur = {"offset": 0, "state": None}
+        first = m.parse_claude_file(path, cur)
+        self.assertEqual([r["output"] for r in first], [8])
+        with open(path, "ab") as f:
+            f.write(b"".join(lines[2:]))
+        rest = {r["uid"]: r for r in m.parse_claude_file(path, cur)}
+        self.assertEqual(rest["msg_A:req_A"]["output"], 377)     # 完整版在後面讀到，帳本會用它覆蓋
+        self.assertEqual(len(rest), 3)
+        db = m.open_ledger(":memory:")
+        m.add_usage(db, first)
+        m.add_usage(db, rest.values())
+        self.assertEqual(db.execute("SELECT SUM(output) FROM usage").fetchone()[0], 377 + 50 + 20)
+        db.close()
