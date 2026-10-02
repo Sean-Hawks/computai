@@ -541,10 +541,21 @@ def add_usage(db, rows):
     return db.total_changes - before
 
 
-def add_limits(db, rows):
+def add_limits(db, rows, only_changes=False):
+    """only_changes=True：跟這個視窗最新一筆一樣（使用率、重置時間都沒變）就不寫。
+    statusline 每則訊息都會呼叫一次，不這樣做會一天寫進上千筆一樣的資料。"""
     sql = ("INSERT OR IGNORE INTO limits (source, name, ts, used_percent, window_minutes, "
            "resets_at, plan) VALUES (?,?,?,?,?,?,?)")
     before = db.total_changes
+    if only_changes:
+        keep = []
+        for r in rows:
+            last = db.execute("SELECT used_percent, resets_at FROM limits WHERE source = ? AND name = ? "
+                              "ORDER BY ts DESC LIMIT 1", (r["source"], r["name"])).fetchone()
+            if last is None or (last["used_percent"], last["resets_at"]) != (r.get("used_percent"),
+                                                                            r.get("resets_at")):
+                keep.append(r)
+        rows = keep
     db.executemany(sql, [(r["source"], r["name"], r["ts"], r.get("used_percent"),
                           r.get("window_minutes"), r.get("resets_at"), r.get("plan") or "")
                          for r in rows])
@@ -3678,7 +3689,7 @@ def run(args, db):
         return serve_proxy(args.listen, args.upstream, args.machine or default_machine(),
                            args.sample_every, not args.no_usage_injection)
     if args.statusline:
-        add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()))
+        add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()), only_changes=True)
         db.commit()
         args.line = True
     if args.cloud:

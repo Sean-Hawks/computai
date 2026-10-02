@@ -39,6 +39,12 @@ class Ledger(unittest.TestCase):
         self.assertEqual(self.m.add_limits(self.db, lim), 1)
         self.assertEqual(self.m.add_limits(self.db, lim), 0)
 
+    def test_limits_only_changes(self):
+        lim = lambda ts, pct: dict(source="claude", name="5h", ts=ts, used_percent=pct, resets_at=99)
+        self.assertEqual(self.m.add_limits(self.db, [lim(1, 40.0)], only_changes=True), 1)
+        self.assertEqual(self.m.add_limits(self.db, [lim(2, 40.0)], only_changes=True), 0)
+        self.assertEqual(self.m.add_limits(self.db, [lim(3, 41.0)], only_changes=True), 1)
+
     def test_file_tracking(self):
         sb = helpers.Sandbox()
         try:
