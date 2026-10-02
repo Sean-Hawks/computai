@@ -161,3 +161,25 @@ class Payback(unittest.TestCase):
         r = self.m.payback(self.db, 1000, watts=1000, hours_per_day=24, rent_per_hour=0.1)
         self.assertIsNone(r["payback_months"])
         self.assertIn("never pays back", self.m.render_payback(r))
+
+
+class PastMonth(unittest.TestCase):
+    def test_past_month_uses_its_own_month(self):
+        sb = helpers.Sandbox()
+        old = dict(os.environ)
+        try:
+            os.environ.update(COMPUTAI_CONFIG_DIR=sb.config, COMPUTAI_FAKE_NOW="1790900000")   # 10 月
+            m = helpers.load()
+            db = m.open_ledger(":memory:")
+            start, end, label = m.month_range("2026-09")
+            a = m.analyze(db, start, end, label)
+            self.assertEqual(a["forecast"]["month"], "2026-09")
+            self.assertEqual(a["forecast"]["days_left"], 0.0)
+            db.execute("INSERT INTO samples (machine, ts, power_w) VALUES ('b', ?, 10)", (start - 60,))
+            db.execute("INSERT INTO samples (machine, ts, power_w) VALUES ('b', ?, 10)", (start + 60,))
+            self.assertEqual(m.machine_report(db, start, end)[0]["samples"], 1)
+            db.close()
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            sb.close()

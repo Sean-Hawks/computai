@@ -2827,9 +2827,11 @@ def render_energy(report):
 
 
 def analyze(db, start, end, label=""):
+    """範圍已經過去（例如上個月的月報）時，預測和方案檢查都以那個範圍的最後一刻為準。"""
+    t = min(now(), end - 1)
     return {"range": {"start": int(start), "end": int(end), "label": label},
-            "cache": cache_report(db, start, end), "forecast": forecast(db),
-            "plans": simulate_plans(db), "machines": machine_report(db, start, end)}
+            "cache": cache_report(db, start, end), "forecast": forecast(db, t),
+            "plans": simulate_plans(db, t=t), "machines": machine_report(db, start, end)}
 
 
 def render_analysis(a):
