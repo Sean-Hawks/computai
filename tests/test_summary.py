@@ -12,8 +12,9 @@ PLANS = {"claude": {"name": "Max", "usd": 100.0, "checked": ""}}
 
 class Summary(unittest.TestCase):
     def setUp(self):
-        os.environ["TZ"] = "UTC"
-        time.tzset()
+        if hasattr(time, "tzset"):  # Windows 沒有 tzset，日期邊界用本地時間也一樣能測
+            os.environ["TZ"] = "UTC"
+            time.tzset()
         self.m = helpers.load()
         self.db = self.m.open_ledger(":memory:")
 
