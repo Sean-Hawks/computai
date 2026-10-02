@@ -23,7 +23,7 @@ class CodexParser(unittest.TestCase):
         self.assertEqual(a["session"], "s-new")
         self.assertEqual(a["project"], "/home/demo/beta")
         self.assertEqual(len(limits), 4)
-        last = [l for l in limits if l["name"] == "primary"][-1]
+        last = [l for l in limits if l["name"] == "5h"][-1]
         self.assertEqual((last["used_percent"], last["window_minutes"], last["plan"]), (43.5, 300, "pro"))
         self.assertNotIn("FAKE", json.dumps(rows) + json.dumps(limits))
 
@@ -34,7 +34,25 @@ class CodexParser(unittest.TestCase):
         self.assertEqual(sum(r["output"] for r in rows), 250)
         self.assertEqual(rows[1]["cache_read"], 1500)
         self.assertEqual(rows[0]["model"], "gpt-6-astra")
-        self.assertEqual(max(l["used_percent"] for l in limits if l["name"] == "secondary"), 12.0)
+        self.assertEqual(max(l["used_percent"] for l in limits if l["name"] == "week"), 12.0)
+
+
+class Limits(unittest.TestCase):
+    def test_current_limits(self):
+        m = helpers.load()
+        db = m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        _, limits = m.parse_codex_file(NEW)
+        m.add_limits(db, limits)
+        m.add_limits(db, [dict(source="codex", name="old", ts=1000, used_percent=5.0)])
+        cur = {r["name"]: r for r in m.current_limits(db, t=1789690000)}
+        self.assertEqual(sorted(cur), ["5h", "week"])          # 太舊的視窗不顯示
+        self.assertEqual(cur["5h"]["used_percent"], 43.5)
+        self.assertEqual(cur["5h"]["resets_in"], 10000)
+        later = {r["name"]: r for r in m.current_limits(db, t=1789800000)}
+        self.assertTrue(later["5h"]["stale"])                  # 過了重置時間就當 0%
+        self.assertEqual(later["5h"]["used_percent"], 0.0)
+        self.assertIn("resets in 2h46m", m.render_limits(m.current_limits(db, t=1789690000)))
 
 
 class CodexSync(unittest.TestCase):
