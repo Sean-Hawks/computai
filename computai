@@ -2436,6 +2436,84 @@ SOURCES.append(("anthropic-api", sync_anthropic_api))
 SOURCES.append(("openai-api", sync_openai_api))
 
 
+# ---------------------------------------------------------------- 分析
+
+def cache_report(db, start, end, prices=None, top=10):
+    """快取效率：同一個對話裡，前面已經寫進快取的內容又被整段重寫，就是浪費。
+    每個 (來源, session, 模型) 依時間排，非第一筆的請求如果有一半以上的 context 是新寫入的快取，
+    就算一次重寫；浪費 = 那些 token 用寫入價減去讀取價。跟上一筆隔超過快取壽命（5 分鐘／1 小時）
+    的，原因是「閒置過期」，其他的是「前綴變了」（換了系統提示、工具、壓縮對話等）。
+    subagent 的請求各有自己的對話，混在一起會誤判，所以不算。"""
+    prices = load_prices() if prices is None else prices
+    q = ("SELECT source, session, project, model, ts, input, cache_read, cache_write_5m, cache_write_1h "
+         "FROM usage WHERE ts >= ? AND ts < ? AND subagent = 0 AND session != '' "
+         "AND source IN ('claude', 'codex') ORDER BY source, session, model, ts")
+    sessions = {}
+    prev = None
+    for r in db.execute(q, (start, end)):
+        key = (r["source"], r["session"], r["model"])
+        st = sessions.get(key)
+        if st is None:
+            st = sessions[key] = {"source": r["source"], "session": r["session"], "project": r["project"],
+                                  "model": r["model"], "requests": 0, "rewrites": 0, "expired": 0,
+                                  "read": 0, "written": 0, "total_in": 0, "wasted_usd": 0.0}
+            prev = None
+        cw = r["cache_write_5m"] + r["cache_write_1h"]
+        ctx = r["input"] + r["cache_read"] + cw
+        st["requests"] += 1
+        st["read"] += r["cache_read"]
+        st["written"] += cw
+        st["total_in"] += ctx
+        if prev is not None and ctx >= 2048 and cw >= 0.5 * ctx:
+            st["rewrites"] += 1
+            ttl = 3600 if r["cache_write_1h"] > r["cache_write_5m"] else 300
+            if r["ts"] - prev > ttl:
+                st["expired"] += 1
+            p = price_for(r["model"], prices)
+            if p:
+                st["wasted_usd"] += (r["cache_write_5m"] * (p["cache_write_5m"] - p["cache_read"])
+                                     + r["cache_write_1h"] * (p["cache_write_1h"] - p["cache_read"])) / 1e6
+        prev = r["ts"]
+    rows = list(sessions.values())
+    for st in rows:
+        st["hit_ratio"] = round(st["read"] / st["total_in"], 3) if st["total_in"] else None
+        st["wasted_usd"] = round(st["wasted_usd"], 4)
+    rows.sort(key=lambda x: -x["wasted_usd"])
+    total = sum(x["wasted_usd"] for x in rows)
+    read = sum(x["read"] for x in rows)
+    tin = sum(x["total_in"] for x in rows)
+    return {"wasted_usd": round(total, 2), "rewrites": sum(x["rewrites"] for x in rows),
+            "expired": sum(x["expired"] for x in rows), "hit_ratio": round(read / tin, 3) if tin else None,
+            "sessions": [x for x in rows if x["wasted_usd"] > 0][:top]}
+
+
+def render_cache(c):
+    lines = ["Cache efficiency: %s of input came from cache; %d rewrites (%d after idle expiry) cost %s extra"
+             % ("-" if c["hit_ratio"] is None else "%d%%" % round(100 * c["hit_ratio"]), c["rewrites"],
+                c["expired"], fmt_usd(c["wasted_usd"]))]
+    if c["sessions"]:
+        lines.append("  %-28s %-18s %8s %8s %9s" % ("worst sessions (project)", "model", "rewrites",
+                                                    "expired", "wasted"))
+    for x in c["sessions"]:
+        lines.append("  %s %s %8d %8d %9s" % (cell(short_path(x["project"]) or x["session"][:8], 28),
+                                              cell(x["model"], 18), x["rewrites"], x["expired"],
+                                              fmt_usd(x["wasted_usd"])))
+    if c["expired"] and c["expired"] >= c["rewrites"] / 2:
+        lines.append("  Most rewrites follow an idle gap longer than the cache lifetime: "
+                     "pausing a session for more than 5 min (or 1 h) makes the next message re-send everything.")
+    return "\n".join(lines)
+
+
+def analyze(db, start, end, label=""):
+    return {"range": {"start": int(start), "end": int(end), "label": label},
+            "cache": cache_report(db, start, end)}
+
+
+def render_analysis(a):
+    parts = ["ComputAI analysis  %s" % a["range"]["label"], render_cache(a["cache"])]
+    return "\n\n".join(parts)
+
+
 # ---------------------------------------------------------------- 一行顯示
 
 LINE_SOURCES = (("claude", "Claude"), ("codex", "Codex"))
@@ -2553,6 +2631,8 @@ def parse_args(argv=None):
                    help="while --proxy runs, sample machines this often (0 = never)")
     p.add_argument("--no-usage-injection", action="store_true",
                    help="don't add stream_options.include_usage to streaming OpenAI requests")
+    p.add_argument("--analyze", action="store_true",
+                   help="cache efficiency, month-end forecast, plan advice and off-peak savings")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
@@ -2633,6 +2713,13 @@ def run(args, db):
             maybe_sync(db)
         info = line_parts(db)
         emit(info, render_line(info, args.sep), args.json)
+        return 0
+    if args.analyze:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        start, end, label = pick_range(args)
+        a = analyze(db, start, end, label)
+        emit(a, render_analysis(a), args.json)
         return 0
     if args.sync:
         added = sync(db, quiet=args.json)
