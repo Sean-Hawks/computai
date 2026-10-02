@@ -1072,6 +1072,39 @@ def line_parts(db):
     return {"limits": parts, "today_usd": round(s["total_cost_usd"], 2)}
 
 
+def claude_statusline_limits(payload, ts):
+    """Claude Code 的 statusline 會把 JSON 從 stdin 傳進來；Pro/Max 帳號裡有
+    rate_limits.five_hour／seven_day 的 used_percentage 和 resets_at（epoch 秒）。
+    這是 Claude 額度百分比唯一的官方來源。其他欄位（路徑、模型、對話）一律不看。"""
+    out = []
+    rl = payload.get("rate_limits") if isinstance(payload, dict) else None
+    if not isinstance(rl, dict):
+        return out
+    for key, minutes in (("five_hour", 300), ("seven_day", 10080)):
+        w = rl.get(key)
+        if not isinstance(w, dict) or w.get("used_percentage") is None:
+            continue
+        try:
+            used = float(w["used_percentage"])
+        except (TypeError, ValueError):
+            continue
+        out.append({"source": "claude", "name": window_label(minutes), "ts": int(ts),
+                    "used_percent": used, "window_minutes": minutes,
+                    "resets_at": _int(w.get("resets_at")) or None, "plan": ""})
+    return out
+
+
+def read_statusline_stdin():
+    if sys.stdin is None or sys.stdin.isatty():
+        return {}
+    try:
+        data = sys.stdin.read(1 << 20)
+        d = json.loads(data) if data.strip() else {}
+        return d if isinstance(d, dict) else {}
+    except (ValueError, OSError):
+        return {}
+
+
 def render_line(info, sep="\uff5c"):
     out = []
     for p in info["limits"]:
@@ -1102,6 +1135,8 @@ def parse_args(argv=None):
                    help="break the summary down by model (default), project, session or day")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
+    p.add_argument("--statusline", action="store_true",
+                   help="Claude Code statusLine command: records Claude's limits from stdin, prints --line")
     p.add_argument("--sep", default="\uff5c", help="separator for --line (default: \uff5c)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
@@ -1139,6 +1174,10 @@ def main(argv=None):
 
 
 def run(args, db):
+    if args.statusline:
+        add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()))
+        db.commit()
+        args.line = True
     if args.line:
         if not args.no_sync:
             maybe_sync(db)
