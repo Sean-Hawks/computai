@@ -85,6 +85,15 @@ price_per_kwh = 0.15
 currency = USD
 # Warn when a model sits loaded but unused for this many minutes.
 idle_alert_minutes = 15
+
+[cloud]
+# API keys come from RUNPOD_API_KEY, VAST_API_KEY, LAMBDA_API_KEY (environment, or a
+# chmod-600 secrets.ini next to this file with a [secrets] section). Only read-only calls are made.
+# Warn when a billing GPU stays under this utilisation (%) for this many minutes.
+idle_gpu_util = 5
+idle_alert_minutes = 20
+# When a provider's API has no GPU utilisation (Lambda), read it over SSH as this user.
+ssh_user =
 """
 
 DEFAULT_PRICES = """\
@@ -423,6 +432,19 @@ CREATE TABLE IF NOT EXISTS samples (
     loaded TEXT NOT NULL DEFAULT '[]',
     counters TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY (machine, ts)
+);
+CREATE TABLE IF NOT EXISTS cloud (
+    provider TEXT NOT NULL,
+    id TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT '',
+    billing INTEGER NOT NULL DEFAULT 0,
+    gpu TEXT NOT NULL DEFAULT '',
+    gpu_count INTEGER NOT NULL DEFAULT 0,
+    usd_per_hour REAL,
+    gpu_util REAL,
+    PRIMARY KEY (provider, id, ts)
 );
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
@@ -2001,6 +2023,254 @@ def serve_proxy(listen, upstream, machine, sample_every=60, inject=True):
     return 0
 
 
+# ---------------------------------------------------------------- 雲端 GPU
+#
+# 只呼叫唯讀的 API（列出自己的機器），不會開機、關機或改任何設定。
+# 金鑰從環境變數或權限 600 的 secrets.ini 讀（RUNPOD_API_KEY、VAST_API_KEY、LAMBDA_API_KEY），
+# 錯誤訊息只寫平台和 HTTP 狀態碼，不會帶出金鑰或完整網址。
+
+class ApiError(Exception):
+    pass
+
+
+def api_json(provider, name, url, key, body=None):
+    """呼叫一個 API 回傳 JSON。測試用 COMPUTAI_FIXTURES/http/<provider>-<name>.json 代替。"""
+    fx = os.environ.get("COMPUTAI_FIXTURES")
+    if fx:
+        path = os.path.join(fx, "http", "%s-%s.json" % (provider, name))
+        if not os.path.exists(path):
+            raise ApiError("%s: no fixture %s" % (provider, name))
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    import urllib.error
+    import urllib.request
+    headers = {"Authorization": "Bearer " + key, "Accept": "application/json",
+               "User-Agent": "computai/" + __version__}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return json.loads(r.read(16 << 20).decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        raise ApiError("%s: HTTP %d from the %s API" % (provider, e.code, name))
+    except (OSError, ValueError) as e:
+        raise ApiError("%s: %s API unreachable (%s)" % (provider, name, type(e).__name__))
+
+
+def _inst(provider, iid, name, status, billing, gpu, count, usd_hr, util=None, ip=None, started=None):
+    return {"provider": provider, "id": str(iid), "name": name or str(iid), "status": status,
+            "billing": bool(billing), "gpu": gpu or "?", "gpu_count": _int(count) or 0,
+            "usd_per_hour": _float(usd_hr), "gpu_util": _float(util), "ip": ip, "started_at": started}
+
+
+def fetch_runpod(key):
+    """REST 拿狀態和價格，GraphQL 拿 GPU 使用率（REST 沒有），用 pod id 對起來。"""
+    pods = api_json("runpod", "pods", "https://rest.runpod.io/v1/pods", key)
+    if isinstance(pods, dict):
+        pods = pods.get("data") or pods.get("pods") or []
+    util = {}
+    try:
+        g = api_json("runpod", "graphql", "https://api.runpod.io/graphql", key, {
+            "query": "query { myself { pods { id runtime { gpus { id gpuUtilPercent } } } } }"})
+        for p in (((g or {}).get("data") or {}).get("myself") or {}).get("pods") or []:
+            gpus = ((p.get("runtime") or {}).get("gpus")) or []
+            vals = [_float(x.get("gpuUtilPercent")) for x in gpus if _float(x.get("gpuUtilPercent")) is not None]
+            if vals:
+                util[p.get("id")] = sum(vals) / len(vals)
+    except ApiError as e:
+        warn(str(e))
+    out = []
+    for p in pods if isinstance(pods, list) else []:
+        st = (p.get("desiredStatus") or "").upper()
+        gpu = p.get("gpu") or {}
+        name = gpu.get("displayName") or ((p.get("machine") or {}).get("gpuType") or {}).get("displayName")
+        rate = p.get("adjustedCostPerHr", p.get("costPerHr"))
+        # RUNNING 才是 GPU 在計費；EXITED 只收磁碟費（很少），TERMINATED 已經不收
+        out.append(_inst("runpod", p.get("id"), p.get("name"), st.lower(), st == "RUNNING",
+                         name, gpu.get("count") or p.get("gpuCount"), rate if st == "RUNNING" else 0,
+                         util.get(p.get("id")), p.get("publicIp"), iso_ts(p.get("lastStartedAt"))))
+    return out
+
+
+def fetch_vast(key):
+    rows, token = [], None
+    for _ in range(20):  # 每頁最多 25 台
+        url = "https://console.vast.ai/api/v1/instances/?limit=25"
+        if token:
+            import urllib.parse
+            url += "&after_token=" + urllib.parse.quote(str(token))
+        d = api_json("vast", "instances", url, key)
+        rows += d.get("instances") or []
+        token = d.get("next_token")
+        if not token:
+            break
+    out = []
+    for i in rows:
+        st = (i.get("actual_status") or i.get("cur_state") or "").lower()
+        running = st == "running"
+        # 停止的機器還是會收儲存費（storage_cost），但 GPU 的 dph 不收
+        rate = i.get("dph_total") if running else (i.get("storage_cost") or 0)
+        out.append(_inst("vast", i.get("id"), i.get("label") or str(i.get("id")), st or "?", running,
+                         i.get("gpu_name"), i.get("num_gpus"), rate, i.get("gpu_util"),
+                         i.get("public_ipaddr"), _float(i.get("start_date"))))
+    return out
+
+
+def fetch_lambda(key):
+    d = api_json("lambda", "instances", "https://cloud.lambda.ai/api/v1/instances", key)
+    out = []
+    for i in d.get("data") or []:
+        st = (i.get("status") or "").lower()
+        t = i.get("instance_type") or {}
+        cents = _float(t.get("price_cents_per_hour"))
+        billing = st in ("booting", "active", "unhealthy")
+        gpus = (t.get("specs") or {}).get("gpus")
+        out.append(_inst("lambda", i.get("id"), i.get("name") or t.get("name"), st, billing,
+                         t.get("gpu_description") or t.get("name"), gpus,
+                         cents / 100.0 if cents is not None and billing else 0, None, i.get("ip")))
+    return out
+
+
+CLOUDS = (("runpod", "RUNPOD_API_KEY", fetch_runpod), ("vast", "VAST_API_KEY", fetch_vast),
+          ("lambda", "LAMBDA_API_KEY", fetch_lambda))
+
+
+def cloud_settings(cp=None):
+    cp = cp or load_config()
+    return {"idle_util": _float(cp.get("cloud", "idle_gpu_util", fallback="5"), 5.0),
+            "idle_minutes": _float(cp.get("cloud", "idle_alert_minutes", fallback="20"), 20.0),
+            "ssh_user": cp.get("cloud", "ssh_user", fallback="").strip(),
+            "max_gap_hours": _float(cp.get("cloud", "max_gap_hours", fallback="6"), 6.0)}
+
+
+def ssh_gpu_util(inst, user):
+    """API 沒給 GPU 使用率（Lambda）時，用 SSH 到機器上跑 nvidia-smi 讀。"""
+    if not inst.get("ip") or not user or not re.match(r"^[\w.-]+$", user + inst["ip"]):
+        return None
+    d = snapshot("%s@%s" % (user, inst["ip"]), [])
+    utils = [g["util"] for g in (d or {}).get("gpus", []) if g["util"] is not None]
+    return sum(utils) / len(utils) if utils else None
+
+
+def fetch_clouds(only=None):
+    """有設定金鑰的平台都問一次。回傳 (機器清單, 錯誤訊息)。"""
+    cs = cloud_settings()
+    insts, errors = [], []
+    for name, env, fn in CLOUDS:
+        if only and name not in only:
+            continue
+        key = secret(env)
+        if not key and not os.environ.get("COMPUTAI_FIXTURES"):
+            continue
+        try:
+            got = fn(key or "")
+        except ApiError as e:
+            errors.append(str(e))
+            continue
+        for i in got:
+            if i["billing"] and i["gpu_util"] is None and cs["ssh_user"]:
+                i["gpu_util"] = ssh_gpu_util(i, cs["ssh_user"])
+        insts += got
+    return insts, errors
+
+
+def record_cloud(db, insts, ts):
+    """存一次快照，並把上一次快照到現在的計費時間記成 cloud 用量（金額照每小時價格算）。"""
+    cs = cloud_settings()
+    rows = []
+    for i in insts:
+        prev = db.execute("SELECT * FROM cloud WHERE provider = ? AND id = ? ORDER BY ts DESC LIMIT 1",
+                          (i["provider"], i["id"])).fetchone()
+        db.execute("INSERT OR REPLACE INTO cloud (provider, id, ts, name, status, billing, gpu, gpu_count, "
+                   "usd_per_hour, gpu_util) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                   (i["provider"], i["id"], int(ts), i["name"], i["status"], int(i["billing"]), i["gpu"],
+                    i["gpu_count"], i["usd_per_hour"], i["gpu_util"]))
+        # 停機的機器可能還在收儲存費，所以看費率，不看 billing（billing 是「GPU 在計費」）
+        if not prev or not prev["usd_per_hour"]:
+            continue
+        dt = ts - prev["ts"]
+        if dt <= 0 or dt > cs["max_gap_hours"] * 3600:
+            continue  # 隔太久沒看，中間發生什麼不知道，不亂算
+        hours = dt / 3600.0
+        rows.append({"source": "cloud", "uid": "%s:%s:%d" % (i["provider"], i["id"], ts), "ts": int(ts),
+                     "model": "%s x%d" % (prev["gpu"], prev["gpu_count"] or 1),
+                     "project": "%s/%s" % (i["provider"], prev["name"]), "session": i["id"],
+                     "requests": 0, "cost_usd": round(prev["usd_per_hour"] * hours, 6),
+                     "input": 0, "output": 0})
+    add_usage(db, rows)
+    db.commit()
+    return rows
+
+
+def cloud_alerts(db, t=None):
+    """最重要的警示：機器還在計費，GPU 卻閒著。只在讀得到使用率時判斷。"""
+    t = now() if t is None else t
+    cs = cloud_settings()
+    out = []
+    latest = db.execute("SELECT c.* FROM cloud c JOIN (SELECT provider, id, MAX(ts) AS ts FROM cloud "
+                        "GROUP BY provider, id) x ON c.provider = x.provider AND c.id = x.id "
+                        "AND c.ts = x.ts").fetchall()
+    for r in latest:
+        if not r["billing"] or t - r["ts"] > 3600:
+            continue
+        if r["gpu_util"] is None:
+            out.append({"kind": "cloud_unknown_util", "provider": r["provider"], "id": r["id"],
+                        "message": "%s %s is billing %s/h; GPU use unknown (set [cloud] ssh_user)"
+                        % (r["provider"], r["name"], fmt_usd(r["usd_per_hour"]))})
+            continue
+        if r["gpu_util"] >= cs["idle_util"]:
+            continue
+        since = r["ts"]
+        for p in db.execute("SELECT ts, billing, gpu_util FROM cloud WHERE provider = ? AND id = ? "
+                            "AND ts < ? ORDER BY ts DESC LIMIT 500", (r["provider"], r["id"], r["ts"])):
+            if not p["billing"] or p["gpu_util"] is None or p["gpu_util"] >= cs["idle_util"]:
+                break
+            since = p["ts"]
+        idle = t - since
+        if idle >= cs["idle_minutes"] * 60:
+            wasted = (r["usd_per_hour"] or 0) * idle / 3600
+            out.append({"kind": "cloud_idle_billing", "provider": r["provider"], "id": r["id"],
+                        "idle_minutes": int(idle // 60), "usd_per_hour": r["usd_per_hour"],
+                        "wasted_usd": round(wasted, 2),
+                        "message": "%s %s: GPU idle for %s but still billing %s/h (%s so far)"
+                        % (r["provider"], r["name"], fmt_dur(idle), fmt_usd(r["usd_per_hour"]),
+                           fmt_usd(wasted))})
+    return out
+
+
+def latest_cloud(db):
+    return [dict(r) for r in db.execute(
+        "SELECT c.* FROM cloud c JOIN (SELECT provider, id, MAX(ts) AS ts FROM cloud GROUP BY provider, id) x "
+        "ON c.provider = x.provider AND c.id = x.id AND c.ts = x.ts "
+        "WHERE c.ts >= ? ORDER BY c.provider, c.name", (now() - 86400,))]
+
+
+def render_cloud(insts, alerts=None, errors=None):
+    lines = ["%-28s %-10s %-18s %9s %8s" % ("Cloud GPUs", "status", "GPU", "$/hour", "GPU use")]
+    for i in insts:
+        lines.append("%s %-10s %s %9s %8s" % (
+            cell("%s/%s" % (i["provider"], i["name"]), 28), cell(i["status"], 10),
+            cell("%s x%d" % (i["gpu"], i["gpu_count"] or 1), 18),
+            fmt_usd(i["usd_per_hour"]) if i["billing"] else "-",
+            "-" if i["gpu_util"] is None else "%d%%" % round(i["gpu_util"])))
+    for e in errors or []:
+        lines.append("  " + e)
+    for a in alerts or []:
+        lines.append("! " + a["message"])
+    return "\n".join(lines)
+
+
+def sample_clouds(db, only=None):
+    insts, errors = fetch_clouds(only)
+    record_cloud(db, insts, int(now()))
+    for e in errors:
+        warn(e)
+    return insts, errors
+
+
 # ---------------------------------------------------------------- 一行顯示
 
 LINE_SOURCES = (("claude", "Claude"), ("codex", "Codex"))
@@ -2104,6 +2374,8 @@ def parse_args(argv=None):
                    help="break the summary down by model (default), project, session or day")
     p.add_argument("--sample", action="store_true",
                    help="read every machine in [machines] once (CPU, GPU, power, loaded models)")
+    p.add_argument("--cloud", action="store_true",
+                   help="list your RunPod, Vast.ai and Lambda GPUs (read-only API calls)")
     p.add_argument("--proxy", action="store_true",
                    help="run a token-counting proxy in front of Ollama or an OpenAI-compatible server")
     p.add_argument("--listen", metavar="[HOST:]PORT", default="127.0.0.1:11435",
@@ -2176,6 +2448,14 @@ def run(args, db):
         add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()))
         db.commit()
         args.line = True
+    if args.cloud:
+        insts, errors = sample_clouds(db)
+        if not args.summary and not args.sample:
+            al = cloud_alerts(db)
+            emit({"cloud": insts, "errors": errors, "alerts": al}, render_cloud(insts, al, errors)
+                 if insts or errors else "No cloud GPUs (set RUNPOD_API_KEY, VAST_API_KEY or LAMBDA_API_KEY).",
+                 args.json)
+            return 0
     if args.sample:
         sample_machines(db)
         if not args.summary:
@@ -2204,9 +2484,14 @@ def run(args, db):
     if s["limits"]:
         text += "\n\n" + render_limits(s["limits"])
     s["machines"] = machine_report(db, start, end)
-    s["alerts"] = idle_alerts(db)
-    if s["machines"] or s["alerts"]:
-        text += "\n\n" + render_machines(s["machines"], s["alerts"])
+    s["cloud"] = latest_cloud(db)
+    s["alerts"] = idle_alerts(db) + cloud_alerts(db)
+    if s["machines"]:
+        text += "\n\n" + render_machines(s["machines"])
+    if s["cloud"]:
+        text += "\n\n" + render_cloud(s["cloud"])
+    if s["alerts"]:
+        text += "\n\nAlerts\n" + "\n".join("! " + a["message"] for a in s["alerts"])
     if args.by != "model":
         s["by_" + args.by] = breakdown(db, start, end, args.by)
         text += "\n\n" + render_breakdown(s["by_" + args.by], args.by)
