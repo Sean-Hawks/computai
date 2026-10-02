@@ -1,0 +1,16 @@
+@@cpu
+cpu  1500 0 1500 9000 0 0 0 0 0 0
+@@load
+1.20 0.80 0.50
+16
+@@mem
+64000 21000
+@@gpu
+0, GPU-aaaa, 90, 30000, 81559, 70, 320.0
+1, GPU-bbbb, [N/A], 500, 81559, 35, [N/A]
+@@amdgpu
+@@applegpu
+@@svc vllm 8000
+vllm:num_requests_running{model_name="Qwen/Qwen3-32B"} 0.0
+vllm:prompt_tokens_total{model_name="Qwen/Qwen3-32B"} 160000.0
+vllm:generation_tokens_total{model_name="Qwen/Qwen3-32B"} 26000.0

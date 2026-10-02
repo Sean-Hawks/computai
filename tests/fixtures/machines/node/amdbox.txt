@@ -1,0 +1,17 @@
+@@cpu
+CPUTIME 100 0 50 0 850
+@@load
+0.10 0.10 0.10
+8
+@@mem
+32000 8000
+@@gpu
+@@amdgpu
+card1 3 8589934592 25753026560 41000 18000000 0x1234
+card0 0 1073741824 17163091968 38000 - -
+@@applegpu
+@@svc llamacpp 8080
+# HELP llamacpp:prompt_tokens_total Number of prompt tokens processed.
+llamacpp:prompt_tokens_total 5000
+llamacpp:tokens_predicted_total 1200
+llamacpp:requests_processing 0
