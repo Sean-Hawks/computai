@@ -8,6 +8,7 @@ class Ledger(unittest.TestCase):
     def setUp(self):
         self.m = helpers.load()
         self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
 
     def row(self, uid, **kw):
         r = dict(source="test", uid=uid, ts=1790000000, model="m", input=10, output=5)
