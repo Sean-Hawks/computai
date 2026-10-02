@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import unicodedata
 
@@ -67,6 +68,22 @@ local_currency = TWD
 # Format: <source> = <plan name>, <USD per month>, <date you checked the price>
 claude = Claude Max 5x, 100, 2026-10-03
 codex = ChatGPT Pro, 200, 2026-10-03
+
+[machines]
+# Machines to watch: <name> = local, or an SSH host (passwordless SSH, only sh is needed there).
+# Optional per-machine settings go in a [machine.<name>] section:
+#   services   = ollama:11434, vllm:8000   inference servers to probe (default: common ports)
+#   base_watts = 60    the rest of the machine, added on top of measured GPU power
+#   idle_watts = 8     whole machine at idle, used when GPU power can't be read (e.g. Macs)
+#   max_watts  = 45    whole machine at full load
+this-computer = local
+
+[power]
+# Electricity price per kWh in the given currency.
+price_per_kwh = 0.15
+currency = USD
+# Warn when a model sits loaded but unused for this many minutes.
+idle_alert_minutes = 15
 """
 
 DEFAULT_PRICES = """\
@@ -390,6 +407,21 @@ CREATE TABLE IF NOT EXISTS files (
     path TEXT PRIMARY KEY,
     size INTEGER NOT NULL,
     mtime REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS samples (
+    machine TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    cpu_raw TEXT,
+    cpu_pct REAL,
+    gpu_util REAL,
+    gpu_mem_used REAL,
+    gpu_mem_total REAL,
+    gpu_power_w REAL,
+    power_w REAL,
+    ai_active INTEGER NOT NULL DEFAULT 0,
+    loaded TEXT NOT NULL DEFAULT '[]',
+    counters TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (machine, ts)
 );
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
@@ -1436,6 +1468,257 @@ def parse_service(kind, port, body):
     return svc
 
 
+def _float(v, default=None):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def machines(cp=None):
+    """設定檔裡要監看的機器。"""
+    cp = cp or load_config()
+    out = []
+    if not cp.has_section("machines"):
+        return out
+    for name, host in cp.items("machines"):
+        sec = "machine." + name
+        get = lambda k, d=None: cp.get(sec, k, fallback=d) if cp.has_section(sec) else d
+        out.append({"name": name, "host": host.strip() or "local",
+                    "services": service_list(get("services", DEFAULT_SERVICES)),
+                    "base_watts": _float(get("base_watts"), 0.0),
+                    "idle_watts": _float(get("idle_watts")),
+                    "max_watts": _float(get("max_watts"))})
+    return out
+
+
+def power_settings(cp=None):
+    cp = cp or load_config()
+    return {"price_per_kwh": _float(cp.get("power", "price_per_kwh", fallback="0"), 0.0),
+            "currency": cp.get("power", "currency", fallback="USD").strip().upper() or "USD",
+            "idle_alert_minutes": _float(cp.get("power", "idle_alert_minutes", fallback="15"), 15.0),
+            "usd_to_local": _float(cp.get("general", "usd_to_local", fallback="0"), 0.0)}
+
+
+def estimate_power(m, gpu_power, util, cpu):
+    """整台機器的功耗（W）。讀得到 GPU 功耗就用「GPU + 其他部分」，
+    讀不到（Mac、Jetson）就用設定的閒置／滿載功耗按負載內插；都沒設定回傳 None。"""
+    if gpu_power is not None:
+        return gpu_power + (m.get("base_watts") or 0.0)
+    lo, hi = m.get("idle_watts"), m.get("max_watts")
+    if hi is None:
+        return lo
+    lo = lo or 0.0
+    load = max(util or 0.0, cpu or 0.0) / 100.0
+    return lo + (hi - lo) * max(0.0, min(1.0, load))
+
+
+AI_GPU_UTIL = 20.0   # 有模型載入、GPU 使用率超過這個值，就算在做推論
+MAX_GAP = 600        # 兩次取樣隔超過 10 分鐘，中間的耗電當作不知道，不積分
+
+
+def previous_sample(db, machine):
+    return db.execute("SELECT * FROM samples WHERE machine = ? ORDER BY ts DESC LIMIT 1",
+                      (machine,)).fetchone()
+
+
+def record_sample(db, m, d, ts):
+    """把一次取樣寫進帳本；推論服務的 token 計數器變多的部分記成 local 用量。回傳新增的用量列。"""
+    prev = previous_sample(db, m["name"])
+    prev_cpu = None
+    if prev and prev["cpu_raw"]:
+        try:
+            prev_cpu = tuple(json.loads(prev["cpu_raw"]))
+        except ValueError:
+            prev_cpu = None
+    cpu = d.get("cpu")
+    pct = cpu_pct(cpu, prev_cpu)
+    gpus = d.get("gpus") or []
+    utils = [g["util"] for g in gpus if g["util"] is not None]
+    powers = [g["power"] for g in gpus if g["power"] is not None]
+    util = sum(utils) / len(utils) if utils else None
+    gpu_power = sum(powers) if powers else None
+    mem_used = sum(g["mem_used"] or 0 for g in gpus) if gpus else None
+    mem_total = sum(g["mem_total"] or 0 for g in gpus) if gpus else None
+    loaded, counters, running = [], {}, 0.0
+    for svc in d.get("services") or []:
+        for mo in svc["models"]:
+            loaded.append({"service": svc["kind"], "port": svc["port"], "name": mo["name"],
+                           "vram_mb": mo.get("vram_mb"), "expires_at": mo.get("expires_at")})
+        for model, c in svc["counters"].items():
+            counters["%s:%d:%s" % (svc["kind"], svc["port"], model)] = c
+        running += svc["running"] or 0.0
+    rows = []
+    prev_counters = json.loads(prev["counters"]) if prev else {}
+    for key, c in counters.items():
+        p = prev_counters.get(key)
+        if p is None:
+            continue  # 第一次看到這個計數器，還沒有差值
+        dp = c.get("prompt", 0) - p.get("prompt", 0)
+        dg = c.get("generation", 0) - p.get("generation", 0)
+        if dp < 0 or dg < 0:  # 服務重開，計數器歸零
+            dp, dg = c.get("prompt", 0), c.get("generation", 0)
+        if dp or dg:
+            kind, _port, model = key.split(":", 2)
+            rows.append({"source": "local", "uid": "%s:%s:%d" % (m["name"], key, ts), "ts": int(ts),
+                         "model": model, "project": m["name"], "session": kind,
+                         "input": int(dp), "output": int(dg), "cost_usd": 0.0})
+    proxied = 0
+    if prev:
+        proxied = db.execute("SELECT COUNT(*) FROM usage WHERE source = 'local' AND project = ? "
+                             "AND ts > ? AND ts <= ?", (m["name"], prev["ts"], ts)).fetchone()[0]
+    # Ollama 每處理完一個請求就把 expires_at 往後推（= 最後使用時間 + keep_alive），
+    # 所以 expires_at 變了就表示這段時間有人在用，不需要 proxy 也看得出來。
+    prev_loaded = json.loads(prev["loaded"]) if prev else []
+    prev_exp = {(x.get("service"), x.get("port"), x.get("name")): x.get("expires_at") for x in prev_loaded}
+    touched = any(x.get("expires_at") and prev_exp.get((x["service"], x["port"], x["name"]))
+                  and x["expires_at"] > prev_exp[(x["service"], x["port"], x["name"])] + 1
+                  for x in loaded)
+    # 沒有更好的訊號時才看 GPU 使用率；Mac 的 GPU 使用率包含畫面繪製，不能拿來判斷
+    busy_gpu = any(g["vendor"] != "apple" and (g["util"] or 0) >= AI_GPU_UTIL for g in gpus)
+    active = bool(rows or running or proxied or touched or (loaded and busy_gpu))
+    power = estimate_power(m, gpu_power, util, pct)
+    db.execute("INSERT OR REPLACE INTO samples (machine, ts, cpu_raw, cpu_pct, gpu_util, gpu_mem_used, "
+               "gpu_mem_total, gpu_power_w, power_w, ai_active, loaded, counters) "
+               "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+               (m["name"], int(ts), json.dumps(cpu) if cpu and cpu[0] == "raw" else None, pct, util,
+                mem_used, mem_total, gpu_power, power, int(active), json.dumps(loaded),
+                json.dumps(counters)))
+    add_usage(db, rows)
+    return rows
+
+
+def sample_machines(db, only=None, timeout=25):
+    """所有機器同時取樣（一台卡住不會拖慢其他台），寫進帳本。回傳 {名稱: 取樣或 None}。"""
+    ms = [m for m in machines() if not only or m["name"] in only]
+    results = {}
+
+    def work(m):
+        try:
+            results[m["name"]] = snapshot(m["host"], m["services"])
+        except Exception:
+            results[m["name"]] = None
+    threads = [threading.Thread(target=work, args=(m,), daemon=True) for m in ms]
+    for t in threads:
+        t.start()
+    deadline = time.time() + timeout
+    for t in threads:
+        t.join(max(0.0, deadline - time.time()))
+    ts = int(now())
+    for m in ms:
+        d = results.get(m["name"])
+        if d:
+            record_sample(db, m, d, ts)
+    db.commit()
+    return {m["name"]: results.get(m["name"]) for m in ms}
+
+
+def to_usd(amount, ps):
+    """當地貨幣換成美元；沒有匯率回傳 None。"""
+    if amount is None:
+        return None
+    if ps["currency"] == "USD":
+        return amount
+    return amount / ps["usd_to_local"] if ps["usd_to_local"] else None
+
+
+def machine_report(db, start, end, ps=None):
+    """每台機器在範圍內的耗電、AI 佔比、電費和 J/token。耗電由相鄰兩次取樣的平均功耗乘上
+    間隔積分；間隔超過 MAX_GAP 的那段當作不知道（covered_hours 會比範圍短）。"""
+    ps = ps or power_settings()
+    out = []
+    names = [r[0] for r in db.execute("SELECT DISTINCT machine FROM samples WHERE ts >= ? AND ts < ?",
+                                      (start, end))]
+    for name in sorted(names):
+        rows = db.execute("SELECT ts, power_w, ai_active, gpu_util FROM samples WHERE machine = ? "
+                          "AND ts >= ? AND ts < ? ORDER BY ts", (name, start - MAX_GAP, end)).fetchall()
+        energy = ai_energy = covered = ai_secs = 0.0
+        unknown_power = 0.0
+        for a, b in zip(rows, rows[1:]):
+            if b["ts"] < start:
+                continue
+            dt = b["ts"] - max(a["ts"], start)
+            if dt <= 0 or b["ts"] - a["ts"] > MAX_GAP:
+                continue
+            covered += dt
+            ai = a["ai_active"] or b["ai_active"]
+            if ai:
+                ai_secs += dt
+            ps_ = [p for p in (a["power_w"], b["power_w"]) if p is not None]
+            if not ps_:
+                unknown_power += dt
+                continue
+            j = sum(ps_) / len(ps_) * dt
+            energy += j
+            if ai:
+                ai_energy += j
+        tok = db.execute("SELECT COALESCE(SUM(input), 0) AS i, COALESCE(SUM(output), 0) AS o, "
+                         "COUNT(*) AS n FROM usage WHERE source = 'local' AND project = ? "
+                         "AND ts >= ? AND ts < ?", (name, start, end)).fetchone()
+        kwh = energy / 3.6e6
+        cost = kwh * ps["price_per_kwh"]
+        out.append({
+            "machine": name, "samples": len(rows), "covered_hours": round(covered / 3600, 2),
+            "power_unknown_hours": round(unknown_power / 3600, 2),
+            "kwh": round(kwh, 4), "ai_kwh": round(ai_energy / 3.6e6, 4),
+            "ai_share": round(ai_secs / covered, 3) if covered else None,
+            "energy_cost": round(cost, 4), "currency": ps["currency"],
+            "energy_cost_usd": None if to_usd(cost, ps) is None else round(to_usd(cost, ps), 4),
+            "input_tokens": tok["i"], "output_tokens": tok["o"], "requests": tok["n"],
+            "j_per_token": round(ai_energy / tok["o"], 3) if tok["o"] and ai_energy else None,
+        })
+    return out
+
+
+def idle_alerts(db, t=None, minutes=None):
+    """模型載入在記憶體裡、卻有一段時間沒在用：佔著 GPU（或 Mac 的統一記憶體）不放。"""
+    t = now() if t is None else t
+    if minutes is None:
+        minutes = power_settings()["idle_alert_minutes"]
+    out = []
+    for (name,) in db.execute("SELECT DISTINCT machine FROM samples").fetchall():
+        rows = db.execute("SELECT ts, ai_active, loaded FROM samples WHERE machine = ? "
+                          "ORDER BY ts DESC LIMIT 500", (name,)).fetchall()
+        if not rows or t - rows[0]["ts"] > MAX_GAP:  # 最近沒有取樣，不知道現在的狀況
+            continue
+        latest = json.loads(rows[0]["loaded"] or "[]")
+        if not latest or rows[0]["ai_active"]:
+            continue
+        since, later = rows[0]["ts"], rows[0]["ts"]
+        for r in rows[1:]:
+            if r["ai_active"] or not json.loads(r["loaded"] or "[]") or later - r["ts"] > MAX_GAP:
+                break
+            since = later = r["ts"]
+        idle = t - since
+        if idle >= minutes * 60:
+            vram = sum(m.get("vram_mb") or 0 for m in latest)
+            out.append({"kind": "idle_model", "machine": name, "idle_minutes": int(idle // 60),
+                        "models": sorted({m["name"] for m in latest}), "vram_mb": vram or None,
+                        "message": "%s: %s loaded but idle for %s%s" % (
+                            name, ", ".join(sorted({m["name"] for m in latest})), fmt_dur(idle),
+                            (" (holding %s MB)" % format(vram, ",")) if vram else "")})
+    return out
+
+
+def render_machines(report, alerts=None):
+    lines = ["%-16s %7s %8s %8s %9s %9s %10s" % ("Machines", "hours", "kWh", "AI share", "power $",
+                                                  "tokens", "J/token")]
+    for r in report:
+        cost = r["energy_cost"]
+        cost_s = ("$%.2f" % r["energy_cost_usd"]) if r["energy_cost_usd"] is not None else \
+            "%.1f %s" % (cost, r["currency"])
+        lines.append("%s %7.1f %8.3f %8s %9s %9s %10s" % (
+            cell(r["machine"], 16), r["covered_hours"], r["kwh"],
+            "-" if r["ai_share"] is None else "%d%%" % round(100 * r["ai_share"]), cost_s,
+            fmt_tok(r["input_tokens"] + r["output_tokens"]),
+            "-" if r["j_per_token"] is None else "%.2f" % r["j_per_token"]))
+        if r["power_unknown_hours"] and not r["kwh"]:
+            lines.append("  power unknown: set idle_watts/max_watts in [machine.%s]" % r["machine"])
+    for a in alerts or []:
+        lines.append("! " + a["message"])
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- 一行顯示
 
 LINE_SOURCES = (("claude", "Claude"), ("codex", "Codex"))
@@ -1537,6 +1820,8 @@ def parse_args(argv=None):
     p.add_argument("--until", metavar="YYYY-MM-DD", help="end of the range (inclusive)")
     p.add_argument("--by", choices=["model"] + sorted(BREAKDOWNS), default="model",
                    help="break the summary down by model (default), project, session or day")
+    p.add_argument("--sample", action="store_true",
+                   help="read every machine in [machines] once (CPU, GPU, power, loaded models)")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
@@ -1582,6 +1867,13 @@ def run(args, db):
         add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()))
         db.commit()
         args.line = True
+    if args.sample:
+        sample_machines(db)
+        if not args.summary:
+            start, end, label = pick_range(args)
+            rep, al = machine_report(db, start, end), idle_alerts(db)
+            emit({"machines": rep, "alerts": al}, render_machines(rep, al), args.json)
+            return 0
     if args.line:
         if not args.no_sync:
             maybe_sync(db)
@@ -1602,6 +1894,10 @@ def run(args, db):
     text = render_summary(s)
     if s["limits"]:
         text += "\n\n" + render_limits(s["limits"])
+    s["machines"] = machine_report(db, start, end)
+    s["alerts"] = idle_alerts(db)
+    if s["machines"] or s["alerts"]:
+        text += "\n\n" + render_machines(s["machines"], s["alerts"])
     if args.by != "model":
         s["by_" + args.by] = breakdown(db, start, end, args.by)
         text += "\n\n" + render_breakdown(s["by_" + args.by], args.by)
