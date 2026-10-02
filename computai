@@ -83,6 +83,21 @@ this-computer = local
 # Electricity price per kWh in the given currency.
 price_per_kwh = 0.15
 currency = USD
+# tariff = flat uses price_per_kwh. tariff = tou uses the time-of-use prices below
+# (in the same currency). The tou_* defaults are Taipower's residential two-tier
+# time-of-use plan (簡易型時間電價 二段式) as reported for 2025-10-01; they could not be
+# checked against taipower.com.tw, so compare them with your bill. Hours are local
+# time at tou_utc_offset; "6-11, 14-24" means 06:00-11:00 and 14:00-24:00.
+tariff = flat
+tou_utc_offset = 8
+tou_summer_months = 6, 7, 8, 9
+tou_summer_peak_hours = 9-24
+tou_summer_peak = 5.54
+tou_summer_offpeak = 2.27
+tou_other_peak_hours = 6-11, 14-24
+tou_other_peak = 5.39
+tou_other_offpeak = 2.15
+tou_weekend_offpeak = yes
 # Warn when a model sits loaded but unused for this many minutes.
 idle_alert_minutes = 15
 
@@ -533,6 +548,12 @@ def now():
     """現在的 epoch 秒數；測試用 COMPUTAI_FAKE_NOW 固定。"""
     fake = os.environ.get("COMPUTAI_FAKE_NOW")
     return float(fake) if fake else time.time()
+
+
+def calendar_ts(y, mo, d, h=0):
+    """把 UTC 的年月日時當成 epoch；時區換算由呼叫的人自己加減。"""
+    import calendar
+    return calendar.timegm((y, mo, d, h, 0, 0, 0, 0, 0))
 
 
 def local_ts(y, mo, d):
@@ -1516,9 +1537,32 @@ def machines(cp=None):
     return out
 
 
+def parse_hours(spec):
+    """`6-11, 14-24` -> [(6, 11), (14, 24)]。"""
+    out = []
+    for part in (spec or "").split(","):
+        m = re.match(r"^\s*(\d{1,2})(?::00)?\s*-\s*(\d{1,2})(?::00)?\s*$", part)
+        if m and 0 <= int(m.group(1)) < int(m.group(2)) <= 24:
+            out.append((int(m.group(1)), int(m.group(2))))
+    return out
+
+
 def power_settings(cp=None):
     cp = cp or load_config()
-    return {"price_per_kwh": _float(cp.get("power", "price_per_kwh", fallback="0"), 0.0),
+    g = lambda k, d="": cp.get("power", k, fallback=d)
+    tou = None
+    if g("tariff", "flat").strip().lower() == "tou":
+        tou = {"offset": _float(g("tou_utc_offset", "0"), 0.0),
+               "summer": {_int(x) for x in g("tou_summer_months").split(",") if x.strip()},
+               "summer_hours": parse_hours(g("tou_summer_peak_hours")),
+               "summer_peak": _float(g("tou_summer_peak"), 0.0),
+               "summer_off": _float(g("tou_summer_offpeak"), 0.0),
+               "other_hours": parse_hours(g("tou_other_peak_hours")),
+               "other_peak": _float(g("tou_other_peak"), 0.0),
+               "other_off": _float(g("tou_other_offpeak"), 0.0),
+               "weekend_off": g("tou_weekend_offpeak", "yes").strip().lower() in ("yes", "true", "1", "on")}
+    return {"tou": tou,
+            "price_per_kwh": _float(cp.get("power", "price_per_kwh", fallback="0"), 0.0),
             "currency": cp.get("power", "currency", fallback="USD").strip().upper() or "USD",
             "idle_alert_minutes": _float(cp.get("power", "idle_alert_minutes", fallback="15"), 15.0),
             "usd_to_local": _float(cp.get("general", "usd_to_local", fallback="0"), 0.0)}
@@ -1637,6 +1681,26 @@ def sample_machines(db, only=None, timeout=25):
     return {m["name"]: results.get(m["name"]) for m in ms}
 
 
+def price_at(ts, ps):
+    """這個時間點每度電的價格，和是不是尖峰。flat 電價永遠不是尖峰。"""
+    tou = ps.get("tou")
+    if not tou:
+        return ps["price_per_kwh"], False
+    t = time.gmtime(ts + tou["offset"] * 3600)
+    summer = t.tm_mon in tou["summer"]
+    hours = tou["summer_hours"] if summer else tou["other_hours"]
+    peak = not (tou["weekend_off"] and t.tm_wday >= 5) and any(a <= t.tm_hour < b for a, b in hours)
+    if summer:
+        return (tou["summer_peak"] if peak else tou["summer_off"]), peak
+    return (tou["other_peak"] if peak else tou["other_off"]), peak
+
+
+def offpeak_price(ts, ps):
+    tou = ps["tou"]
+    summer = time.gmtime(ts + tou["offset"] * 3600).tm_mon in tou["summer"]
+    return tou["summer_off"] if summer else tou["other_off"]
+
+
 def to_usd(amount, ps):
     """當地貨幣換成美元；沒有匯率回傳 None。"""
     if amount is None:
@@ -1657,7 +1721,7 @@ def machine_report(db, start, end, ps=None):
         rows = db.execute("SELECT ts, power_w, ai_active, gpu_util FROM samples WHERE machine = ? "
                           "AND ts >= ? AND ts < ? ORDER BY ts", (name, start - MAX_GAP, end)).fetchall()
         energy = ai_energy = covered = ai_secs = 0.0
-        unknown_power = 0.0
+        unknown_power = cost = ai_peak_j = peak_saving = 0.0
         for a, b in zip(rows, rows[1:]):
             if b["ts"] < start:
                 continue
@@ -1674,13 +1738,17 @@ def machine_report(db, start, end, ps=None):
                 continue
             j = sum(ps_) / len(ps_) * dt
             energy += j
+            price, peak = price_at(b["ts"] - dt / 2.0, ps)
+            cost += j / 3.6e6 * price
             if ai:
                 ai_energy += j
+                if peak and ps.get("tou"):  # 這段推論如果挪到離峰可以省多少
+                    ai_peak_j += j
+                    peak_saving += j / 3.6e6 * (price - offpeak_price(b["ts"] - dt / 2.0, ps))
         tok = db.execute("SELECT COALESCE(SUM(input), 0) AS i, COALESCE(SUM(output), 0) AS o, "
                          "COUNT(*) AS n FROM usage WHERE source = 'local' AND project = ? "
                          "AND ts >= ? AND ts < ?", (name, start, end)).fetchone()
         kwh = energy / 3.6e6
-        cost = kwh * ps["price_per_kwh"]
         last = db.execute("SELECT loaded FROM samples WHERE machine = ? ORDER BY ts DESC LIMIT 1",
                           (name,)).fetchone()
         out.append({
@@ -1694,6 +1762,8 @@ def machine_report(db, start, end, ps=None):
             "energy_cost_usd": None if to_usd(cost, ps) is None else round(to_usd(cost, ps), 4),
             "input_tokens": tok["i"], "output_tokens": tok["o"], "requests": tok["n"],
             "j_per_token": round(ai_energy / tok["o"], 3) if tok["o"] and ai_energy else None,
+            "ai_peak_kwh": round(ai_peak_j / 3.6e6, 4),
+            "offpeak_saving": round(peak_saving, 4),
         })
     return out
 
@@ -1743,6 +1813,9 @@ def render_machines(report, alerts=None):
         for x in r.get("loaded") or []:
             lines.append("  loaded: %s (%s:%s%s)" % (x["name"], x["service"], x["port"],
                                                      ", %s MB" % format(x["vram_mb"], ",") if x["vram_mb"] else ""))
+        if r.get("offpeak_saving"):
+            lines.append("  %.2f kWh of AI work ran at peak price; off-peak would save %.2f %s"
+                         % (r["ai_peak_kwh"], r["offpeak_saving"], r["currency"]))
         if r["power_unknown_hours"] and not r["kwh"]:
             lines.append("  power unknown: set idle_watts/max_watts in [machine.%s]" % r["machine"])
     for a in alerts or []:

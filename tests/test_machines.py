@@ -157,3 +157,42 @@ class Sampling(unittest.TestCase):
         self.assertEqual(e({"idle_watts": 10, "max_watts": 110}, None, 50, 20), 60.0)
         self.assertEqual(e({"idle_watts": 10}, None, 50, 20), 10)
         self.assertIsNone(e({}, None, 50, 20))
+
+
+class Tariff(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        os.makedirs(self.sb.config)
+        with open(os.path.join(self.sb.config, "config.ini"), "w") as f:
+            f.write("[power]\ncurrency = TWD\ntariff = tou\n")
+        self.old = dict(os.environ)
+        os.environ["COMPUTAI_CONFIG_DIR"] = self.sb.config
+        self.m = helpers.load()
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def test_taipower_two_tier(self):
+        ps = self.m.power_settings()
+        utc8 = lambda y, mo, d, h: self.m.calendar_ts(y, mo, d, h) - 8 * 3600
+        # 2026-07-15 是星期三
+        self.assertEqual(self.m.price_at(utc8(2026, 7, 15, 10), ps), (5.54, True))
+        self.assertEqual(self.m.price_at(utc8(2026, 7, 15, 8), ps), (2.27, False))
+        self.assertEqual(self.m.price_at(utc8(2026, 7, 18, 10), ps), (2.27, False))   # 星期六全天離峰
+        self.assertEqual(self.m.price_at(utc8(2026, 11, 11, 12), ps), (2.15, False))  # 非夏月中午離峰
+        self.assertEqual(self.m.price_at(utc8(2026, 11, 11, 15), ps), (5.39, True))
+        self.assertEqual(self.m.parse_hours("6-11, 14-24, junk, 9-3"), [(6, 11), (14, 24)])
+
+    def test_peak_ai_saving(self):
+        db = self.m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        t0 = self.m.calendar_ts(2026, 7, 15, 10) - 8 * 3600       # 夏月平日尖峰
+        for k in range(2):
+            db.execute("INSERT INTO samples (machine, ts, power_w, ai_active) VALUES ('box', ?, 1000, 1)",
+                       (t0 + 600 * k,))
+        r = self.m.machine_report(db, t0, t0 + 3600)[0]
+        kwh = 1000 * 600 / 3.6e6
+        self.assertAlmostEqual(r["energy_cost"], round(kwh * 5.54, 4))
+        self.assertAlmostEqual(r["offpeak_saving"], round(kwh * (5.54 - 2.27), 4))
