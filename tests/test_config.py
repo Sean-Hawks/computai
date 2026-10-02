@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import unittest
 
@@ -45,7 +47,11 @@ class Config(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX permissions")
     def test_secret_requires_600(self):
         self.write("secrets.ini", "[secrets]\nCOMPUTAI_TEST_KEY = abc\n", mode=0o644)
-        self.assertIsNone(self.m.secret("COMPUTAI_TEST_KEY"))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertIsNone(self.m.secret("COMPUTAI_TEST_KEY"))
+        self.assertIn("chmod 600", err.getvalue())
+        self.assertNotIn("abc", err.getvalue())
         os.chmod(os.path.join(self.sb.config, "secrets.ini"), 0o600)
         self.assertEqual(self.m.secret("COMPUTAI_TEST_KEY"), "abc")
         os.environ["COMPUTAI_TEST_KEY"] = "env"
