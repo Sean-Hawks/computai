@@ -14,9 +14,11 @@ Python 3.8+, standard library only. Remote machines only need SSH and sh.
 __version__ = "0.1.0"
 
 import argparse
+import datetime
 import json
 import os
 import sys
+import time
 
 
 # ---------------------------------------------------------------- 路徑
@@ -309,6 +311,200 @@ def mark_file(db, path):
                (path, st.st_size, st.st_mtime))
 
 
+# ---------------------------------------------------------------- 時間
+
+def now():
+    """現在的 epoch 秒數；測試用 COMPUTAI_FAKE_NOW 固定。"""
+    fake = os.environ.get("COMPUTAI_FAKE_NOW")
+    return float(fake) if fake else time.time()
+
+
+def local_ts(y, mo, d):
+    return int(time.mktime((y, mo, d, 0, 0, 0, 0, 0, -1)))
+
+
+def parse_day(s):
+    """`YYYY-MM-DD`（本地時間 00:00）轉 epoch。"""
+    try:
+        y, mo, d = (int(x) for x in s.split("-"))
+        return local_ts(y, mo, d)
+    except (ValueError, OverflowError):
+        raise SystemExit("computai: bad date %r, expected YYYY-MM-DD" % s)
+
+
+def month_range(s=None):
+    """`YYYY-MM`（沒給就是這個月）的 (開始, 下個月開始, 標籤)。"""
+    if s:
+        try:
+            y, mo = (int(x) for x in s.split("-"))
+            if not 1 <= mo <= 12:
+                raise ValueError
+        except ValueError:
+            raise SystemExit("computai: bad month %r, expected YYYY-MM" % s)
+    else:
+        t = time.localtime(now())
+        y, mo = t.tm_year, t.tm_mon
+    ny, nmo = (y + 1, 1) if mo == 12 else (y, mo + 1)
+    return local_ts(y, mo, 1), local_ts(ny, nmo, 1), "%04d-%02d" % (y, mo)
+
+
+def iso_ts(s):
+    """ISO 8601（`2026-09-17T10:56:05.778Z`）轉 epoch 秒數；看不懂就回 None。"""
+    if not s or not isinstance(s, str):
+        return None
+    try:
+        s = s.strip().replace("Z", "+00:00")
+        if "." in s:  # 3.8 的 fromisoformat 只吃 0、3、6 位小數
+            head, rest = s.split(".", 1)
+            frac = ""
+            while rest and rest[0].isdigit():
+                frac, rest = frac + rest[0], rest[1:]
+            s = head + "." + (frac + "000000")[:6] + rest
+        dt = datetime.datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.timestamp()
+    except ValueError:
+        return None
+
+
+def day_label(ts):
+    return time.strftime("%Y-%m-%d", time.localtime(ts))
+
+
+# ---------------------------------------------------------------- 匯入
+
+# (名稱, 函式)。函式收 db，回傳新增的筆數；各里程碑把自己的來源加進來。
+SOURCES = []
+
+
+def sync(db, only=None, quiet=False):
+    added = {}
+    for name, fn in SOURCES:
+        if only and name not in only:
+            continue
+        try:
+            added[name] = fn(db)
+        except Exception as e:  # 一個來源壞掉不要拖垮其他來源
+            warn("%s: sync failed: %s" % (name, e))
+            added[name] = 0
+        db.commit()
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync', ?)", (str(int(now())),))
+    db.commit()
+    if not quiet:
+        for name, n in added.items():
+            print("%-8s +%d" % (name, n))
+    return added
+
+
+# ---------------------------------------------------------------- 彙總
+
+def row_cost(r, price):
+    """一列（或一組加總）的等值 API 花費；來源自己給了金額就用它。"""
+    if r.get("cost_usd") is not None:
+        return r["cost_usd"]
+    if price is None:
+        return None
+    return (r["input"] * price["input"] + r["cache_read"] * price["cache_read"]
+            + r["cache_write_5m"] * price["cache_write_5m"]
+            + r["cache_write_1h"] * price["cache_write_1h"]
+            + r["output"] * price["output"]) / 1e6
+
+
+def summary(db, start, end, prices=None, plan_table=None, label=""):
+    prices = load_prices() if prices is None else prices
+    plan_table = plans() if plan_table is None else plan_table
+    q = ("SELECT source, model, SUM(requests) AS requests, %s, SUM(cost_usd) AS cost_usd, "
+         "COUNT(cost_usd) AS n_cost, COUNT(*) AS n "
+         "FROM usage WHERE ts >= ? AND ts < ? GROUP BY source, model ORDER BY source, model"
+         % ", ".join("SUM(%s) AS %s" % (c, c) for c in TOKEN_COLS))
+    by_src = {}
+    unpriced = set()
+    for row in db.execute(q, (start, end)):
+        r = dict(row)
+        if r["n_cost"] != r["n"]:   # 只有部分列有實際金額時不能直接用
+            r["cost_usd"] = None
+        price = price_for(r["model"], prices)
+        cost = row_cost(r, price)
+        if cost is None:
+            unpriced.add(r["model"])
+        src = by_src.setdefault(r["source"], {"source": r["source"], "models": [],
+                                              "totals": dict.fromkeys(("requests",) + TOKEN_COLS, 0),
+                                              "cost_usd": 0.0})
+        m = {"model": r["model"], "requests": r["requests"], "cost_usd": cost}
+        for c in TOKEN_COLS:
+            m[c] = r[c] or 0
+            src["totals"][c] += m[c]
+        src["totals"]["requests"] += r["requests"] or 0
+        src["cost_usd"] += cost or 0.0
+        src["models"].append(m)
+    days = max((end - start) / 86400.0, 1e-9)
+    out_sources = []
+    for name in sorted(by_src):
+        s = by_src[name]
+        s["models"].sort(key=lambda m: -(m["cost_usd"] or 0))
+        plan = plan_table.get(name)
+        if plan:
+            fee = plan["usd"] if 27 <= days <= 32 else plan["usd"] * days / 30.44
+            s["plan"] = dict(plan, fee_in_range=round(fee, 2),
+                             value_ratio=round(s["cost_usd"] / fee, 2) if fee else None)
+        out_sources.append(s)
+    return {"range": {"start": int(start), "end": int(end), "label": label},
+            "sources": out_sources,
+            "total_cost_usd": round(sum(s["cost_usd"] for s in out_sources), 4),
+            "unpriced_models": sorted(unpriced)}
+
+
+def fmt_tok(n):
+    n = n or 0
+    for div, suf in ((1e9, "B"), (1e6, "M"), (1e3, "k")):
+        if abs(n) >= div:
+            v = n / div
+            return ("%.1f%s" % (v, suf)) if v < 100 else ("%d%s" % (v, suf))
+    return str(int(n))
+
+
+def fmt_usd(v):
+    if v is None:
+        return "?"
+    if abs(v) >= 1000:
+        return "$%s" % format(int(round(v)), ",")
+    return "$%.2f" % v
+
+
+def render_summary(s):
+    lines = ["ComputAI  %s  (%s - %s)" % (s["range"]["label"], day_label(s["range"]["start"]),
+                                         day_label(s["range"]["end"] - 1)), ""]
+    if not s["sources"]:
+        lines.append("No usage recorded in this range. Run `computai --sync` first.")
+        return "\n".join(lines)
+    head = "%-26s %8s %8s %9s %9s %8s %10s" % ("", "requests", "input", "cache rd", "cache wr",
+                                                "output", "API equiv")
+    lines.append(head)
+    for src in s["sources"]:
+        lines.append(src["source"])
+        for m in src["models"]:
+            lines.append("  %-24s %8s %8s %9s %9s %8s %10s" % (
+                (m["model"] or "?")[:24], fmt_tok(m["requests"]), fmt_tok(m["input"]),
+                fmt_tok(m["cache_read"]), fmt_tok(m["cache_write_5m"] + m["cache_write_1h"]),
+                fmt_tok(m["output"]), fmt_usd(m["cost_usd"])))
+        t = src["totals"]
+        lines.append("  %-24s %8s %8s %9s %9s %8s %10s" % (
+            "total", fmt_tok(t["requests"]), fmt_tok(t["input"]), fmt_tok(t["cache_read"]),
+            fmt_tok(t["cache_write_5m"] + t["cache_write_1h"]), fmt_tok(t["output"]),
+            fmt_usd(src["cost_usd"])))
+        if src.get("plan"):
+            p = src["plan"]
+            lines.append("  plan: %s, %s for this range -> usage worth %sx the fee" % (
+                p["name"], fmt_usd(p["fee_in_range"]),
+                "?" if p["value_ratio"] is None else "%.1f" % p["value_ratio"]))
+        lines.append("")
+    lines.append("Total API-equivalent: %s" % fmt_usd(s["total_cost_usd"]))
+    if s["unpriced_models"]:
+        lines.append("No price for: %s (add them to prices.ini)" % ", ".join(s["unpriced_models"]))
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
@@ -317,7 +513,31 @@ def parse_args(argv=None):
         description="ComputAI - where your compute and AI money goes.")
     p.add_argument("--version", action="version", version="computai " + __version__)
     p.add_argument("--paths", action="store_true", help="print config and ledger locations")
+    p.add_argument("--sync", action="store_true", help="import new usage into the ledger")
+    p.add_argument("--summary", action="store_true", help="totals for a time range (default: this month)")
+    p.add_argument("--month", nargs="?", const="", metavar="YYYY-MM",
+                   help="limit to a month (default: this month)")
+    p.add_argument("--since", metavar="YYYY-MM-DD", help="start of the range")
+    p.add_argument("--until", metavar="YYYY-MM-DD", help="end of the range (inclusive)")
+    p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     return p.parse_args(argv)
+
+
+def pick_range(args):
+    if args.since or args.until:
+        start = parse_day(args.since) if args.since else 0
+        end = parse_day(args.until) + 86400 if args.until else int(now()) + 1
+        label = "%s..%s" % (args.since or "", args.until or "")
+        return start, end, label
+    return month_range(args.month or None)
+
+
+def emit(obj, text, as_json):
+    if as_json:
+        print(json.dumps(obj, indent=2, ensure_ascii=False))
+    else:
+        print(text)
 
 
 def main(argv=None):
@@ -326,6 +546,19 @@ def main(argv=None):
         print("config: " + config_dir())
         print("ledger: " + data_dir())
         return 0
+    ensure_config()
+    db = open_ledger()
+    if args.sync:
+        added = sync(db, quiet=args.json)
+        if args.json and not args.summary:
+            print(json.dumps({"added": added}))
+        if not args.summary:
+            return 0
+    elif not args.no_sync:
+        sync(db, quiet=True)
+    start, end, label = pick_range(args)
+    s = summary(db, start, end, label=label)
+    emit(s, render_summary(s), args.json)
     return 0
 
 
