@@ -1,0 +1,1 @@
+{"model":"qwen3:0.6b","created_at":"2026-10-03T00:00:00Z","response":"FAKE TEXT","done":true,"done_reason":"length","context":[1,2,3],"total_duration":871996917,"load_duration":629274125,"prompt_eval_count":12,"prompt_eval_duration":42733333,"eval_count":20,"eval_duration":164709377}
