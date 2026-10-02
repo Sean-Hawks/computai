@@ -636,6 +636,116 @@ def sync_claude(db):
 SOURCES.append(("claude", sync_claude))
 
 
+# ---- Codex：~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl 和 ~/.codex/archived_sessions/
+
+def codex_home():
+    return os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
+
+
+def codex_usage_row(u, ts, uid, model, session, project):
+    """OpenAI 的 input 已含 cached，這裡扣掉，跟 Anthropic 的語意一致。"""
+    inp, cached = _int(u.get("input_tokens")), _int(u.get("cached_input_tokens"))
+    return {"source": "codex", "uid": uid, "ts": int(ts), "model": normalize_model(model),
+            "project": project, "session": session, "input": max(inp - cached, 0),
+            "cache_read": cached, "cache_write_5m": _int(u.get("cache_write_input_tokens")),
+            "cache_write_1h": 0, "output": _int(u.get("output_tokens")),
+            "reasoning": _int(u.get("reasoning_output_tokens"))}
+
+
+def parse_codex_file(path):
+    """回傳 (用量列, 額度列)。
+    用量來自 event_msg/token_count：每次回應後 Codex 會寫一筆 last_token_usage 和累計的
+    total_token_usage。累計值沒變的重複事件略過。加總起來跟 Codex 自己 state_5.sqlite 裡
+    threads.tokens_used 一致。（新版另外有 token_usage_record，但它的加總比 Codex 自己記的
+    多 2% 左右，對不上帳，所以不用。）"""
+    rows, limits = [], []
+    model, session, project = "", "", ""
+    prev = None
+    for line in read_jsonl(path):
+        if not any(k in line for k in ('"token_count"', '"turn_context"', '"session_meta"')):
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict):
+            continue
+        t, p = d.get("type"), d.get("payload")
+        if not isinstance(p, dict):
+            continue
+        if t == "session_meta":
+            session = session or p.get("id") or p.get("session_id") or ""
+            project = project or p.get("cwd") or ""
+            continue
+        if t == "turn_context":
+            model = p.get("model") or model
+            project = p.get("cwd") or project
+            continue
+        if t != "event_msg" or p.get("type") != "token_count":
+            continue
+        ts = iso_ts(d.get("timestamp"))
+        if ts is None:
+            continue
+        limits.extend(codex_limits(p.get("rate_limits"), ts))
+        info = p.get("info") or {}
+        total = info.get("total_token_usage")
+        if not isinstance(total, dict):
+            continue
+        tt = _int(total.get("total_tokens"))
+        ptt = None if prev is None else _int(prev.get("total_tokens"))
+        if ptt is not None and tt == ptt:
+            continue
+        u = info.get("last_token_usage")
+        if not isinstance(u, dict):  # 沒有單次用量就用累計值的差
+            u = total if ptt is None or tt < ptt else {k: _int(total.get(k)) - _int(prev.get(k))
+                                                       for k in total}
+        prev = total
+        # 用時間和累計值當 uid：fork 出來的 session 會複製父 session 的事件，這樣不會重複計算
+        rows.append(codex_usage_row(u, ts, "tc:%s:%d" % (d.get("timestamp"), tt), model,
+                                    session, project))
+    return rows, limits
+
+
+def codex_limits(rl, ts):
+    """rate_limits 的 primary（5 小時）和 secondary（每週）視窗。"""
+    out = []
+    if not isinstance(rl, dict):
+        return out
+    lid = rl.get("limit_id") or "codex"
+    for key in ("primary", "secondary"):
+        w = rl.get(key)
+        if not isinstance(w, dict) or w.get("used_percent") is None:
+            continue
+        name = key if lid == "codex" else "%s:%s" % (lid, key)
+        out.append({"source": "codex", "name": name, "ts": int(ts),
+                    "used_percent": float(w["used_percent"]),
+                    "window_minutes": _int(w.get("window_minutes")) or None,
+                    "resets_at": _int(w.get("resets_at")) or None,
+                    "plan": rl.get("plan_type") or ""})
+    return out
+
+
+def sync_codex(db):
+    home = codex_home()
+    paths = []
+    for sub in ("sessions", "archived_sessions"):
+        root = os.path.join(home, sub)
+        if os.path.isdir(root):
+            paths.extend(sorted(walk_files(root)))
+    added = 0
+    for path in paths:
+        if not file_changed(db, path):
+            continue
+        rows, limits = parse_codex_file(path)
+        added += add_usage(db, rows)
+        add_limits(db, limits)
+        mark_file(db, path)
+    return added
+
+
+SOURCES.append(("codex", sync_codex))
+
+
 def sync(db, only=None, quiet=False):
     added = {}
     for name, fn in SOURCES:
