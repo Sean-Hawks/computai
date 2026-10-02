@@ -54,3 +54,25 @@ class Config(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DefaultPrices(unittest.TestCase):
+    def test_default_table_parses_and_covers_seen_models(self):
+        m = helpers.load()
+        sb = helpers.Sandbox()
+        try:
+            os.makedirs(sb.config)
+            path = os.path.join(sb.config, "prices.ini")
+            with open(path, "w") as f:
+                f.write(m.DEFAULT_PRICES)
+            prices = m.load_prices(path)
+        finally:
+            sb.close()
+        for model, inp in (("claude-opus-4-8", 5), ("claude-opus-5", 5), ("claude-opus-5-5[1m]", 4),
+                           ("claude-fable-5", 10), ("claude-fable-5-1", 10), ("claude-sonnet-5-5", 2),
+                           ("claude-haiku-4-5-20251001", 1), ("gpt-5.5", 5), ("gpt-6-astra", 10),
+                           ("claude-opus-5-5@fast", 8)):
+            self.assertEqual(m.price_for(model, prices)["input"], inp, model)
+        self.assertEqual(m.price_for("claude-fable-5-1", prices)["cache_read"], 0.25)
+        self.assertEqual(m.price_for("claude-fable-5", prices)["cache_read"], 1)
+        self.assertEqual(m.price_for("gpt-5.5", prices)["cache_write_5m"], 5)  # 退回輸入價
