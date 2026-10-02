@@ -118,3 +118,46 @@ class Plans(unittest.TestCase):
         c = [r for r in self.m.simulate_plans(self.db, t=200) if r["source"] == "claude"][0]
         self.assertTrue(c["api_cheaper"])
         self.assertIn("no limit data yet", c["reason"])
+
+
+class Payback(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        os.makedirs(self.sb.config)
+        self.old = dict(os.environ)
+        os.environ["COMPUTAI_CONFIG_DIR"] = self.sb.config
+        self.m = helpers.load()
+        self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def config(self, text):
+        with open(os.path.join(self.sb.config, "config.ini"), "w") as f:
+            f.write(text)
+
+    def test_flat_price(self):
+        self.config("[power]\nprice_per_kwh = 0.2\ncurrency = USD\n")
+        r = self.m.payback(self.db, 1000, watts=500, hours_per_day=10, rent_per_hour=0.5)
+        self.assertAlmostEqual(r["rent_monthly_usd"], round(0.5 * 10 * 30.44, 2))
+        self.assertAlmostEqual(r["electricity_monthly_usd"], round(0.5 * 10 * 30.44 * 0.2, 2))
+        self.assertAlmostEqual(r["payback_months"], round(1000 / (0.5 * 10 * 30.44 * 0.8), 1))
+
+    def test_from_cloud_history_in_twd(self):
+        self.config("[power]\ntariff = tou\ncurrency = TWD\n\n[general]\nusd_to_local = 32\n")
+        self.m.record_cloud(self.db, [dict(provider="vast", id="1", name="a", status="running", billing=True,
+                                           gpu="4090", gpu_count=2, usd_per_hour=0.8, gpu_util=90)], 1000)
+        r = self.m.payback(self.db, 1600, watts=450, hours_per_day=8, t=2000)
+        self.assertEqual(r["rent_per_hour"], 0.4)             # 兩張卡 $0.8/h -> 每張 $0.4
+        # 每天 8 小時都排得進離峰：夏月 2.27、非夏月 2.15，一年平均
+        avg = (2.27 * 4 + 2.15 * 8) / 12
+        self.assertAlmostEqual(r["electricity_monthly_usd"], round(0.45 * 8 * 30.44 * avg / 32, 2))
+
+    def test_never_pays_back(self):
+        self.config("[power]\nprice_per_kwh = 5\ncurrency = USD\n")
+        r = self.m.payback(self.db, 1000, watts=1000, hours_per_day=24, rent_per_hour=0.1)
+        self.assertIsNone(r["payback_months"])
+        self.assertIn("never pays back", self.m.render_payback(r))

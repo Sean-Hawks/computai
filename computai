@@ -2654,6 +2654,69 @@ def render_plans(sims):
     return "\n".join(lines)
 
 
+def average_kwh_price(ps, hours_per_day):
+    """一度電的平均價格。時間電價就假設工作盡量排在離峰，離峰時數不夠才用到尖峰（取一年平均）。"""
+    tou = ps.get("tou")
+    if not tou:
+        return ps["price_per_kwh"]
+    total = 0.0
+    for summer in (True, False):
+        peak_h = sum(b - a for a, b in (tou["summer_hours"] if summer else tou["other_hours"]))
+        off_h = 24 - peak_h
+        on, off = (tou["summer_peak"], tou["summer_off"]) if summer else (tou["other_peak"], tou["other_off"])
+        h_off = min(hours_per_day, off_h)
+        h_on = max(hours_per_day - h_off, 0)
+        avg = (h_off * off + h_on * on) / hours_per_day if hours_per_day else off
+        months = len(tou["summer"]) if summer else 12 - len(tou["summer"])
+        total += avg * months
+    return total / 12
+
+
+def payback(db, price_usd, watts=350.0, hours_per_day=8.0, rent_per_hour=None, t=None):
+    """買一張卡要多久回本：跟租雲端 GPU 比，扣掉自己的電費。沒給租金就用帳本裡
+    過去 30 天雲端 GPU 的平均每小時花費。"""
+    t = now() if t is None else t
+    ps = power_settings()
+    source = "given"
+    if rent_per_hour is None:
+        rates = [r[0] for r in db.execute("SELECT usd_per_hour / MAX(gpu_count, 1) FROM cloud "
+                                          "WHERE billing = 1 AND ts >= ? AND usd_per_hour > 0",
+                                          (t - 30 * 86400,))]
+        if not rates:
+            return {"error": "no cloud GPU history; pass --rent-per-hour"}
+        rent_per_hour = sum(rates) / len(rates)
+        source = "your cloud GPUs, last 30 days (per GPU)"
+    days = 30.44
+    rent = rent_per_hour * hours_per_day * days
+    kwh = watts / 1000.0 * hours_per_day * days
+    elec_local = kwh * average_kwh_price(ps, hours_per_day)
+    elec = to_usd(elec_local, ps)
+    if elec is None:
+        return {"error": "set [general] usd_to_local to convert %s electricity prices" % ps["currency"]}
+    saving = rent - elec
+    return {"gpu_price_usd": price_usd, "watts": watts, "hours_per_day": hours_per_day,
+            "rent_per_hour": round(rent_per_hour, 4), "rent_source": source,
+            "rent_monthly_usd": round(rent, 2), "kwh_monthly": round(kwh, 1),
+            "electricity_monthly_usd": round(elec, 2), "saving_monthly_usd": round(saving, 2),
+            "payback_months": round(price_usd / saving, 1) if saving > 0 else None}
+
+
+def render_payback(r):
+    if r.get("error"):
+        return "Payback: " + r["error"]
+    lines = ["GPU payback: %s card, %.0f W, %g h/day" % (fmt_usd(r["gpu_price_usd"]), r["watts"], r["hours_per_day"]),
+             "  renting: %s/h (%s) = %s/month" % (fmt_usd(r["rent_per_hour"]), r["rent_source"],
+                                                  fmt_usd(r["rent_monthly_usd"])),
+             "  owning:  %.0f kWh/month = %s/month in electricity" % (r["kwh_monthly"],
+                                                                      fmt_usd(r["electricity_monthly_usd"]))]
+    if r["payback_months"] is None:
+        lines.append("  -> never pays back: electricity costs more than renting")
+    else:
+        lines.append("  -> pays for itself in %.1f months (saves %s/month)" % (
+            r["payback_months"], fmt_usd(r["saving_monthly_usd"])))
+    return "\n".join(lines)
+
+
 def analyze(db, start, end, label=""):
     return {"range": {"start": int(start), "end": int(end), "label": label},
             "cache": cache_report(db, start, end), "forecast": forecast(db),
@@ -2785,6 +2848,12 @@ def parse_args(argv=None):
                    help="don't add stream_options.include_usage to streaming OpenAI requests")
     p.add_argument("--analyze", action="store_true",
                    help="cache efficiency, month-end forecast, plan advice and off-peak savings")
+    p.add_argument("--payback", type=float, metavar="USD",
+                   help="how long a GPU costing USD takes to pay for itself versus renting one")
+    p.add_argument("--gpu-watts", type=float, default=350.0, metavar="W", help="for --payback (default 350)")
+    p.add_argument("--hours-per-day", type=float, default=8.0, metavar="H", help="for --payback (default 8)")
+    p.add_argument("--rent-per-hour", type=float, metavar="USD",
+                   help="for --payback: cloud price per GPU-hour (default: your cloud history)")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
@@ -2866,6 +2935,10 @@ def run(args, db):
         info = line_parts(db)
         emit(info, render_line(info, args.sep), args.json)
         return 0
+    if args.payback is not None:
+        r = payback(db, args.payback, args.gpu_watts, args.hours_per_day, args.rent_per_hour)
+        emit(r, render_payback(r), args.json)
+        return 0 if not r.get("error") else 1
     if args.analyze:
         if not args.no_sync:
             sync(db, quiet=True)
