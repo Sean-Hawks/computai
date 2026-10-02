@@ -46,12 +46,17 @@ class Ledger(unittest.TestCase):
             p = os.path.join(sb.root, "x.jsonl")
             with open(p, "w") as f:
                 f.write("a\n")
-            self.assertTrue(self.m.file_changed(self.db, p))
+            sig = self.m.file_changed(self.db, p)
+            self.assertIsNotNone(sig)
+            with open(p, "a") as f:          # 讀檔途中被追加
+                f.write("late\n")
+            self.m.mark_file(self.db, p, sig)
+            self.assertIsNotNone(self.m.file_changed(self.db, p))   # 下次還會再讀
             self.m.mark_file(self.db, p)
-            self.assertFalse(self.m.file_changed(self.db, p))
+            self.assertIsNone(self.m.file_changed(self.db, p))
             with open(p, "a") as f:
                 f.write("b\n")
-            self.assertTrue(self.m.file_changed(self.db, p))
+            self.assertIsNotNone(self.m.file_changed(self.db, p))
         finally:
             sb.close()
 

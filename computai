@@ -539,22 +539,25 @@ def add_limits(db, rows):
 
 
 def file_changed(db, path):
-    """檔案從上次匯入之後有沒有變過（大小或修改時間）。"""
+    """檔案從上次匯入之後有沒有變過。變過就回傳現在的 (大小, 修改時間)，沒變回傳 None。
+    要在讀檔「之前」取這個值，讀的途中被追加的內容下次才會再讀到。"""
     try:
         st = os.stat(path)
     except OSError:
-        return False
+        return None
+    sig = (st.st_size, st.st_mtime)
     row = db.execute("SELECT size, mtime FROM files WHERE path = ?", (path,)).fetchone()
-    return row is None or row["size"] != st.st_size or row["mtime"] != st.st_mtime
+    return None if row is not None and (row["size"], row["mtime"]) == sig else sig
 
 
-def mark_file(db, path):
-    try:
-        st = os.stat(path)
-    except OSError:
-        return
-    db.execute("INSERT OR REPLACE INTO files (path, size, mtime) VALUES (?,?,?)",
-               (path, st.st_size, st.st_mtime))
+def mark_file(db, path, sig=None):
+    if sig is None:
+        try:
+            st = os.stat(path)
+        except OSError:
+            return
+        sig = (st.st_size, st.st_mtime)
+    db.execute("INSERT OR REPLACE INTO files (path, size, mtime) VALUES (?,?,?)", (path,) + tuple(sig))
 
 
 # ---------------------------------------------------------------- 時間
@@ -656,10 +659,11 @@ def import_files(db, source, paths, parse):
     """只重讀有變動的檔案；parse(path) 回傳用量列。"""
     added = 0
     for path in paths:
-        if not file_changed(db, path):
+        sig = file_changed(db, path)
+        if sig is None:
             continue
         added += add_usage(db, parse(path))
-        mark_file(db, path)
+        mark_file(db, path, sig)
     return added
 
 
@@ -833,12 +837,13 @@ def sync_codex(db):
             paths.extend(sorted(walk_files(root)))
     added = 0
     for path in paths:
-        if not file_changed(db, path):
+        sig = file_changed(db, path)
+        if sig is None:
             continue
         rows, limits = parse_codex_file(path)
         added += add_usage(db, rows)
         add_limits(db, limits)
-        mark_file(db, path)
+        mark_file(db, path, sig)
     return added
 
 
