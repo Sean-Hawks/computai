@@ -16,8 +16,11 @@ __version__ = "0.1.0"
 import argparse
 import datetime
 import json
+import math
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 import unicodedata
@@ -1030,6 +1033,407 @@ def render_summary(s):
     if s["unpriced_models"]:
         lines.append("No price for: %s (add them to prices.ini)" % ", ".join(s["unpriced_models"]))
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- 機器
+#
+# 讀取機器狀態的方式移植自 slurmtop（~/Documents/slurmtop，MIT，commit 84cd35d）：
+# 遠端只跑 POSIX sh，輸出分成「@@段名」開頭的段落；本機一樣用 sh 跑同一份腳本。
+# 移植了 cpu、load、mem、gpu（nvidia-smi）、amdgpu、applegpu 這幾段和對應的 parser，
+# 拿掉 Slurm、行程、磁碟、網路。新增的 svc 段用 curl／wget 在機器自己身上探測推論服務，
+# 所以服務只聽 127.0.0.1 也讀得到，被監控的機器也不用裝任何東西。
+
+GPU_Q = "index,uuid,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw"
+GPU_FIELDS = ("idx", "uuid", "util", "mem_used", "mem_total", "temp", "power")
+
+# 推論服務的預設埠和要讀的路徑。prom 類的只留下需要的 metric，避免把整頁直方圖傳回來。
+SERVICE_KINDS = {
+    "ollama": ("/api/ps", None),
+    "llamacpp": ("/metrics", "llamacpp:(prompt_tokens_total|tokens_predicted_total|requests_processing)"),
+    "vllm": ("/metrics", "vllm:(prompt_tokens_total|generation_tokens_total|num_requests_running)"),
+    "sglang": ("/metrics", "sglang:(prompt_tokens_total|generation_tokens_total|num_running_reqs)"),
+    "lmstudio": ("/api/v0/models", None),
+    "openai": ("/v1/models", None),
+}
+DEFAULT_SERVICES = "ollama:11434, llamacpp:8080, vllm:8000, sglang:30000, lmstudio:1234"
+
+REMOTE = """
+echo '@@cpu'
+if [ -r /proc/stat ]; then
+  head -1 /proc/stat
+elif sysctl -n kern.cp_time >/dev/null 2>&1; then
+  echo "CPUTIME $(sysctl -n kern.cp_time)"
+else
+  idle=$(top -l 1 -n 0 2>/dev/null | sed -n 's/^CPU usage:.*, \\([0-9.]*\\)% idle.*/\\1/p')
+  echo "PCT $(awk -v i="${idle:-100}" 'BEGIN{printf "%.1f", 100 - i}')"
+fi
+echo '@@load'
+if [ -r /proc/loadavg ]; then
+  cut -d' ' -f1-3 /proc/loadavg
+  nproc
+else
+  sysctl -n vm.loadavg 2>/dev/null | tr -d '{}'
+  sysctl -n hw.ncpu 2>/dev/null || echo 0
+fi
+echo '@@mem'
+if command -v free >/dev/null 2>&1; then
+  free -m | awk '/^Mem:/{print $2, $3}'
+elif command -v vm_stat >/dev/null 2>&1; then
+  tot=$(( $(sysctl -n hw.memsize) / 1048576 ))
+  vm_stat | awk -v ps="$(sysctl -n hw.pagesize)" -v tot="$tot" '
+    /Pages free/ {f=$3} /Pages inactive/ {i=$3} /Pages speculative/ {s=$3}
+    END {gsub(/\\./,"",f); gsub(/\\./,"",i); gsub(/\\./,"",s)
+         printf "%d %d\\n", tot, tot - (f+i+s)*ps/1048576}'
+else
+  echo "0 0"
+fi
+echo '@@gpu'
+command -v nvidia-smi >/dev/null 2>&1 && \\
+  nvidia-smi --query-gpu=@GPU_Q@ --format=csv,noheader,nounits 2>/dev/null
+echo '@@amdgpu'
+rd() { v=$(cat "$1" 2>/dev/null); echo "${v:--}"; }
+for d in /sys/class/drm/card[0-9]*/device; do
+  case "$d" in */card*-*/device) continue ;; esac
+  [ -r "$d/gpu_busy_percent" ] && [ "$(rd "$d/vendor")" = "0x1002" ] || continue
+  hw=$(ls -d "$d"/hwmon/hwmon* 2>/dev/null | head -n 1)
+  pw=$(rd "$hw/power1_average"); [ "$pw" = - ] && pw=$(rd "$hw/power1_input")
+  echo "$(basename "$(dirname "$d")") $(rd "$d/gpu_busy_percent") $(rd "$d/mem_info_vram_used")" \\
+       "$(rd "$d/mem_info_vram_total") $(rd "$hw/temp1_input") $pw $(rd "$d/unique_id")"
+done
+echo '@@applegpu'
+command -v ioreg >/dev/null 2>&1 && \\
+  ioreg -r -d 1 -w 0 -c IOAccelerator 2>/dev/null | \\
+  grep -E '^\\+-o|"(model|PerformanceStatistics|gpu-core-count)"'
+get() {
+  if command -v curl >/dev/null 2>&1; then curl -fsS -m 2 "$1" 2>/dev/null
+  elif command -v wget >/dev/null 2>&1; then wget -qO- -T 2 "$1" 2>/dev/null
+  fi
+}
+@SERVICES@
+"""
+
+
+def service_list(spec):
+    """`ollama:11434, vllm:8000` -> [(kind, port)]；不認得的種類略過。"""
+    out = []
+    for item in (spec or "").split(","):
+        item = item.strip()
+        if ":" not in item:
+            continue
+        kind, port = item.split(":", 1)
+        kind = kind.strip().lower()
+        if kind in SERVICE_KINDS and port.strip().isdigit():
+            out.append((kind, int(port)))
+    return out
+
+
+def remote_script(services):
+    lines = []
+    for kind, port in services:
+        path, keep = SERVICE_KINDS[kind]
+        lines.append("echo '@@svc %s %d'" % (kind, port))
+        cmd = "get http://127.0.0.1:%d%s" % (port, path)
+        if keep:
+            cmd += " | grep -E '^(%s)' | head -n 200" % keep
+        else:
+            cmd += " | head -c 400000"
+        lines.append(cmd)
+        lines.append("echo")  # 回應最後沒有換行時，下一段的標題才不會黏上去
+    return REMOTE.replace("@GPU_Q@", GPU_Q).replace("@SERVICES@", "\n".join(lines))
+
+
+# 控制字元（ESC、BEL、C1…）：從別的機器讀回來的文字可能被拿來偽造終端機畫面，先去掉。
+_CTRL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def untrusted(text):
+    return _CTRL.sub("", text or "")
+
+
+def run_cmd(argv, stdin=None, timeout=20):
+    try:
+        p = subprocess.run(argv, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           text=True, timeout=timeout)
+        return p.stdout or ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+SHELL_PICK = "command -v bash >/dev/null 2>&1 && exec bash -s || exec sh -s"
+
+
+def run_script(host, script, timeout=25):
+    """在機器上跑 REMOTE。host 是 local 就在本機跑，否則用 ssh（BatchMode，不會卡在密碼）。
+    測試用 COMPUTAI_FIXTURES 指向一個目錄，讀 <目錄>/node/<host>.txt。"""
+    fx = os.environ.get("COMPUTAI_FIXTURES")
+    if fx:
+        n = _fx_calls[host] = _fx_calls.get(host, 0) + 1
+        for name in ("%s.%d.txt" % (host, n), host + ".txt"):
+            path = os.path.join(fx, "node", name)
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    return f.read()
+        return ""
+    if host == "local":
+        if os.name == "nt":
+            return local_windows(script)
+        return run_cmd(["sh", "-c", SHELL_PICK], stdin=script, timeout=timeout)
+    if host.startswith("-"):  # 不讓設定檔裡的名字被 ssh 當成選項
+        return ""
+    argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]
+    if hasattr(os, "getuid"):
+        argv += ["-o", "ControlMaster=auto",
+                 "-o", "ControlPath=/tmp/.computai-%d-%%r@%%h:%%p" % os.getuid(),
+                 "-o", "ControlPersist=120"]
+    return run_cmd(argv + ["--", host, "sh -c '%s'" % SHELL_PICK], stdin=script, timeout=timeout)
+
+
+_fx_calls = {}
+
+
+def local_windows(script):
+    """Windows 本機沒有 sh：記憶體用 ctypes，GPU 用 nvidia-smi，服務用 urllib，組成同樣的段落。"""
+    out = ["@@cpu", "@@load", "0 0 0", str(os.cpu_count() or 0), "@@mem"]
+    try:
+        import ctypes
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong)] + \
+                       [(n, ctypes.c_ulonglong) for n in (
+                           "ullTotalPhys", "ullAvailPhys", "ullTotalPageFile", "ullAvailPageFile",
+                           "ullTotalVirtual", "ullAvailVirtual", "ullAvailExtendedVirtual")]
+        st = MEMORYSTATUSEX()
+        st.dwLength = ctypes.sizeof(st)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st))
+        out.append("%d %d" % (st.ullTotalPhys // 1048576, (st.ullTotalPhys - st.ullAvailPhys) // 1048576))
+    except Exception:
+        out.append("0 0")
+    out.append("@@gpu")
+    smi = shutil.which("nvidia-smi")
+    if smi:
+        out.append(run_cmd([smi, "--query-gpu=" + GPU_Q, "--format=csv,noheader,nounits"]).strip())
+    for m in re.finditer(r"@@svc (\w+) (\d+)", script):
+        kind, port = m.group(1), int(m.group(2))
+        path, keep = SERVICE_KINDS[kind]
+        body = http_get("http://127.0.0.1:%d%s" % (port, path), timeout=2) or ""
+        if keep:
+            body = "\n".join(ln for ln in body.splitlines() if re.match("^(%s)" % keep, ln))
+        out += ["@@svc %s %d" % (kind, port), body[:400000]]
+    return "\n".join(out) + "\n"
+
+
+def http_get(url, timeout=3, headers=None):
+    import urllib.request
+    try:
+        req = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read(4 << 20).decode("utf-8", "replace")
+    except Exception:
+        return None
+
+
+def sections(out):
+    """依「@@段名」切開；段名後面可以帶參數（`@@svc ollama 11434`）。"""
+    secs, cur = {}, None
+    for ln in out.splitlines():
+        m = re.match(r"^@@(\w+(?: [\w.-]+)*)\s*$", ln)
+        if m:
+            cur = m.group(1)
+            secs[cur] = []
+        elif cur:
+            secs[cur].append(ln)
+    return {k: "\n".join(v).strip() for k, v in secs.items()}
+
+
+def num(s):
+    """nvidia-smi 的數值欄位：[N/A]、[Not Supported]、空字串都當 None。"""
+    try:
+        v = float((s or "").strip())
+    except ValueError:
+        return None
+    return v if math.isfinite(v) else None
+
+
+def _gpu(idx, vendor, util=None, mem_used=None, mem_total=None, temp=None, power=None, model=None):
+    return {"idx": str(idx), "vendor": vendor, "util": util, "mem_used": mem_used,
+            "mem_total": mem_total, "temp": temp, "power": power, "model": model}
+
+
+def parse_gpu(line):
+    f = [x.strip() for x in line.split(",")]
+    if not f[0].isdigit():
+        return None
+    f += [""] * (len(GPU_FIELDS) - len(f))
+    g = _gpu(f[0], "nvidia")
+    for k, v in zip(GPU_FIELDS[2:], f[2:]):
+        g[k] = num(v)
+    return g
+
+
+def parse_amdgpu(text, start=0):
+    def val(x, scale=1.0):
+        v = num(x)
+        return None if v is None else v / scale
+    lines = [ln.split() for ln in (text or "").splitlines()]
+    lines = [f for f in lines if len(f) >= 6 and re.match(r"^card\d+$", f[0])]
+    lines.sort(key=lambda f: int(f[0][4:]))
+    return [_gpu(start + i, "amd", val(f[1]), val(f[2], 1048576), val(f[3], 1048576),
+                 val(f[4], 1000), val(f[5], 1e6)) for i, f in enumerate(lines)]
+
+
+def parse_ioreg(text, mem_total_mib=None, start=0):
+    """Apple Silicon 的使用率在 "Device Utilization %"，記憶體是共用的統一記憶體。
+    溫度和功耗要 sudo powermetrics 才讀得到，這裡是 None。"""
+    blocks = []
+    for ln in (text or "").splitlines():
+        if ln.startswith("+-o"):
+            blocks.append({})
+        elif blocks:
+            m = re.search(r'"(model|gpu-core-count)"\s*=\s*(?:<?"?)([^">]*)', ln)
+            if m:
+                blocks[-1][m.group(1)] = m.group(2).strip()
+            if '"PerformanceStatistics"' in ln:
+                blocks[-1]["stats"] = {k: float(v) for k, v in
+                                       re.findall(r'"([^"]+)"=(\d+(?:\.\d+)?)', ln)}
+    gpus = []
+    for b in blocks:
+        st = b.get("stats")
+        if st is None:
+            continue
+        util = st.get("Device Utilization %", st.get("GPU Activity(%)"))
+        if "vramUsedBytes" in st:
+            used = st["vramUsedBytes"] / 1048576
+            total = used + st.get("vramFreeBytes", 0) / 1048576
+        else:
+            used = st["In use system memory"] / 1048576 if "In use system memory" in st else None
+            total = mem_total_mib or None
+        model = b.get("model") or None
+        if model and b.get("gpu-core-count"):
+            model += " %s-core" % b["gpu-core-count"]
+        gpus.append(_gpu(start + len(gpus), "apple", util, used, total,
+                         st.get("Temperature(C)"), st.get("Total Power(W)"), model))
+    return gpus
+
+
+def parse_cpu(line):
+    """回傳 ("pct", 百分比) 或 ("raw", [累計值], 閒置欄位)。累計值要跟上一筆相減才是 CPU%。"""
+    f = (line or "").split()
+    if not f:
+        return None
+    try:
+        if f[0] == "PCT":
+            return ("pct", max(0.0, min(100.0, float(f[1]))))
+        vals = [int(x) for x in f[1:]]
+    except (ValueError, IndexError):
+        return None
+    return ("raw", vals, (4,) if f[0] == "CPUTIME" else (3, 4))
+
+
+def cpu_pct(cur, prev):
+    if not cur:
+        return None
+    if cur[0] == "pct":
+        return cur[1]
+    if not prev or prev[0] != "raw" or len(prev[1]) != len(cur[1]):
+        return None
+    idle_d = sum(cur[1][i] - prev[1][i] for i in cur[2])
+    tot_d = sum(cur[1]) - sum(prev[1])
+    return max(0.0, min(100.0, 100.0 * (tot_d - idle_d) / tot_d)) if tot_d > 0 else None
+
+
+def snapshot(host, services):
+    """一台機器的一次取樣：CPU、記憶體、GPU、推論服務。連不上回傳 None。"""
+    secs = sections(untrusted(run_script(host, remote_script(services))))
+    if "mem" not in secs:
+        return None
+    d = {"cpu": parse_cpu((secs.get("cpu") or "").splitlines()[0] if secs.get("cpu") else "")}
+    try:
+        mt, mu = secs.get("mem", "").split()[:2]
+        d["mem_total"], d["mem_used"] = int(mt), int(mu)
+    except ValueError:
+        d["mem_total"] = d["mem_used"] = 0
+    gpus = [g for g in map(parse_gpu, secs.get("gpu", "").splitlines()) if g]
+    gpus += parse_amdgpu(secs.get("amdgpu", ""), len(gpus))
+    gpus += parse_ioreg(secs.get("applegpu", ""), d["mem_total"], len(gpus))
+    d["gpus"] = gpus
+    d["services"] = []
+    for key, body in secs.items():
+        if key.startswith("svc "):
+            _, kind, port = key.split()
+            svc = parse_service(kind, int(port), body)
+            if svc:
+                d["services"].append(svc)
+    return d
+
+
+PROM_LINE = re.compile(r'^([a-zA-Z_:][\w:]*)(\{[^}]*\})?\s+([-+0-9.eE]+|NaN|\+Inf)')
+PROM_NAMES = {
+    "prompt_tokens_total": "prompt", "generation_tokens_total": "generation",
+    "tokens_predicted_total": "generation", "num_requests_running": "running",
+    "num_running_reqs": "running", "requests_processing": "running",
+}
+
+
+def parse_prom(text):
+    """Prometheus 文字格式 -> {(短名, 模型): 值}，同名不同 label 的加總。"""
+    out = {}
+    for ln in (text or "").splitlines():
+        m = PROM_LINE.match(ln.strip())
+        if not m:
+            continue
+        name = m.group(1).split(":", 1)[-1]
+        short = PROM_NAMES.get(name)
+        if not short:
+            continue
+        model = ""
+        lm = re.search(r'model_name="([^"]*)"', m.group(2) or "")
+        if lm:
+            model = lm.group(1)
+        v = num(m.group(3))
+        if v is None:
+            continue
+        out[(short, model)] = out.get((short, model), 0.0) + v
+    return out
+
+
+def parse_service(kind, port, body):
+    """推論服務的回應 -> {kind, port, models: [{name, vram_mb}], counters: {model: {prompt, generation}},
+    running}。沒有回應（服務沒開）回傳 None。"""
+    body = (body or "").strip()
+    if not body:
+        return None
+    svc = {"kind": kind, "port": port, "models": [], "counters": {}, "running": None}
+    if kind in ("ollama", "lmstudio", "openai"):
+        try:
+            d = json.loads(body)
+        except ValueError:
+            return None
+        if not isinstance(d, dict):
+            return None
+        if kind == "ollama":
+            for mo in d.get("models") or []:
+                if isinstance(mo, dict):
+                    svc["models"].append({"name": str(mo.get("name") or mo.get("model") or "?"),
+                                          "vram_mb": round(_int(mo.get("size_vram")) / 1048576),
+                                          "expires_at": iso_ts(mo.get("expires_at"))})
+        else:
+            for mo in d.get("data") or []:
+                if not isinstance(mo, dict):
+                    continue
+                if kind == "lmstudio" and mo.get("state") != "loaded":
+                    continue
+                svc["models"].append({"name": str(mo.get("id") or "?"), "vram_mb": None})
+        return svc
+    vals = parse_prom(body)
+    if not vals:
+        return None
+    for (short, model), v in vals.items():
+        if short == "running":
+            svc["running"] = (svc["running"] or 0) + v
+        else:
+            svc["counters"].setdefault(model or kind, {})[short] = v
+    svc["models"] = [{"name": n, "vram_mb": None} for n in sorted(svc["counters"])]
+    return svc
 
 
 # ---------------------------------------------------------------- 一行顯示
