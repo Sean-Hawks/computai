@@ -17,6 +17,7 @@ class Summary(unittest.TestCase):
             time.tzset()
         self.m = helpers.load()
         self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
 
     def test_cost_and_plan_ratio(self):
         start, end, label = self.m.month_range("2026-09")
