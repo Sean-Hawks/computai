@@ -71,6 +71,156 @@ DEFAULT_PRICES = """\
 # Section names are model ids. A model with no exact section uses the longest
 # section name that is a prefix of it (claude-opus-5-5-20270101 -> claude-opus-5-5).
 # Keys: input, output, cache_read, cache_write_5m, cache_write_1h, checked, source.
+# A missing cache price falls back to the input price.
+# Fast mode is priced as "<model>@fast".
+
+[claude-fable-5-1]
+input = 10
+output = 50
+cache_write_5m = 12.5
+cache_write_1h = 20
+cache_read = 0.25
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-fable-5]
+input = 10
+output = 50
+cache_write_5m = 12.5
+cache_write_1h = 20
+cache_read = 1
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-opus-5-5]
+input = 4
+output = 20
+cache_write_5m = 5
+cache_write_1h = 8
+cache_read = 0.2
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-opus-5-5@fast]
+input = 8
+output = 40
+cache_write_5m = 10
+cache_write_1h = 16
+cache_read = 0.4
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-opus-5]
+input = 5
+output = 25
+cache_write_5m = 6.25
+cache_write_1h = 10
+cache_read = 0.5
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-opus-5@fast]
+input = 10
+output = 50
+cache_write_5m = 12.5
+cache_write_1h = 20
+cache_read = 1
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-opus-4]
+# Opus 4.6, 4.7 and 4.8
+input = 5
+output = 25
+cache_write_5m = 6.25
+cache_write_1h = 10
+cache_read = 0.5
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-opus-4-8@fast]
+input = 10
+output = 50
+cache_write_5m = 12.5
+cache_write_1h = 20
+cache_read = 1
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-sonnet-5]
+# Sonnet 5 and 5.5
+input = 2
+output = 10
+cache_write_5m = 2.5
+cache_write_1h = 4
+cache_read = 0.2
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-sonnet-4]
+input = 3
+output = 15
+cache_write_5m = 3.75
+cache_write_1h = 6
+cache_read = 0.3
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[claude-haiku-4]
+input = 1
+output = 5
+cache_write_5m = 1.25
+cache_write_1h = 2
+cache_read = 0.1
+checked = 2026-10-03
+source = https://platform.claude.com/docs/en/about-claude/pricing
+
+# OpenAI: "input" is the uncached input price. Models without a cache-write
+# price on the pricing page bill cache writes as normal input.
+
+[gpt-6-astra]
+# Prices for prompts up to 272K tokens; longer prompts cost more.
+input = 10
+output = 50
+cache_read = 1
+cache_write_5m = 12.5
+checked = 2026-10-03
+source = https://developers.openai.com/api/docs/pricing
+
+[gpt-5.6-sol]
+input = 4
+output = 20
+cache_read = 0.4
+cache_write_5m = 5
+checked = 2026-10-03
+source = https://developers.openai.com/api/docs/pricing
+
+[gpt-5.5]
+input = 5
+output = 30
+cache_read = 0.5
+checked = 2026-10-03
+source = https://developers.openai.com/api/docs/pricing
+
+[gpt-5.4]
+input = 2.5
+output = 15
+cache_read = 0.25
+checked = 2026-10-03
+source = https://developers.openai.com/api/docs/pricing
+
+[gpt-5.3-codex]
+input = 1.75
+output = 14
+cache_read = 0.175
+checked = 2026-10-03
+source = https://developers.openai.com/api/docs/pricing
+
+# Local models cost nothing per token; their cost is electricity (see [power]).
+[local]
+input = 0
+output = 0
+checked = 2026-10-03
 """
 
 
