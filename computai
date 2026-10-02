@@ -873,7 +873,7 @@ def fmt_dur(sec):
         return "%dd%dh" % (d, h)
     if h:
         return "%dh%02dm" % (h, m)
-    return "%dm" % m
+    return "%dm" % m if m else "%ds" % sec
 
 
 def window_label(minutes):
