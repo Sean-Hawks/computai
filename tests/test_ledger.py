@@ -22,6 +22,12 @@ class Ledger(unittest.TestCase):
         n = self.db.execute("SELECT COUNT(*), SUM(input) FROM usage").fetchone()
         self.assertEqual(tuple(n), (3, 30))
 
+    def test_partial_record_grows(self):
+        self.m.add_usage(self.db, [self.row("a", output=8)])
+        self.assertEqual(self.m.add_usage(self.db, [self.row("a", output=377)]), 1)
+        self.assertEqual(self.m.add_usage(self.db, [self.row("a", output=8)]), 0)  # 不會縮回去
+        self.assertEqual(self.db.execute("SELECT output FROM usage").fetchone()[0], 377)
+
     def test_same_uid_different_source(self):
         self.m.add_usage(self.db, [self.row("a"), self.row("a", source="other")])
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM usage").fetchone()[0], 2)
