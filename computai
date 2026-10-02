@@ -3663,9 +3663,10 @@ ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", 
 
 
 def run(args, db):
-    if args.payback is None and not any(getattr(args, a) for a in ACTIONS) and not args.json \
-            and sys.stdout.isatty() and sys.stdin.isatty():
-        args.live = True  # 在終端機裡直接打 computai 就是 live 畫面
+    asked = (args.payback is not None or any(getattr(args, a) for a in ACTIONS) or args.json
+             or args.html or args.month is not None or args.since or args.until or args.by != "model")
+    if not asked and sys.stdout.isatty() and sys.stdin.isatty():
+        args.live = True  # 在終端機裡只打 computai 就是 live 畫面；帶了其他選項就照選項做
     if args.live:
         db.close()
         return run_live(args.interval, args.sample_every)

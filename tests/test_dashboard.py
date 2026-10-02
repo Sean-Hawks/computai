@@ -153,3 +153,27 @@ class Report(unittest.TestCase):
         html = m.render_report_html(r)
         self.assertNotIn("<script>", html)
         self.assertIn("&lt;script&gt;", html)
+
+
+class DefaultAction(unittest.TestCase):
+    def test_only_bare_command_goes_live(self):
+        m = helpers.load()
+        called = []
+        m.run_live = lambda *a: called.append("live") or 0
+        m.sys.stdout.isatty = lambda: True
+        m.sys.stdin.isatty = lambda: True
+        m.summary = lambda *a, **k: called.append("summary") or {"sources": []}
+        db = m.open_ledger(":memory:")
+        try:
+            m.run(m.parse_args([]), db)
+            self.assertEqual(called, ["live"])
+            for argv in (["--month", "2026-09"], ["--by", "project"]):
+                called[:] = []
+                m.sync = lambda *a, **k: {}
+                try:
+                    m.run(m.parse_args(argv + ["--no-sync"]), m.open_ledger(":memory:"))
+                except Exception:
+                    pass
+                self.assertNotIn("live", called, argv)
+        finally:
+            db.close()
