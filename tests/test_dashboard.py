@@ -160,8 +160,12 @@ class DefaultAction(unittest.TestCase):
         m = helpers.load()
         called = []
         m.run_live = lambda *a: called.append("live") or 0
-        m.sys.stdout.isatty = lambda: True
-        m.sys.stdin.isatty = lambda: True
+        import sys
+        real = (sys.stdout, sys.stdin)
+        tty = type("Tty", (), {"isatty": lambda self: True, "write": lambda self, s: None,
+                               "flush": lambda self: None})()
+        sys.stdout = sys.stdin = tty
+        self.addCleanup(lambda: setattr(sys, "stdout", real[0]) or setattr(sys, "stdin", real[1]))
         m.summary = lambda *a, **k: called.append("summary") or {"sources": []}
         db = m.open_ledger(":memory:")
         try:
