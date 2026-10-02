@@ -17,8 +17,10 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
 import time
+import unicodedata
 
 
 # ---------------------------------------------------------------- 路徑
@@ -823,6 +825,93 @@ def summary(db, start, end, prices=None, plan_table=None, label=""):
             "unpriced_models": sorted(unpriced)}
 
 
+BREAKDOWNS = {
+    "project": "project",
+    "session": "session",
+    "day": "date(ts, 'unixepoch', 'localtime')",
+}
+
+
+def breakdown(db, start, end, by, prices=None):
+    """依專案、session 或日期拆開的花費。每一組都按模型分別換算再加總。"""
+    prices = load_prices() if prices is None else prices
+    key = BREAKDOWNS[by]
+    q = ("SELECT source, %s AS k, model, SUM(requests) AS requests, %s, SUM(cost_usd) AS cost_usd, "
+         "COUNT(cost_usd) AS n_cost, COUNT(*) AS n, SUM(subagent * requests) AS sub "
+         "FROM usage WHERE ts >= ? AND ts < ? GROUP BY source, k, model"
+         % (key, ", ".join("SUM(%s) AS %s" % (c, c) for c in TOKEN_COLS)))
+    groups = {}
+    for row in db.execute(q, (start, end)):
+        r = dict(row)
+        if r["n_cost"] != r["n"]:
+            r["cost_usd"] = None
+        cost = row_cost(r, price_for(r["model"], prices))
+        g = groups.setdefault((r["source"], r["k"]), dict(
+            {"source": r["source"], by: r["k"] or "", "requests": 0, "subagent_requests": 0,
+             "cost_usd": 0.0, "models": []}, **dict.fromkeys(TOKEN_COLS, 0)))
+        g["requests"] += r["requests"] or 0
+        g["subagent_requests"] += r["sub"] or 0
+        for c in TOKEN_COLS:
+            g[c] += r[c] or 0
+        g["cost_usd"] += cost or 0.0
+        g["models"].append(r["model"])
+    out = list(groups.values())
+    if by == "day":
+        out.sort(key=lambda g: (g["day"], g["source"]))
+    else:
+        out.sort(key=lambda g: -g["cost_usd"])
+    for g in out:
+        g["cost_usd"] = round(g["cost_usd"], 4)
+    return out
+
+
+def short_path(p, n=2):
+    parts = [x for x in p.replace("\\", "/").split("/") if x]
+    return "/".join(parts[-n:]) if parts else (p or "?")
+
+
+def render_breakdown(groups, by, limit=30):
+    lines = ["%-30s %-7s %8s %8s %9s %8s %10s" % ("by " + by, "source", "requests", "input",
+                                                "cache rd", "output", "API equiv")]
+    for g in groups[:limit] if by != "day" else groups:
+        label = short_path(g[by]) if by == "project" else (g[by] or "?")
+        lines.append("%s %-7s %8s %8s %9s %8s %10s" % (
+            cell(label, 30, tail=True), g["source"], fmt_tok(g["requests"]), fmt_tok(g["input"]),
+            fmt_tok(g["cache_read"]), fmt_tok(g["output"]), fmt_usd(g["cost_usd"])))
+    if by != "day" and len(groups) > limit:
+        lines.append("... %d more (use --json for all)" % (len(groups) - limit))
+    return "\n".join(lines)
+
+
+# 顯示寬度的小工具移植自 slurmtop（~/Documents/slurmtop，commit 84cd35d）的 vlen/pad/clip，
+# 拿掉了色碼處理以外的部分。全形字佔兩格，對齊時要算進去。
+
+ANSI = re.compile(r"\033\[[0-9;?]*[a-zA-Z]")
+
+
+def vlen(s):
+    w = 0
+    for ch in ANSI.sub("", s):
+        w += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+    return w
+
+
+def cell(s, width, tail=False):
+    """固定寬度欄位：太長就裁掉（tail=True 保留尾巴，適合路徑），太短補空白。"""
+    s = s or ""
+    if vlen(s) > width:
+        chars = list(reversed(s)) if tail else list(s)
+        out, w = [], 0
+        for ch in chars:
+            cw = vlen(ch)
+            if w + cw > width:
+                break
+            out.append(ch)
+            w += cw
+        s = "".join(reversed(out)) if tail else "".join(out)
+    return s + " " * (width - vlen(s))
+
+
 def fmt_tok(n):
     n = n or 0
     for div, suf in ((1e9, "B"), (1e6, "M"), (1e3, "k")):
@@ -852,8 +941,8 @@ def render_summary(s):
     for src in s["sources"]:
         lines.append(src["source"])
         for m in src["models"]:
-            lines.append("  %-24s %8s %8s %9s %9s %8s %10s" % (
-                (m["model"] or "?")[:24], fmt_tok(m["requests"]), fmt_tok(m["input"]),
+            lines.append("  %s %8s %8s %9s %9s %8s %10s" % (
+                cell(m["model"] or "?", 24), fmt_tok(m["requests"]), fmt_tok(m["input"]),
                 fmt_tok(m["cache_read"]), fmt_tok(m["cache_write_5m"] + m["cache_write_1h"]),
                 fmt_tok(m["output"]), fmt_usd(m["cost_usd"])))
         t = src["totals"]
@@ -887,6 +976,8 @@ def parse_args(argv=None):
                    help="limit to a month (default: this month)")
     p.add_argument("--since", metavar="YYYY-MM-DD", help="start of the range")
     p.add_argument("--until", metavar="YYYY-MM-DD", help="end of the range (inclusive)")
+    p.add_argument("--by", choices=["model"] + sorted(BREAKDOWNS), default="model",
+                   help="break the summary down by model (default), project, session or day")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     return p.parse_args(argv)
@@ -933,7 +1024,11 @@ def run(args, db):
         sync(db, quiet=True)
     start, end, label = pick_range(args)
     s = summary(db, start, end, label=label)
-    emit(s, render_summary(s), args.json)
+    text = render_summary(s)
+    if args.by != "model":
+        s["by_" + args.by] = breakdown(db, start, end, args.by)
+        text += "\n\n" + render_breakdown(s["by_" + args.by], args.by)
+    emit(s, text, args.json)
     return 0
 
 
