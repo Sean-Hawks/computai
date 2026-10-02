@@ -1,8 +1,6 @@
 __pycache__/
 *.pyc
 .env
-.env.*
 .dev.vars
 *.sqlite
-*.sqlite-*
-config.local.*
+*.db

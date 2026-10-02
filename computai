@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""ComputAI - where your compute and AI money goes.
+
+One ledger for Claude, Codex, local models, homelab machines and cloud GPUs:
+tokens, GPU hours, kWh and money, side by side.
+
+    computai --sync                  # import new usage into the ledger
+    computai --summary --month       # this month's totals
+    computai --summary --since 2026-09-01 --json
+
+Python 3.8+, standard library only. Remote machines only need SSH and sh.
+"""
+
+__version__ = "0.1.0"
+
+import argparse
+import json
+import os
+import sys
+
+
+# ---------------------------------------------------------------- 路徑
+
+def config_dir():
+    """設定檔目錄：COMPUTAI_CONFIG_DIR > XDG_CONFIG_HOME > ~/.config（Windows 用 %APPDATA%）。"""
+    d = os.environ.get("COMPUTAI_CONFIG_DIR")
+    if d:
+        return d
+    if os.name == "nt" and os.environ.get("APPDATA"):
+        return os.path.join(os.environ["APPDATA"], "computai")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "computai")
+
+
+def data_dir():
+    """帳本目錄：COMPUTAI_DATA_DIR > XDG_DATA_HOME > ~/.local/share（Windows 用 %LOCALAPPDATA%）。"""
+    d = os.environ.get("COMPUTAI_DATA_DIR")
+    if d:
+        return d
+    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        return os.path.join(os.environ["LOCALAPPDATA"], "computai")
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, "computai")
+
+
+# ---------------------------------------------------------------- 指令
+
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(
+        prog="computai",
+        description="ComputAI - where your compute and AI money goes.")
+    p.add_argument("--version", action="version", version="computai " + __version__)
+    p.add_argument("--paths", action="store_true", help="print config and ledger locations")
+    return p.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    if args.paths:
+        print("config: " + config_dir())
+        print("ledger: " + data_dir())
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
