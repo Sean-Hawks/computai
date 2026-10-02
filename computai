@@ -483,7 +483,7 @@ def add_usage(db, rows):
             " + usage.cache_write_5m + usage.cache_write_1h)"
     sql = "INSERT INTO usage (%s) VALUES (%s) ON CONFLICT (source, uid) DO UPDATE SET %s WHERE %s" % (
         ",".join(USAGE_COLS), ",".join("?" * len(USAGE_COLS)),
-        ", ".join("%s = excluded.%s" % (c, c) for c in TOKEN_COLS), grown)
+        ", ".join("%s = excluded.%s" % (c, c) for c in TOKEN_COLS + ("requests",)), grown)
     before = db.total_changes
     defaults = {"model": "", "project": "", "session": "", "requests": 1, "subagent": 0,
                 "cost_usd": None}
@@ -2033,8 +2033,9 @@ class ApiError(Exception):
     pass
 
 
-def api_json(provider, name, url, key, body=None):
-    """呼叫一個 API 回傳 JSON。測試用 COMPUTAI_FIXTURES/http/<provider>-<name>.json 代替。"""
+def api_json(provider, name, url, key, body=None, headers=None):
+    """呼叫一個 API 回傳 JSON。測試用 COMPUTAI_FIXTURES/http/<provider>-<name>.json 代替
+    （分頁的第 n 頁是 <provider>-<name>-<n>.json）。"""
     fx = os.environ.get("COMPUTAI_FIXTURES")
     if fx:
         path = os.path.join(fx, "http", "%s-%s.json" % (provider, name))
@@ -2044,8 +2045,8 @@ def api_json(provider, name, url, key, body=None):
             return json.load(f)
     import urllib.error
     import urllib.request
-    headers = {"Authorization": "Bearer " + key, "Accept": "application/json",
-               "User-Agent": "computai/" + __version__}
+    headers = dict(headers or {"Authorization": "Bearer " + key}, Accept="application/json")
+    headers["User-Agent"] = "computai/" + __version__
     data = None
     if body is not None:
         data = json.dumps(body).encode()
@@ -2269,6 +2270,97 @@ def sample_clouds(db, only=None):
     for e in errors:
         warn(e)
     return insts, errors
+
+
+# ---- 組織的 API 用量（Anthropic、OpenAI 的 admin API）
+#
+# 只有組織帳號的 Admin key 能用，訂閱（Pro/Max、ChatGPT Plus/Pro）的用量不在這裡。
+# 金鑰：ANTHROPIC_ADMIN_KEY、OPENAI_ADMIN_KEY。每次同步拿最近 31 天的每日彙總，
+# 今天這種還在變的日子，數字變大時會覆蓋舊的（見 add_usage）。
+
+def api_days(db, source, days=31):
+    """從上次同步的前一天開始抓；第一次抓 31 天。"""
+    row = db.execute("SELECT value FROM meta WHERE key = ?", ("api_since:" + source,)).fetchone()
+    start = now() - days * 86400
+    if row:
+        start = max(start, float(row["value"]) - 86400)
+    return int(start // 86400 * 86400)
+
+
+def mark_api(db, source):
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", ("api_since:" + source, str(int(now()))))
+
+
+def sync_anthropic_api(db):
+    key = secret("ANTHROPIC_ADMIN_KEY")
+    if not key and not os.environ.get("COMPUTAI_FIXTURES"):
+        return 0
+    start = api_days(db, "anthropic-api")
+    params = "starting_at=%s&bucket_width=1d&group_by[]=model&limit=31" % time.strftime(
+        "%Y-%m-%dT00:00:00Z", time.gmtime(start))
+    headers = {"x-api-key": key or "", "anthropic-version": "2023-06-01"}
+    rows, page, n = [], None, 0
+    while True:
+        n += 1
+        url = "https://api.anthropic.com/v1/organizations/usage_report/messages?" + params
+        if page:
+            import urllib.parse
+            url += "&page=" + urllib.parse.quote(str(page))
+        d = api_json("anthropic", "usage" + ("-%d" % n if n > 1 else ""), url, key, headers=headers)
+        for b in d.get("data") or []:
+            ts = iso_ts(b.get("starting_at"))
+            for r in b.get("results") or []:
+                cc = r.get("cache_creation") or {}
+                model = r.get("model") or "?"
+                rows.append({"source": "anthropic-api", "uid": "%s:%s" % (b.get("starting_at"), model),
+                             "ts": int(ts or 0), "model": normalize_model(model), "project": "api",
+                             "input": _int(r.get("uncached_input_tokens")),
+                             "cache_read": _int(r.get("cache_read_input_tokens")),
+                             "cache_write_5m": _int(cc.get("ephemeral_5m_input_tokens")),
+                             "cache_write_1h": _int(cc.get("ephemeral_1h_input_tokens")),
+                             "output": _int(r.get("output_tokens")), "requests": 0})
+        page = d.get("next_page")
+        if not d.get("has_more") or not page or n >= 20:
+            break
+    added = add_usage(db, rows)
+    mark_api(db, "anthropic-api")
+    return added
+
+
+def sync_openai_api(db):
+    key = secret("OPENAI_ADMIN_KEY")
+    if not key and not os.environ.get("COMPUTAI_FIXTURES"):
+        return 0
+    start = api_days(db, "openai-api")
+    rows, page, n = [], None, 0
+    while True:
+        n += 1
+        url = ("https://api.openai.com/v1/organization/usage/completions?start_time=%d"
+               "&bucket_width=1d&group_by=model&limit=31" % start)
+        if page:
+            import urllib.parse
+            url += "&page=" + urllib.parse.quote(str(page))
+        d = api_json("openai", "usage" + ("-%d" % n if n > 1 else ""), url, key)
+        for b in d.get("data") or []:
+            t0 = _int(b.get("start_time"))
+            for r in b.get("results") or []:
+                model = r.get("model") or "?"
+                inp, cached = _int(r.get("input_tokens")), _int(r.get("input_cached_tokens"))
+                rows.append({"source": "openai-api", "uid": "%d:%s:%s" % (t0, model, r.get("batch")),
+                             "ts": t0, "model": normalize_model(model), "project": "api",
+                             "input": max(inp - cached, 0), "cache_read": cached,
+                             "output": _int(r.get("output_tokens")),
+                             "requests": _int(r.get("num_model_requests"))})
+        page = d.get("next_page")
+        if not d.get("has_more") or not page or n >= 20:
+            break
+    added = add_usage(db, rows)
+    mark_api(db, "openai-api")
+    return added
+
+
+SOURCES.append(("anthropic-api", sync_anthropic_api))
+SOURCES.append(("openai-api", sync_openai_api))
 
 
 # ---------------------------------------------------------------- 一行顯示
