@@ -1759,6 +1759,7 @@ def machine_report(db, start, end, ps=None):
                          "COUNT(*) AS n FROM usage WHERE source = 'local' AND project = ? "
                          "AND ts >= ? AND ts < ?", (name, start, end)).fetchone()
         kwh = energy / 3.6e6
+        ai_cost = cost * (ai_energy / energy) if energy else 0.0
         last = db.execute("SELECT loaded FROM samples WHERE machine = ? ORDER BY ts DESC LIMIT 1",
                           (name,)).fetchone()
         out.append({
@@ -1773,6 +1774,8 @@ def machine_report(db, start, end, ps=None):
             "input_tokens": tok["i"], "output_tokens": tok["o"], "requests": tok["n"],
             "j_per_token": round(ai_energy / tok["o"], 3) if tok["o"] and ai_energy else None,
             "ai_peak_kwh": round(ai_peak_j / 3.6e6, 4),
+            "usd_per_mtok": (round(to_usd(ai_cost, ps) / tok["o"] * 1e6, 4)
+                             if tok["o"] and ai_energy and to_usd(ai_cost, ps) is not None else None),
             "offpeak_saving": round(peak_saving, 4),
         })
     return out
@@ -2717,15 +2720,28 @@ def render_payback(r):
     return "\n".join(lines)
 
 
+def render_energy(report):
+    lines = []
+    for r in report:
+        if r.get("usd_per_mtok") is not None:
+            lines.append("  %s: local inference costs %s per 1M output tokens in electricity (%.2f J/token)"
+                         % (r["machine"], fmt_usd(r["usd_per_mtok"]), r["j_per_token"] or 0))
+        if r.get("offpeak_saving"):
+            lines.append("  %s: %.2f kWh of AI work ran at peak price; moving it off-peak saves %.2f %s"
+                         % (r["machine"], r["ai_peak_kwh"], r["offpeak_saving"], r["currency"]))
+    return "Energy\n" + "\n".join(lines) if lines else ""
+
+
 def analyze(db, start, end, label=""):
     return {"range": {"start": int(start), "end": int(end), "label": label},
             "cache": cache_report(db, start, end), "forecast": forecast(db),
-            "plans": simulate_plans(db)}
+            "plans": simulate_plans(db), "machines": machine_report(db, start, end)}
 
 
 def render_analysis(a):
     parts = ["ComputAI analysis  %s" % a["range"]["label"], render_forecast(a["forecast"]),
-             render_plans(a["plans"]), render_cache(a["cache"])]
+             render_plans(a["plans"]), render_cache(a["cache"]), render_energy(a["machines"])]
+    parts = [p for p in parts if p]
     return "\n\n".join(parts)
 
 

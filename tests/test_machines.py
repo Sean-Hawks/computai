@@ -113,6 +113,7 @@ class Sampling(unittest.TestCase):
         self.assertEqual(rep["currency"], "TWD")
         self.assertAlmostEqual(rep["energy_cost_usd"], round(joules / 3.6e6 * 3.0 / 30, 4), 4)
         self.assertAlmostEqual(rep["j_per_token"], round(joules / 6000, 3))
+        self.assertAlmostEqual(rep["usd_per_mtok"], round(joules / 3.6e6 * 3.0 / 30 / 6000 * 1e6, 4), 3)
         self.assertIn("gpubox", self.m.render_machines([rep]))
 
     def test_counter_reset(self):
@@ -196,3 +197,4 @@ class Tariff(unittest.TestCase):
         kwh = 1000 * 600 / 3.6e6
         self.assertAlmostEqual(r["energy_cost"], round(kwh * 5.54, 4))
         self.assertAlmostEqual(r["offpeak_saving"], round(kwh * (5.54 - 2.27), 4))
+        self.assertIn("moving it off-peak saves", self.m.render_energy([r]))
