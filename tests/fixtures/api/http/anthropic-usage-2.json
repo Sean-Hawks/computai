@@ -1,0 +1,6 @@
+{"data": [
+  {"starting_at": "2026-09-21T00:00:00Z", "ending_at": "2026-09-22T00:00:00Z", "results": [
+    {"uncached_input_tokens": 1000, "cache_creation": {"ephemeral_5m_input_tokens": 0, "ephemeral_1h_input_tokens": 2000},
+     "cache_read_input_tokens": 0, "output_tokens": 500, "model": "claude-haiku-4-5"}
+  ]}],
+ "has_more": false, "next_page": null}
