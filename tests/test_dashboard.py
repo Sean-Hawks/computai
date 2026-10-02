@@ -112,3 +112,44 @@ class Web(unittest.TestCase):
         self.assertEqual(self.get("/api/state", host="evil.example:8765")[0].status, 403)
         self.assertEqual(self.get("/api/state", host="localhost:8765")[0].status, 200)
         self.assertEqual(self.get("/api/state", host="[::1]:8765")[0].status, 200)
+
+
+class Report(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+
+    def tearDown(self):
+        self.sb.close()
+
+    def test_html_report(self):
+        env = dict(CLAUDE_CONFIG_DIR=helpers.fixture("claude"), CODEX_HOME=helpers.fixture("codex"),
+                   COMPUTAI_FAKE_NOW="1790000000")
+        out = os.path.join(self.sb.root, "r.html")
+        r = self.sb.run("--report", "--month", "2026-09", "--html", out, **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("<h1>ComputAI report 2026-09</h1>", html)
+        # 9/9 codex、9/10 claude+codex、9/11 claude、9/12 claude：每一段長條都有 hover 提示
+        self.assertEqual(html.count("<title>2026-09-"), 5)
+        self.assertIn("<td>2026-09-01</td>", html)                # 沒用量的日子也在表格裡
+        self.assertIn("demo/alpha", html)
+        self.assertNotIn("FAKE", html)
+        text = self.sb.run("--report", "--month", "2026-09", "--no-sync", **env)
+        self.assertIn("by project", text.stdout)
+        self.assertIn("Cache efficiency", text.stdout)
+
+    def test_escaping(self):
+        m = helpers.load()
+        days = [{"day": "2026-09-01", "claude": 1.0, "codex": 0, "cloud": 0, "other": 0}]
+        self.assertIn("<title>2026-09-01 claude: $1.00</title>", m._svg_days(days))
+        r = {"summary": {"range": {"start": 0, "end": 86400, "label": "<x>"}, "sources": [], "total_cost_usd": 0},
+             "days": [], "projects": [{"project": "/a/<script>", "source": "claude", "requests": 1, "cost_usd": 1}],
+             "machines": [], "analysis": {"range": {"label": ""}, "forecast": {"projected_usd": 0},
+                                          "plans": [], "cache": {"hit_ratio": None, "rewrites": 0, "expired": 0,
+                                                                 "wasted_usd": 0, "sessions": []}, "machines": []},
+             "limits": []}
+        m.render_analysis = lambda a: "ok"
+        html = m.render_report_html(r)
+        self.assertNotIn("<script>", html)
+        self.assertIn("&lt;script&gt;", html)

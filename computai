@@ -3353,6 +3353,183 @@ def serve_web(listen, interval, sample_every):
     return 0
 
 
+# ---- 月報（--report，--html 輸出成一個檔案）
+
+REPORT_SERIES = ("claude", "codex", "cloud", "other")
+
+
+def report_data(db, start, end, label):
+    s = summary(db, start, end, label=label)
+    days = {}
+    for g in breakdown(db, start, end, "day"):
+        key = g["source"] if g["source"] in REPORT_SERIES else "other"
+        d = days.setdefault(g["day"], dict.fromkeys(REPORT_SERIES, 0.0))
+        d[key] += g["cost_usd"]
+    t = start  # 沒有用量的日子也要出現在圖上，x 軸才是連續的日期
+    while t < min(end, now() + 86400):
+        days.setdefault(day_label(t), dict.fromkeys(REPORT_SERIES, 0.0))
+        t += 86400
+    return {"summary": s, "days": [dict(day=k, **v) for k, v in sorted(days.items())],
+            "projects": breakdown(db, start, end, "project")[:15],
+            "machines": machine_report(db, start, end), "analysis": analyze(db, start, end, label),
+            "limits": current_limits(db)}
+
+
+def render_report_text(r):
+    s = r["summary"]
+    parts = [render_summary(s), render_breakdown(r["projects"], "project", 15)]
+    if r["machines"]:
+        parts.append(render_machines(r["machines"]))
+    parts.append(render_analysis(r["analysis"]))
+    return "\n\n".join(parts)
+
+
+def _svg_days(days, width=720, height=220):
+    """每日花費的堆疊長條圖（照 dataviz 規則：固定順序的類別色、細的長條、2px 間隔、
+    圓角只在頂端、每段有 <title> 當 hover 提示，另外有表格版）。"""
+    import html
+    if not days:
+        return ""
+    pad_l, pad_b, pad_t = 44, 22, 8
+    plot_w, plot_h = width - pad_l - 8, height - pad_b - pad_t
+    top = max(sum(d[k] for k in REPORT_SERIES) for d in days) or 1.0
+    step = [1, 2, 5]
+    unit = 1
+    while top / unit > 5:
+        unit = unit * step[1] if str(unit)[0] == "1" else unit * 2.5 if str(unit)[0] == "2" else unit * 2
+    ymax = unit * (int(top / unit) + 1)
+    bw = plot_w / len(days)
+    out = ['<svg viewBox="0 0 %d %d" role="img" aria-label="Daily cost by source" class="chart">' % (width, height)]
+    for i in range(0, int(ymax / unit) + 1):
+        y = pad_t + plot_h - plot_h * (i * unit) / ymax
+        out.append('<line x1="%d" x2="%d" y1="%.1f" y2="%.1f" class="grid"/>' % (pad_l, width - 8, y, y))
+        out.append('<text x="%d" y="%.1f" class="tick" text-anchor="end">$%s</text>'
+                   % (pad_l - 6, y + 4, ("%g" % (i * unit))))
+    for n, d in enumerate(days):
+        x = pad_l + n * bw + 1
+        w = max(bw - 2, 1)
+        y = pad_t + plot_h
+        segs = [(k, d[k]) for k in REPORT_SERIES if d[k] > 0]
+        for j, (k, v) in enumerate(segs):
+            h = plot_h * v / ymax
+            y -= h
+            gap = 2 if j < len(segs) - 1 else 0
+            r = 2 if j == len(segs) - 1 and h > 4 else 0
+            out.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%d" class="s-%s">'
+                       '<title>%s %s: %s</title></rect>'
+                       % (x, y + gap / 2.0, w, max(h - gap, 0.5), r, k, html.escape(d["day"]), k, fmt_usd(v)))
+        if len(days) <= 16 or n % 5 == 0:
+            out.append('<text x="%.1f" y="%d" class="tick" text-anchor="middle">%s</text>'
+                       % (x + w / 2, height - 6, html.escape(d["day"][8:])))
+    out.append("</svg>")
+    return "".join(out)
+
+
+REPORT_CSS = """
+:root { --bg:#fcfcfb; --ink:#0b0b0b; --muted:#52514e; --line:#e4e3df;
+        --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#1a1a19; --ink:#fff; --muted:#c3c2b7; --line:#2c2c2a;
+          --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; } }
+body { margin:0 auto; max-width:820px; padding:24px 16px; background:var(--bg); color:var(--ink);
+       font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif; }
+h1 { font-size:24px; margin:0 0 4px; } h2 { font-size:17px; margin:28px 0 8px; }
+.muted { color:var(--muted); }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin:16px 0; }
+.tile { border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+.tile b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
+table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:14px; }
+th, td { text-align:right; padding:5px 6px; border-bottom:1px solid var(--line); }
+th:first-child, td:first-child { text-align:left; overflow-wrap:anywhere; }
+th { color:var(--muted); font-weight:600; }
+.wrap { overflow-x:auto; }
+.chart { width:100%; height:auto; }
+.chart .grid { stroke:var(--line); stroke-width:1; }
+.chart .tick { fill:var(--muted); font-size:11px; }
+.s-claude { fill:var(--s1); } .s-codex { fill:var(--s2); } .s-cloud { fill:var(--s3); } .s-other { fill:var(--s4); }
+.legend { display:flex; gap:16px; flex-wrap:wrap; font-size:13px; color:var(--muted); margin:6px 0; }
+.legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; }
+pre { white-space:pre-wrap; font-size:13px; background:transparent; border:1px solid var(--line);
+      border-radius:8px; padding:10px; overflow-x:auto; }
+details summary { cursor:pointer; color:var(--muted); font-size:14px; }
+"""
+
+
+def render_report_html(r):
+    import html
+    e = html.escape
+    s = r["summary"]
+    rng = s["range"]
+    f = r["analysis"]["forecast"]
+    tiles = [("API-equivalent", fmt_usd(s["total_cost_usd"]))]
+    for src in s["sources"]:
+        tiles.append((src["source"], fmt_usd(src["cost_usd"])))
+    tiles = tiles[:5]
+    h = ['<!doctype html><html lang="en"><head><meta charset="utf-8">',
+         '<meta name="viewport" content="width=device-width, initial-scale=1">',
+         '<meta name="color-scheme" content="light dark">',
+         "<title>ComputAI %s</title><style>%s</style></head><body>" % (e(rng["label"]), REPORT_CSS),
+         "<h1>ComputAI report %s</h1>" % e(rng["label"]),
+         '<div class="muted">%s to %s &middot; computai %s</div>' % (
+             e(day_label(rng["start"])), e(day_label(rng["end"] - 1)), e(__version__)),
+         '<div class="tiles">' + "".join('<div class="tile"><span class="muted">%s</span><b>%s</b></div>'
+                                         % (e(k), e(v)) for k, v in tiles) + "</div>"]
+    if r["days"]:
+        names = {"claude": "Claude Code", "codex": "Codex", "cloud": "Cloud GPUs", "other": "Other"}
+        used = [k for k in REPORT_SERIES if any(d[k] for d in r["days"])]
+        h.append("<h2>Daily cost</h2>")
+        h.append('<div class="legend">' + "".join('<span><i class="s-%s" style="background:var(--s%d)"></i>%s</span>'
+                                                  % (k, REPORT_SERIES.index(k) + 1, names[k]) for k in used) + "</div>")
+        h.append(_svg_days(r["days"]))
+        h.append("<details><summary>Table</summary><div class=\"wrap\"><table><tr><th>Day</th>%s<th>Total</th></tr>"
+                 % "".join("<th>%s</th>" % names[k] for k in used))
+        for d in r["days"]:
+            h.append("<tr><td>%s</td>%s<td>%s</td></tr>" % (
+                e(d["day"]), "".join("<td>%s</td>" % fmt_usd(d[k]) for k in used),
+                fmt_usd(sum(d[k] for k in REPORT_SERIES))))
+        h.append("</table></div></details>")
+    h.append("<h2>By model</h2><div class=\"wrap\"><table><tr><th>Model</th><th>Requests</th><th>Input</th>"
+             "<th>Cache read</th><th>Cache write</th><th>Output</th><th>Cost</th></tr>")
+    for src in s["sources"]:
+        for m in src["models"]:
+            h.append("<tr><td>%s &middot; %s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                e(src["source"]), e(m["model"] or "?"), fmt_tok(m["requests"]), fmt_tok(m["input"]),
+                fmt_tok(m["cache_read"]), fmt_tok(m["cache_write_5m"] + m["cache_write_1h"]),
+                fmt_tok(m["output"]), fmt_usd(m["cost_usd"])))
+    h.append("</table></div>")
+    plans_ = [src for src in s["sources"] if src.get("plan")]
+    if plans_:
+        h.append("<h2>Subscriptions</h2><div class=\"wrap\"><table><tr><th>Plan</th><th>Fee</th>"
+                 "<th>Usage at API prices</th><th>Value</th></tr>")
+        for src in plans_:
+            p = src["plan"]
+            h.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%sx</td></tr>" % (
+                e(p["name"]), fmt_usd(p["fee_in_range"]), fmt_usd(src["cost_usd"]),
+                "?" if p["value_ratio"] is None else "%.1f" % p["value_ratio"]))
+        h.append("</table></div>")
+    if r["projects"]:
+        h.append("<h2>Top projects</h2><div class=\"wrap\"><table><tr><th>Project</th><th>Source</th>"
+                 "<th>Requests</th><th>Cost</th></tr>")
+        for g in r["projects"]:
+            h.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                e(short_path(g["project"])), e(g["source"]), fmt_tok(g["requests"]), fmt_usd(g["cost_usd"])))
+        h.append("</table></div>")
+    if r["machines"]:
+        h.append("<h2>Machines</h2><div class=\"wrap\"><table><tr><th>Machine</th><th>Hours</th><th>kWh</th>"
+                 "<th>AI share</th><th>Electricity</th><th>J/token</th></tr>")
+        for m in r["machines"]:
+            h.append("<tr><td>%s</td><td>%.1f</td><td>%.3f</td><td>%s</td><td>%.2f %s</td><td>%s</td></tr>" % (
+                e(m["machine"]), m["covered_hours"], m["kwh"],
+                "-" if m["ai_share"] is None else "%d%%" % round(100 * m["ai_share"]),
+                m["energy_cost"], e(m["currency"]), "-" if m["j_per_token"] is None else "%.2f" % m["j_per_token"]))
+        h.append("</table></div>")
+    h.append("<h2>Analysis</h2><pre>%s</pre>" % e(render_analysis(r["analysis"])))
+    h.append('<p class="muted">Month-end forecast %s. API-equivalent cost uses the prices in prices.ini.</p>'
+             % e(fmt_usd(f["projected_usd"])))
+    h.append("</body></html>\n")
+    return "\n".join(h)
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
@@ -3399,6 +3576,9 @@ def parse_args(argv=None):
                    help="refresh interval for --live and --web (default 5)")
     p.add_argument("--web", nargs="?", const="127.0.0.1:8765", metavar="[HOST:]PORT",
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
+    p.add_argument("--report", action="store_true",
+                   help="monthly report: summary, projects, machines and analysis (use with --month)")
+    p.add_argument("--html", metavar="FILE", help="with --report: write the report as an HTML page")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
@@ -3450,7 +3630,8 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web")
+ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+           "report")
 
 
 def run(args, db):
@@ -3496,6 +3677,18 @@ def run(args, db):
         r = payback(db, args.payback, args.gpu_watts, args.hours_per_day, args.rent_per_hour)
         emit(r, render_payback(r), args.json)
         return 0 if not r.get("error") else 1
+    if args.report or args.html:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        start, end, label = pick_range(args)
+        r = report_data(db, start, end, label)
+        if args.html:
+            with open(args.html, "w", encoding="utf-8") as f:
+                f.write(render_report_html(r))
+            print("computai: wrote %s" % args.html)
+            return 0
+        emit(r, render_report_text(r), args.json)
+        return 0
     if args.analyze:
         if not args.no_sync:
             sync(db, quiet=True)
