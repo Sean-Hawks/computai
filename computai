@@ -2830,6 +2830,278 @@ def render_line(info, sep="\uff5c"):
     return sep.join(out)
 
 
+# ---------------------------------------------------------------- 總帳畫面
+#
+# 終端機 live 畫面、--web、/metrics 共用同一份狀態：算力（機器、雲端）、AI 用量、警示。
+# 背景一條執行緒負責更新：log 每 30 秒、機器每 --sample-every 秒、雲端每 5 分鐘。
+
+def latest_samples(db, t=None):
+    t = now() if t is None else t
+    rows = db.execute("SELECT s.* FROM samples s JOIN (SELECT machine, MAX(ts) AS ts FROM samples "
+                      "GROUP BY machine) x ON s.machine = x.machine AND s.ts = x.ts ORDER BY s.machine")
+    out = []
+    for r in rows:
+        r = dict(r)
+        out.append({"machine": r["machine"], "age": int(t - r["ts"]), "cpu_pct": r["cpu_pct"],
+                    "gpu_util": r["gpu_util"], "gpu_mem_used": r["gpu_mem_used"],
+                    "gpu_mem_total": r["gpu_mem_total"], "power_w": r["power_w"],
+                    "ai_active": bool(r["ai_active"]),
+                    "loaded": [{k: x.get(k) for k in ("service", "name", "vram_mb")}
+                               for x in json.loads(r["loaded"] or "[]")]})
+    return out
+
+
+def dashboard_state(db):
+    t = now()
+    start, end, label = month_range()
+    s = summary(db, start, end, label=label)
+    ts, te = today_range()
+    today = summary(db, ts, te, plan_table={})
+    line = line_parts(db)
+    return {"version": __version__, "time": int(t), "month": label,
+            "line": line, "line_text": render_line(line, " | "),
+            "today_usd": round(today["total_cost_usd"], 2),
+            "sources": [{"source": x["source"], "cost_usd": round(x["cost_usd"], 2),
+                         "requests": x["totals"]["requests"],
+                         "tokens": sum(x["totals"][c] for c in ("input", "cache_read", "cache_write_5m",
+                                                                "cache_write_1h", "output")),
+                         "output": x["totals"]["output"], "plan": x.get("plan")} for x in s["sources"]],
+            "total_cost_usd": s["total_cost_usd"], "unpriced_models": s["unpriced_models"],
+            "limits": current_limits(db), "machines": latest_samples(db, t),
+            "energy": machine_report(db, start, end), "cloud": latest_cloud(db),
+            "forecast": forecast(db, t), "alerts": idle_alerts(db, t) + cloud_alerts(db, t)}
+
+
+def _prom_label(v):
+    return str(v).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
+def prometheus(st):
+    """dashboard_state() -> Prometheus 文字格式（格式寫法移植自 slurmtop 84cd35d）。"""
+    lines = []
+
+    def metric(name, help_, rows):
+        lines.append("# HELP computai_%s %s" % (name, help_))
+        lines.append("# TYPE computai_%s gauge" % name)
+        for labels, v in rows:
+            if v is None:
+                continue
+            lab = ",".join('%s="%s"' % (k, _prom_label(x)) for k, x in labels.items())
+            lines.append("computai_%s%s %s" % (name, "{%s}" % lab if lab else "", repr(float(v))))
+
+    metric("month_cost_usd", "API-equivalent or billed cost this month",
+           [({"source": x["source"]}, x["cost_usd"]) for x in st["sources"]])
+    metric("month_tokens", "tokens this month (input, cache and output)",
+           [({"source": x["source"]}, x["tokens"]) for x in st["sources"]])
+    metric("today_cost_usd", "cost recorded today", [({}, st["today_usd"])])
+    metric("limit_used_percent", "subscription limit window used",
+           [({"source": r["source"], "window": r["name"]}, r["used_percent"]) for r in st["limits"]])
+    metric("limit_resets_in_seconds", "seconds until the limit window resets",
+           [({"source": r["source"], "window": r["name"]}, r["resets_in"]) for r in st["limits"]])
+    metric("machine_cpu_percent", "machine CPU use", [({"machine": m["machine"]}, m["cpu_pct"]) for m in st["machines"]])
+    metric("machine_gpu_percent", "machine GPU use", [({"machine": m["machine"]}, m["gpu_util"]) for m in st["machines"]])
+    metric("machine_power_watts", "machine power (measured GPU plus configured rest, or estimated)",
+           [({"machine": m["machine"]}, m["power_w"]) for m in st["machines"]])
+    metric("machine_ai_active", "1 if the machine was doing inference at the last sample",
+           [({"machine": m["machine"]}, int(m["ai_active"])) for m in st["machines"]])
+    metric("machine_month_kwh", "energy this month", [({"machine": r["machine"]}, r["kwh"]) for r in st["energy"]])
+    metric("cloud_usd_per_hour", "cloud instance price while billing",
+           [({"provider": c["provider"], "name": c["name"]}, c["usd_per_hour"] if c["billing"] else 0)
+            for c in st["cloud"]])
+    metric("cloud_gpu_percent", "cloud instance GPU use",
+           [({"provider": c["provider"], "name": c["name"]}, c["gpu_util"]) for c in st["cloud"]])
+    metric("forecast_month_usd", "projected spend at month end", [({}, st["forecast"]["projected_usd"])])
+    metric("alerts", "active alerts by kind", [({"kind": k}, sum(1 for a in st["alerts"] if a["kind"] == k))
+                                               for k in sorted({a["kind"] for a in st["alerts"]})])
+    return "\n".join(lines) + "\n"
+
+
+class Updater:
+    """背景更新帳本：log、機器、雲端各有自己的間隔。"""
+
+    def __init__(self, sample_every=60, cloud_every=300, sync_every=30):
+        self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every}
+        self.last = {k: 0.0 for k in self.every}
+        self.stop = threading.Event()
+
+    def tick(self, db):
+        t = time.monotonic()
+        if t - self.last["sync"] >= self.every["sync"]:
+            self.last["sync"] = t
+            sync(db, quiet=True)
+        if self.every["machines"] > 0 and t - self.last["machines"] >= self.every["machines"] and machines():
+            self.last["machines"] = t
+            sample_machines(db)
+        if self.every["cloud"] > 0 and t - self.last["cloud"] >= self.every["cloud"]:
+            self.last["cloud"] = t
+            if any(secret(env) for _n, env, _f in CLOUDS):
+                sample_clouds(db)
+
+    def run(self, on_state, interval):
+        db = open_ledger()
+        try:
+            while not self.stop.is_set():
+                t0 = time.monotonic()
+                try:
+                    self.tick(db)
+                    on_state(dashboard_state(db))
+                except Exception as e:  # 更新失敗不能讓畫面或伺服器停掉
+                    warn("update failed: %r" % (e,))
+                self.stop.wait(max(0.5, interval - (time.monotonic() - t0)))
+        finally:
+            db.close()
+
+
+# ---- 終端機
+
+def use_color(stream=None):
+    stream = stream or sys.stdout
+    return stream.isatty() and not os.environ.get("NO_COLOR") and os.environ.get("TERM") != "dumb"
+
+
+def _sgr(code, s, on):
+    return "\033[%sm%s\033[0m" % (code, s) if on else s
+
+
+def bar(pct, width=10):
+    pct = max(0.0, min(100.0, pct or 0.0))
+    full = int(round(pct / 100.0 * width))
+    return "█" * full + "░" * (width - full)
+
+
+def render_live(st, width=80, color=False):
+    """三區：算力／AI 用量／警示。"""
+    b = lambda s: _sgr("1", s, color)
+    d = lambda s: _sgr("2", s, color)
+    red = lambda s: _sgr("31", s, color)
+    width = max(40, width)
+
+    def rule(title):
+        return b("── " + title + " ") + d("─" * max(0, width - vlen(title) - 4))
+
+    out = [b("ComputAI") + "  " + time.strftime("%Y-%m-%d %H:%M", time.localtime(st["time"]))
+           + "   " + st["line_text"], ""]
+    out.append(rule("Compute"))
+    if not st["machines"] and not st["cloud"]:
+        out.append(d("  no machines sampled yet ([machines] in config.ini, or --sample)"))
+    for m in st["machines"]:
+        gpu = "-" if m["gpu_util"] is None else "%3d%%" % round(m["gpu_util"])
+        cpu = "-" if m["cpu_pct"] is None else "%3d%%" % round(m["cpu_pct"])
+        pw = "" if m["power_w"] is None else "%5.0f W" % m["power_w"]
+        state = "AI" if m["ai_active"] else "  "
+        out.append("  %s CPU %s  GPU %s %s %s  %s%s" % (
+            cell(m["machine"], 16), cpu, gpu, bar(m["gpu_util"], 8), pw, state,
+            d("  (%s ago)" % fmt_dur(m["age"])) if m["age"] > 300 else ""))
+        for x in m["loaded"]:
+            out.append(d("      %s on %s%s" % (x["name"], x["service"],
+                                              ", %s MB" % format(x["vram_mb"], ",") if x["vram_mb"] else "")))
+    for c in st["cloud"]:
+        util = "-" if c["gpu_util"] is None else "%d%%" % round(c["gpu_util"])
+        out.append("  %s %-9s %s GPU %4s  %s" % (
+            cell("%s/%s" % (c["provider"], c["name"]), 22), c["status"][:9],
+            cell("%s x%d" % (c["gpu"], c["gpu_count"] or 1), 16), util,
+            (fmt_usd(c["usd_per_hour"]) + "/h") if c["billing"] else d("not billing")))
+    for r in st["energy"]:
+        if r["kwh"]:
+            out.append(d("  %s: %.2f kWh this month, AI %s" % (
+                r["machine"], r["kwh"], "-" if r["ai_share"] is None else "%d%%" % round(100 * r["ai_share"]))))
+    out.append("")
+    out.append(rule("AI usage  " + st["month"]))
+    for x in st["sources"]:
+        plan = x.get("plan")
+        extra = ""
+        if plan:
+            extra = d("  plan %s %s -> %.1fx" % (plan["name"], fmt_usd(plan["fee_in_range"]),
+                                                 plan["value_ratio"] or 0))
+        out.append("  %-14s %9s req %9s tok %10s%s" % (x["source"], fmt_tok(x["requests"]),
+                                                      fmt_tok(x["tokens"]), fmt_usd(x["cost_usd"]), extra))
+    for r in st["limits"]:
+        out.append("  %-14s %-6s %s %3d%%  %s" % (r["source"], r["name"], bar(r["used_percent"]),
+                                                  round(r["used_percent"]),
+                                                  "" if r["resets_in"] is None else "resets in " + fmt_dur(r["resets_in"])))
+    f = st["forecast"]
+    out.append("  today %s   month so far %s   month-end forecast %s" % (
+        fmt_usd(st["today_usd"]), fmt_usd(st["total_cost_usd"]), fmt_usd(f["projected_usd"])))
+    out.append("")
+    out.append(rule("Alerts"))
+    if not st["alerts"]:
+        out.append(d("  none"))
+    for a in st["alerts"]:
+        out.append(red("  ! ") + a["message"])
+    return "\n".join(out)
+
+
+def clean_strings(obj):
+    """資料裡的字串（專案路徑、模型、機器名稱）去掉控制字元，畫面上的色碼由我們自己加。"""
+    if isinstance(obj, str):
+        return untrusted(obj)
+    if isinstance(obj, list):
+        return [clean_strings(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: clean_strings(v) for k, v in obj.items()}
+    return obj
+
+
+def run_live(interval, sample_every):
+    """終端機 live 畫面：Ctrl-C 或 q 離開。"""
+    color = use_color()
+    box = {"st": None}
+    lock = threading.Lock()
+    upd = Updater(sample_every=sample_every)
+
+    def on_state(st):
+        with lock:
+            box["st"] = st
+    th = threading.Thread(target=upd.run, args=(on_state, interval), daemon=True)
+    th.start()
+    old_tty = None
+    try:
+        if os.name != "nt" and sys.stdin.isatty():
+            import termios
+            import tty
+            old_tty = termios.tcgetattr(sys.stdin)
+            tty.setcbreak(sys.stdin.fileno())
+        sys.stdout.write("\033[?1049h\033[?25l")  # 換到另一個畫面、藏游標，離開時還原
+        while True:
+            with lock:
+                st = box["st"]
+            cols, rows = shutil.get_terminal_size((100, 40))
+            text = render_live(clean_strings(st), cols, color) if st else "ComputAI: reading logs and machines..."
+            lines = text.splitlines()[:rows - 1]
+            sys.stdout.write("\033[H\033[2J" + "\n".join(lines) + "\n")
+            sys.stdout.flush()
+            if wait_key(1.0 if st is None else interval):
+                break
+    except KeyboardInterrupt:
+        pass
+    finally:
+        upd.stop.set()
+        sys.stdout.write("\033[?25h\033[?1049l")
+        sys.stdout.flush()
+        if old_tty is not None:
+            import termios
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_tty)
+    return 0
+
+
+def wait_key(timeout):
+    """等 timeout 秒；按了 q 回傳 True。"""
+    if os.name == "nt":
+        import msvcrt
+        end = time.time() + timeout
+        while time.time() < end:
+            if msvcrt.kbhit() and msvcrt.getwch() in ("q", "Q"):
+                return True
+            time.sleep(0.1)
+        return False
+    if not sys.stdin.isatty():
+        time.sleep(timeout)
+        return False
+    import select
+    r, _, _ = select.select([sys.stdin], [], [], timeout)
+    return bool(r) and sys.stdin.read(1) in ("q", "Q")
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
@@ -2870,6 +3142,10 @@ def parse_args(argv=None):
     p.add_argument("--hours-per-day", type=float, default=8.0, metavar="H", help="for --payback (default 8)")
     p.add_argument("--rent-per-hour", type=float, metavar="USD",
                    help="for --payback: cloud price per GPU-hour (default: your cloud history)")
+    p.add_argument("--live", action="store_true",
+                   help="live terminal dashboard: compute, AI usage, alerts (default on a terminal)")
+    p.add_argument("-n", "--interval", type=float, default=5.0, metavar="SEC",
+                   help="refresh interval for --live and --web (default 5)")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
@@ -2921,7 +3197,16 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
+ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live")
+
+
 def run(args, db):
+    if args.payback is None and not any(getattr(args, a) for a in ACTIONS) and not args.json \
+            and sys.stdout.isatty() and sys.stdin.isatty():
+        args.live = True  # 在終端機裡直接打 computai 就是 live 畫面
+    if args.live:
+        db.close()
+        return run_live(args.interval, args.sample_every)
     if args.proxy:
         db.close()
         return serve_proxy(args.listen, args.upstream, args.machine or default_machine(),
