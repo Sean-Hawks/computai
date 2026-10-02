@@ -1,0 +1,16 @@
+{
+  "hook_event_name": "Status",
+  "session_id": "fake-session",
+  "transcript_path": "/home/demo/.claude/projects/-home-demo-alpha/fake-session.jsonl",
+  "cwd": "/home/demo/alpha",
+  "model": {"id": "claude-opus-5-5", "display_name": "Opus 5.5"},
+  "workspace": {"current_dir": "/home/demo/alpha", "project_dir": "/home/demo/alpha"},
+  "version": "2.1.284",
+  "cost": {"total_cost_usd": 0.42, "total_duration_ms": 45000, "total_api_duration_ms": 2300,
+           "total_lines_added": 156, "total_lines_removed": 23},
+  "context_window": {"used_percentage": 8, "remaining_percentage": 92},
+  "rate_limits": {
+    "five_hour": {"used_percentage": 42.4, "resets_at": 1790003600},
+    "seven_day": {"used_percentage": 18.0, "resets_at": 1790400000}
+  }
+}
