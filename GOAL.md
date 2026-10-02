@@ -22,6 +22,8 @@
 
 ## 里程碑（依序完成，每個都要可以跑、有測試、有交接）
 
+每個里程碑都拆成很多個小 commit，一個 parser、一組 fixture、一個選項就 commit 一次，不要一次 commit 一整個里程碑。
+
 1. **骨架**：單一檔案 `computai`、設定檔（`~/.config/computai/`）、sqlite 帳本（`~/.local/share/computai/`，
    Windows 用 `%LOCALAPPDATA%`）。匯入要冪等，同一筆資料匯入兩次不能重複計算。
    指令：`--sync`、`--summary [--since/--month]`、`--json`。
