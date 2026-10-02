@@ -1659,8 +1659,12 @@ def machine_report(db, start, end, ps=None):
                          "AND ts >= ? AND ts < ?", (name, start, end)).fetchone()
         kwh = energy / 3.6e6
         cost = kwh * ps["price_per_kwh"]
+        last = db.execute("SELECT loaded FROM samples WHERE machine = ? ORDER BY ts DESC LIMIT 1",
+                          (name,)).fetchone()
         out.append({
-            "machine": name, "samples": len(rows), "covered_hours": round(covered / 3600, 2),
+            "machine": name, "samples": len(rows),
+            "loaded": [{k: x.get(k) for k in ("service", "port", "name", "vram_mb")}
+                       for x in json.loads(last["loaded"] or "[]")] if last else [], "covered_hours": round(covered / 3600, 2),
             "power_unknown_hours": round(unknown_power / 3600, 2),
             "kwh": round(kwh, 4), "ai_kwh": round(ai_energy / 3.6e6, 4),
             "ai_share": round(ai_secs / covered, 3) if covered else None,
@@ -1714,6 +1718,9 @@ def render_machines(report, alerts=None):
             "-" if r["ai_share"] is None else "%d%%" % round(100 * r["ai_share"]), cost_s,
             fmt_tok(r["input_tokens"] + r["output_tokens"]),
             "-" if r["j_per_token"] is None else "%.2f" % r["j_per_token"]))
+        for x in r.get("loaded") or []:
+            lines.append("  loaded: %s (%s:%s%s)" % (x["name"], x["service"], x["port"],
+                                                     ", %s MB" % format(x["vram_mb"], ",") if x["vram_mb"] else ""))
         if r["power_unknown_hours"] and not r["kwh"]:
             lines.append("  power unknown: set idle_watts/max_watts in [machine.%s]" % r["machine"])
     for a in alerts or []:

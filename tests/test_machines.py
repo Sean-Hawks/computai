@@ -148,6 +148,8 @@ class Sampling(unittest.TestCase):
         rep = self.m.machine_report(self.db, 0, 20000)[0]
         self.assertGreater(rep["kwh"], 0)
         self.assertEqual(rep["ai_share"], 0.0)
+        self.assertEqual(rep["loaded"][0]["name"], "qwen3:0.6b")
+        self.assertIn("loaded: qwen3:0.6b (ollama:11434, 981 MB)", self.m.render_machines([rep]))
 
     def test_estimate_power(self):
         e = self.m.estimate_power
