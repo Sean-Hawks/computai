@@ -101,6 +101,10 @@ tou_weekend_offpeak = yes
 # Warn when a model sits loaded but unused for this many minutes.
 idle_alert_minutes = 15
 
+[budget]
+# Warn when this month's forecast spend goes over this many USD (0 = no budget).
+monthly_usd = 0
+
 [cloud]
 # API keys come from RUNPOD_API_KEY, VAST_API_KEY, LAMBDA_API_KEY (environment, or a
 # chmod-600 secrets.ini next to this file with a [secrets] section). Only read-only calls are made.
@@ -2504,13 +2508,66 @@ def render_cache(c):
     return "\n".join(lines)
 
 
+SUBSCRIPTION_SOURCES = ("claude", "codex")
+
+
+def forecast(db, t=None, ps=None):
+    """這個月月底大概會花多少：訂閱月費 + 到今天為止的變動花費 + 最近 7 天的日均 × 剩下的天數。
+    訂閱用量另外推估「照目前速度，這個月的等值 API 花費」，看方案划不划算。"""
+    t = now() if t is None else t
+    start, end, label = month_range(time.strftime("%Y-%m", time.localtime(t)))
+    elapsed = max((t - start) / 86400.0, 1 / 24.0)
+    remaining = max((end - t) / 86400.0, 0.0)
+    s = summary(db, start, min(end, t + 1), plan_table={})
+    fixed = sum(p["usd"] for p in plans().values())
+    variable = {x["source"]: x["cost_usd"] for x in s["sources"]
+                if x["source"] not in SUBSCRIPTION_SOURCES and x["source"] != "local"}
+    elec = sum(r["energy_cost_usd"] or 0 for r in machine_report(db, start, t + 1, ps))
+    if elec:
+        variable["electricity"] = elec
+    mtd = sum(variable.values())
+    w0 = max(start, t - 7 * 86400)
+    recent_days = max((t - w0) / 86400.0, 1 / 24.0)
+    rs = summary(db, w0, t + 1, plan_table={})
+    recent = sum(x["cost_usd"] for x in rs["sources"]
+                 if x["source"] not in SUBSCRIPTION_SOURCES and x["source"] != "local")
+    recent += sum(r["energy_cost_usd"] or 0 for r in machine_report(db, w0, t + 1, ps))
+    rate = recent / recent_days
+    projected = fixed + mtd + rate * remaining
+    subs = {}
+    for x in s["sources"]:
+        if x["source"] in SUBSCRIPTION_SOURCES:
+            subs[x["source"]] = round(x["cost_usd"] / elapsed * (elapsed + remaining), 2)
+    budget = _float(load_config().get("budget", "monthly_usd", fallback="0"), 0.0)
+    out = {"month": label, "days_left": round(remaining, 1), "subscriptions_usd": round(fixed, 2),
+           "variable_so_far_usd": round(mtd, 2), "variable_by_source": {k: round(v, 2) for k, v in variable.items()},
+           "daily_rate_usd": round(rate, 2), "projected_usd": round(projected, 2),
+           "subscription_value_projected": subs, "budget_usd": budget or None, "over_budget": None}
+    if budget:
+        out["over_budget"] = projected > budget
+    return out
+
+
+def render_forecast(f):
+    lines = ["Month-end forecast (%s, %.0f days left): %s" % (f["month"], f["days_left"], fmt_usd(f["projected_usd"])),
+             "  subscriptions %s + spent so far %s + %s/day from here" % (
+                 fmt_usd(f["subscriptions_usd"]), fmt_usd(f["variable_so_far_usd"]), fmt_usd(f["daily_rate_usd"]))]
+    for src, v in sorted(f["subscription_value_projected"].items()):
+        lines.append("  at this pace %s usage would be worth %s at API prices this month" % (src, fmt_usd(v)))
+    if f["budget_usd"]:
+        lines.append(("! over the %s budget" if f["over_budget"] else "  within the %s budget")
+                     % fmt_usd(f["budget_usd"]))
+    return "\n".join(lines)
+
+
 def analyze(db, start, end, label=""):
     return {"range": {"start": int(start), "end": int(end), "label": label},
-            "cache": cache_report(db, start, end)}
+            "cache": cache_report(db, start, end), "forecast": forecast(db)}
 
 
 def render_analysis(a):
-    parts = ["ComputAI analysis  %s" % a["range"]["label"], render_cache(a["cache"])]
+    parts = ["ComputAI analysis  %s" % a["range"]["label"], render_forecast(a["forecast"]),
+             render_cache(a["cache"])]
     return "\n\n".join(parts)
 
 

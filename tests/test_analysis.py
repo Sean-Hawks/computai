@@ -39,3 +39,40 @@ class CacheReport(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Forecast(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        os.makedirs(self.sb.config)
+        with open(os.path.join(self.sb.config, "config.ini"), "w") as f:
+            f.write("[plans]\nclaude = Max, 100, x\ncodex = Plus, 20, x\n\n[budget]\nmonthly_usd = 200\n")
+        self.old = dict(os.environ)
+        os.environ.update(COMPUTAI_CONFIG_DIR=self.sb.config, TZ="UTC")
+        if hasattr(__import__("time"), "tzset"):
+            __import__("time").tzset()
+        self.m = helpers.load()
+        self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def test_projection(self):
+        t = self.m.calendar_ts(2026, 9, 11)            # 9/11 00:00，過了 10 天、還剩 20 天
+        self.m.add_usage(self.db, [
+            dict(source="cloud", uid="a", ts=self.m.calendar_ts(2026, 9, 2), model="H100", cost_usd=30.0),
+            dict(source="cloud", uid="b", ts=self.m.calendar_ts(2026, 9, 8), model="H100", cost_usd=14.0),
+            dict(source="claude", uid="c", ts=self.m.calendar_ts(2026, 9, 5), model="claude-opus-5-5",
+                 output=1000000),
+        ])
+        f = self.m.forecast(self.db, t=t)
+        self.assertEqual(f["subscriptions_usd"], 120.0)
+        self.assertEqual(f["variable_so_far_usd"], 44.0)
+        self.assertEqual(f["daily_rate_usd"], 2.0)           # 最近 7 天花了 14
+        self.assertEqual(f["projected_usd"], 120 + 44 + 2 * 20)
+        self.assertTrue(f["over_budget"])
+        self.assertEqual(f["subscription_value_projected"]["claude"], 60.0)   # $20 花了 10 天 -> 30 天 $60
+        self.assertIn("! over the $200.00 budget", self.m.render_forecast(f))
