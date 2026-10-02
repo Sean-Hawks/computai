@@ -198,3 +198,24 @@ class Tariff(unittest.TestCase):
         self.assertAlmostEqual(r["energy_cost"], round(kwh * 5.54, 4))
         self.assertAlmostEqual(r["offpeak_saving"], round(kwh * (5.54 - 2.27), 4))
         self.assertIn("moving it off-peak saves", self.m.render_energy([r]))
+
+
+class SshControl(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "POSIX only")
+    def test_control_dir_is_private(self):
+        import shutil
+        import tempfile
+        short = tempfile.mkdtemp(prefix="ca-", dir="/tmp")   # socket 路徑有長度上限，用短的目錄
+        self.addCleanup(shutil.rmtree, short, True)
+        old = dict(os.environ)
+        try:
+            os.environ["COMPUTAI_DATA_DIR"] = short
+            m = helpers.load()
+            d = m.ssh_control_dir()
+            self.assertTrue(d.startswith(short))
+            self.assertEqual(os.stat(d).st_mode & 0o777, 0o700)
+            os.environ["COMPUTAI_DATA_DIR"] = "/" + "x" * 120
+            self.assertIsNone(m.ssh_control_dir())
+        finally:
+            os.environ.clear()
+            os.environ.update(old)

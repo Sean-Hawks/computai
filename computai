@@ -1342,14 +1342,32 @@ def run_script(host, script, timeout=25):
     if host.startswith("-"):  # 不讓設定檔裡的名字被 ssh 當成選項
         return ""
     argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=4"]
-    if hasattr(os, "getuid"):
-        argv += ["-o", "ControlMaster=auto",
-                 "-o", "ControlPath=/tmp/.computai-%d-%%r@%%h:%%p" % os.getuid(),
+    cdir = ssh_control_dir()
+    if cdir:
+        # 第一次連線後重複使用，省掉每次取樣的 SSH 握手。socket 放在只有自己能進的資料夾，
+        # 不放 /tmp：多人共用的機器上，別人可以在 /tmp 先建一個同名的 socket。
+        argv += ["-o", "ControlMaster=auto", "-o", "ControlPath=" + os.path.join(cdir, "%C"),
                  "-o", "ControlPersist=120"]
     return run_cmd(argv + ["--", host, "sh -c '%s'" % SHELL_PICK], stdin=script, timeout=timeout)
 
 
 _fx_calls = {}
+
+
+def ssh_control_dir():
+    """SSH 連線共用的 socket 資料夾（權限 700）。Windows 的 OpenSSH 不支援；路徑太長
+    （Unix socket 上限約 104 字元）也不用。"""
+    if not hasattr(os, "getuid"):
+        return None
+    d = os.path.join(data_dir(), "ssh")
+    if len(d) + 41 > 100:
+        return None
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        os.chmod(d, 0o700)
+    except OSError:
+        return None
+    return d
 
 
 def local_windows(script):
