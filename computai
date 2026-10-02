@@ -20,6 +20,7 @@ import math
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -439,12 +440,13 @@ def ledger_path():
     return os.path.join(data_dir(), "ledger.sqlite")
 
 
-def open_ledger(path=None):
+def open_ledger(path=None, shared=False):
+    """shared=True：連線會在別的執行緒用（proxy 的每個請求一個執行緒），呼叫端自己加鎖。"""
     import sqlite3
     path = path or ledger_path()
     if path != ":memory:":
         os.makedirs(os.path.dirname(path), exist_ok=True)
-    db = sqlite3.connect(path, timeout=30)
+    db = sqlite3.connect(path, timeout=30, check_same_thread=not shared)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
     return db
@@ -1719,6 +1721,279 @@ def render_machines(report, alerts=None):
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- token 計數 proxy
+#
+# Ollama 沒有 /metrics，token 數只出現在每次回應裡，所以要統計就得讓流量經過這裡。
+# 只讀回應裡的用量欄位（prompt_eval_count、eval_count、usage），請求和回應的內容
+# 原樣轉送，不記錄、不保存。這是 ComputAI 唯一可以常駐的部分。
+
+HOP_HEADERS = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
+               "trailers", "transfer-encoding", "upgrade", "content-length", "host"}
+
+
+class UsageMeter:
+    """邊轉送邊看回應：NDJSON（Ollama 串流）、SSE（OpenAI 串流）逐行看，一般 JSON 等收完再看。
+    只解析含有用量欄位的那幾行；其他行（裡面是生成的內容）直接略過。"""
+
+    MAX_BODY = 64 << 20
+
+    def __init__(self, content_type):
+        ct = (content_type or "").lower()
+        self.mode = "lines" if ("ndjson" in ct or "event-stream" in ct) else \
+            "json" if "json" in ct else None
+        self.buf = b""
+        self.too_big = False
+        self.prompt = self.completion = self.cached = 0
+        self.model = None
+        self.found = False
+
+    def feed(self, chunk):
+        if not self.mode or self.too_big:
+            return
+        self.buf += chunk
+        if self.mode == "json":
+            if len(self.buf) > self.MAX_BODY:
+                self.too_big, self.buf = True, b""
+            return
+        while b"\n" in self.buf:
+            line, self.buf = self.buf.split(b"\n", 1)
+            self._line(line)
+        if len(self.buf) > self.MAX_BODY:
+            self.buf = b""
+
+    def _line(self, line):
+        if b"eval_count" not in line and b'"usage"' not in line:
+            return
+        line = line.strip()
+        if line.startswith(b"data:"):
+            line = line[5:].strip()
+        self._take(line)
+
+    def _take(self, raw):
+        try:
+            d = json.loads(raw.decode("utf-8", "replace"))
+        except ValueError:
+            return
+        if not isinstance(d, dict):
+            return
+        if isinstance(d.get("response"), dict) and isinstance(d["response"].get("usage"), dict):
+            d = d["response"]  # Responses API 的 response.completed 事件
+        if isinstance(d.get("model"), str):
+            self.model = d["model"]
+        if "eval_count" in d or "prompt_eval_count" in d:   # Ollama 原生 API
+            if d.get("done") is False:
+                return
+            self.prompt, self.completion = _int(d.get("prompt_eval_count")), _int(d.get("eval_count"))
+            self.found = True
+            return
+        u = d.get("usage")
+        if isinstance(u, dict):                             # OpenAI 相容 API
+            self.prompt = _int(u.get("prompt_tokens", u.get("input_tokens")))
+            self.completion = _int(u.get("completion_tokens", u.get("output_tokens")))
+            det = u.get("prompt_tokens_details") or u.get("input_tokens_details") or {}
+            self.cached = _int(det.get("cached_tokens")) if isinstance(det, dict) else 0
+            self.found = True
+
+    def finish(self):
+        if self.mode == "json" and not self.too_big and self.buf:
+            self._take(self.buf)
+        elif self.mode == "lines" and self.buf:
+            self._line(self.buf)
+        self.buf = b""
+        return self.found
+
+
+def prepare_request(body, path, inject=True):
+    """從請求裡只拿模型名稱。OpenAI 相容的串流請求如果沒有要求用量，替它加上
+    stream_options.include_usage，不然串流回應裡根本沒有 token 數。回傳 (body, model)。"""
+    try:
+        d = json.loads(body.decode("utf-8")) if body else None
+    except (ValueError, UnicodeDecodeError):
+        return body, None
+    if not isinstance(d, dict):
+        return body, None
+    model = d.get("model") if isinstance(d.get("model"), str) else None
+    if inject and d.get("stream") is True and path.split("?")[0].rstrip("/").endswith(
+            ("/chat/completions", "/v1/completions")):
+        so = d.get("stream_options")
+        if not isinstance(so, dict) or not so.get("include_usage"):
+            d["stream_options"] = dict(so or {}, include_usage=True)
+            body = json.dumps(d).encode("utf-8")
+    return body, model
+
+
+def make_proxy(upstream, machine, db_path=None, inject=True):
+    import http.client
+    import http.server
+    import urllib.parse
+    up = urllib.parse.urlsplit(upstream if "://" in upstream else "http://" + upstream)
+    if up.scheme not in ("http", "https") or not up.hostname:
+        raise SystemExit("computai: bad --upstream %r" % upstream)
+    up_port = up.port or (443 if up.scheme == "https" else 80)
+    lock = threading.Lock()
+    db_holder = {"db": open_ledger(db_path, shared=True)}
+
+    def record(model, meter):
+        row = {"source": "local", "uid": "proxy:%s:%d:%s" % (machine, time.time() * 1e6, os.urandom(4).hex()),
+               "ts": int(now()), "model": normalize_model(model or "?"), "project": machine,
+               "session": "proxy", "input": max(meter.prompt - meter.cached, 0),
+               "cache_read": meter.cached, "output": meter.completion, "cost_usd": 0.0}
+        with lock:
+            add_usage(db_holder["db"], [row])
+            db_holder["db"].commit()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        server_version = "computai-proxy"
+
+        def log_message(self, fmt, *a):  # 不記錄請求
+            pass
+
+        def _body(self):
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                parts = []
+                while True:
+                    size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                    if size == 0:
+                        while self.rfile.readline() not in (b"\r\n", b"\n", b""):
+                            pass
+                        break
+                    parts.append(self.rfile.read(size))
+                    self.rfile.readline()
+                return b"".join(parts)
+            n = _int(self.headers.get("Content-Length"))
+            return self.rfile.read(n) if n > 0 else b""
+
+        def _forward(self):
+            try:
+                body = self._body()
+            except (ValueError, OSError):
+                self.send_error(400)
+                return
+            body, model = prepare_request(body, self.path, inject)
+            headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
+            headers["Host"] = up.netloc
+            if body or self.command in ("POST", "PUT", "PATCH"):
+                headers["Content-Length"] = str(len(body))
+            cls = http.client.HTTPSConnection if up.scheme == "https" else http.client.HTTPConnection
+            conn = cls(up.hostname, up_port, timeout=900)
+            try:
+                conn.request(self.command, self.path, body=body or None, headers=headers)
+                resp = conn.getresponse()
+            except (OSError, http.client.HTTPException) as e:
+                msg = json.dumps({"error": "computai proxy: upstream unreachable (%s)" % type(e).__name__})
+                self.send_response(502)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(msg)))
+                self.end_headers()
+                self.wfile.write(msg.encode())
+                conn.close()
+                return
+            meter = UsageMeter(resp.getheader("Content-Type"))
+            self.send_response(resp.status, resp.reason)
+            for k, v in resp.getheaders():
+                if k.lower() not in HOP_HEADERS:
+                    self.send_header(k, v)
+            length = resp.getheader("Content-Length")
+            no_body = self.command == "HEAD" or resp.status in (204, 304) or 100 <= resp.status < 200
+            chunked = not no_body and length is None
+            if length is not None:
+                self.send_header("Content-Length", length)
+            elif chunked:
+                self.send_header("Transfer-Encoding", "chunked")
+            else:
+                self.send_header("Content-Length", "0")
+            self.end_headers()
+            try:
+                while not no_body:
+                    data = resp.read1(65536) if hasattr(resp, "read1") else resp.read(65536)
+                    if not data:
+                        break
+                    meter.feed(data)
+                    if chunked:
+                        self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
+                    else:
+                        self.wfile.write(data)
+                    self.wfile.flush()
+                if chunked:
+                    self.wfile.write(b"0\r\n\r\n")
+                    self.wfile.flush()
+            except OSError:
+                self.close_connection = True
+            finally:
+                conn.close()
+            if 200 <= resp.status < 300 and meter.finish():
+                record(meter.model or model, meter)
+
+        do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = do_OPTIONS = _forward
+
+    return Handler, db_holder
+
+
+def parse_listen(s, default_port):
+    """`8080`、`:8080`、`127.0.0.1:8080`、`[::1]:8080` -> (host, port)。沒寫 host 就是 127.0.0.1。"""
+    s = (s or "").strip()
+    host, port = "127.0.0.1", default_port
+    if s.startswith("["):
+        h, _, rest = s[1:].partition("]")
+        host = h or host
+        if rest.startswith(":") and rest[1:].isdigit():
+            port = int(rest[1:])
+    elif s.isdigit():
+        port = int(s)
+    elif ":" in s:
+        h, p = s.rsplit(":", 1)
+        host = h or host
+        if p.isdigit():
+            port = int(p)
+    elif s:
+        host = s
+    return host, port
+
+
+def is_loopback(host):
+    return host in ("localhost", "::1") or host.startswith("127.")
+
+
+def serve_proxy(listen, upstream, machine, sample_every=60, inject=True):
+    import http.server
+    host, port = parse_listen(listen, 11435)
+    if not is_loopback(host):
+        warn("listening on %s: anyone who can reach this port can use your models through it" % host)
+    Handler, holder = make_proxy(upstream, machine, inject=inject)
+
+    class Server(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+        address_family = socket.AF_INET6 if ":" in host else socket.AF_INET
+
+    srv = Server((host, port), Handler)
+    print("computai proxy: http://%s:%d -> %s  (machine %s)" % (host, port, upstream, machine), flush=True)
+    stop = threading.Event()
+    if sample_every and sample_every > 0 and machines():
+        def sampler():
+            db = open_ledger()
+            try:
+                while True:
+                    try:
+                        sample_machines(db)
+                    except Exception as e:
+                        warn("sampling failed: %s" % e)
+                    if stop.wait(sample_every):
+                        break
+            finally:
+                db.close()
+        threading.Thread(target=sampler, daemon=True).start()
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop.set()
+        srv.server_close()
+        holder["db"].close()
+    return 0
+
+
 # ---------------------------------------------------------------- 一行顯示
 
 LINE_SOURCES = (("claude", "Claude"), ("codex", "Codex"))
@@ -1822,6 +2097,18 @@ def parse_args(argv=None):
                    help="break the summary down by model (default), project, session or day")
     p.add_argument("--sample", action="store_true",
                    help="read every machine in [machines] once (CPU, GPU, power, loaded models)")
+    p.add_argument("--proxy", action="store_true",
+                   help="run a token-counting proxy in front of Ollama or an OpenAI-compatible server")
+    p.add_argument("--listen", metavar="[HOST:]PORT", default="127.0.0.1:11435",
+                   help="where --proxy listens (default 127.0.0.1:11435)")
+    p.add_argument("--upstream", metavar="URL", default="http://127.0.0.1:11434",
+                   help="where --proxy forwards to (default http://127.0.0.1:11434)")
+    p.add_argument("--machine", metavar="NAME", default=None,
+                   help="which machine the proxied tokens belong to (default: the first local one)")
+    p.add_argument("--sample-every", type=float, default=60, metavar="SEC",
+                   help="while --proxy runs, sample machines this often (0 = never)")
+    p.add_argument("--no-usage-injection", action="store_true",
+                   help="don't add stream_options.include_usage to streaming OpenAI requests")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
@@ -1862,7 +2149,22 @@ def main(argv=None):
         db.close()
 
 
+def default_machine():
+    for m in machines():
+        if m["host"] == "local":
+            return m["name"]
+    return local_hostname()
+
+
+def local_hostname():
+    return socket.gethostname().split(".")[0] or "local"
+
+
 def run(args, db):
+    if args.proxy:
+        db.close()
+        return serve_proxy(args.listen, args.upstream, args.machine or default_machine(),
+                           args.sample_every, not args.no_usage_injection)
     if args.statusline:
         add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()))
         db.commit()
