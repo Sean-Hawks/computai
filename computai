@@ -304,10 +304,23 @@ def ensure_config():
                 f.write(text)
 
 
+# 這幾段是清單（每行一個方案或一台機器）：使用者的檔案有這一段，就整段以檔案為準，
+# 刪掉的那行不會被預設值補回來。其他段是設定值，缺的鍵才用預設值。
+LIST_SECTIONS = ("plans", "plan_options", "machines")
+
+
 def load_config():
     cp = _ini()
     cp.read_string(DEFAULT_CONFIG)
-    cp.read(os.path.join(config_dir(), "config.ini"), encoding="utf-8")
+    user = _ini()
+    user.read(os.path.join(config_dir(), "config.ini"), encoding="utf-8")
+    for sec in user.sections():
+        if sec in LIST_SECTIONS and cp.has_section(sec):
+            cp.remove_section(sec)
+        if not cp.has_section(sec):
+            cp.add_section(sec)
+        for k, v in user.items(sec, raw=True):
+            cp.set(sec, k, v)
     return cp
 
 

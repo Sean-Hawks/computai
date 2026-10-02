@@ -31,7 +31,14 @@ class Config(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.sb.config, "prices.ini")))
         p = self.m.plans()
         self.assertEqual(p["claude"]["usd"], 20.0)
-        self.assertEqual(p["codex"]["usd"], 200.0)  # 沒寫的那個來自預設值
+        self.assertNotIn("codex", p)   # [plans] 以使用者的檔案為準
+
+    def test_deleted_list_entries_stay_deleted(self):
+        self.write("config.ini", "[plans]\nclaude = Pro, 20, x\n\n[machines]\n\n[power]\ncurrency = TWD\n")
+        self.assertEqual(sorted(self.m.plans()), ["claude"])      # 刪掉的 codex 不會回來
+        self.assertEqual(self.m.machines(), [])
+        ps = self.m.power_settings()
+        self.assertEqual((ps["currency"], ps["price_per_kwh"]), ("TWD", 0.15))  # 設定值缺的鍵用預設
 
     def test_price_prefix_and_suffix(self):
         path = self.write("prices.ini", "[claude-opus-5-5]\ninput = 4\noutput = 20\ncache_read = 0.2\n"
