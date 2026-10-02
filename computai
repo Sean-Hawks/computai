@@ -1837,7 +1837,7 @@ def machine_report(db, start, end, ps=None):
         last = db.execute("SELECT loaded FROM samples WHERE machine = ? ORDER BY ts DESC LIMIT 1",
                           (name,)).fetchone()
         out.append({
-            "machine": name, "samples": len(rows),
+            "machine": name, "samples": sum(1 for r in rows if r["ts"] >= start),
             "loaded": [{k: x.get(k) for k in ("service", "port", "name", "vram_mb")}
                        for x in json.loads(last["loaded"] or "[]")] if last else [], "covered_hours": round(covered / 3600, 2),
             "power_unknown_hours": round(unknown_power / 3600, 2),
