@@ -1032,6 +1032,58 @@ def render_summary(s):
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- 一行顯示
+
+LINE_SOURCES = (("claude", "Claude"), ("codex", "Codex"))
+
+
+def last_sync_age(db):
+    row = db.execute("SELECT value FROM meta WHERE key = 'last_sync'").fetchone()
+    return now() - float(row["value"]) if row and row["value"] else None
+
+
+def maybe_sync(db, max_age=30):
+    """一行顯示會被很頻繁地呼叫（statusline、tmux），同步過不久就不再掃一次 log。"""
+    age = last_sync_age(db)
+    if age is None or age >= max_age or age < 0:
+        sync(db, quiet=True)
+
+
+def today_range():
+    t = time.localtime(now())
+    start = local_ts(t.tm_year, t.tm_mon, t.tm_mday)
+    return start, start + 86400 + 3600  # 多一小時，夏令時間那天也不會漏
+
+
+def line_parts(db):
+    """一行顯示的內容：每個訂閱最吃緊的額度視窗，加上今天的等值花費。"""
+    limits = current_limits(db)
+    parts = []
+    for src, label in LINE_SOURCES:
+        rows = [r for r in limits if r["source"] == src]
+        if not rows:
+            continue
+        top = max(rows, key=lambda r: r["used_percent"])
+        part = {"source": src, "label": label, "used_percent": top["used_percent"],
+                "window": top["name"], "resets_in": top["resets_in"]}
+        parts.append(part)
+    start, end = today_range()
+    s = summary(db, start, end, label="today")
+    return {"limits": parts, "today_usd": round(s["total_cost_usd"], 2)}
+
+
+def render_line(info, sep="\uff5c"):
+    out = []
+    for p in info["limits"]:
+        txt = "%s %d%%" % (p["label"], round(p["used_percent"]))
+        if p["used_percent"] >= 90 and p["resets_in"] is not None:
+            txt += " (%s)" % fmt_dur(p["resets_in"])
+        out.append(txt)
+    v = info["today_usd"]
+    out.append("today $%s" % (("%.1f" % v) if v < 100 else "%d" % round(v)))
+    return sep.join(out)
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
@@ -1048,6 +1100,9 @@ def parse_args(argv=None):
     p.add_argument("--until", metavar="YYYY-MM-DD", help="end of the range (inclusive)")
     p.add_argument("--by", choices=["model"] + sorted(BREAKDOWNS), default="model",
                    help="break the summary down by model (default), project, session or day")
+    p.add_argument("--line", action="store_true",
+                   help="one line for status bars: limits used and today's API-equivalent spend")
+    p.add_argument("--sep", default="\uff5c", help="separator for --line (default: \uff5c)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     return p.parse_args(argv)
@@ -1084,6 +1139,12 @@ def main(argv=None):
 
 
 def run(args, db):
+    if args.line:
+        if not args.no_sync:
+            maybe_sync(db)
+        info = line_parts(db)
+        emit(info, render_line(info, args.sep), args.json)
+        return 0
     if args.sync:
         added = sync(db, quiet=args.json)
         if args.json and not args.summary:
