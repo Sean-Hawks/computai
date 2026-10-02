@@ -718,10 +718,12 @@ def codex_limits(rl, ts):
         w = rl.get(key)
         if not isinstance(w, dict) or w.get("used_percent") is None:
             continue
-        name = key if lid == "codex" else "%s:%s" % (lid, key)
+        # primary／secondary 對應哪個視窗會變（現在 primary 是一週），所以用視窗長度命名
+        minutes = _int(w.get("window_minutes")) or None
+        name = window_label(minutes) if lid == "codex" else "%s %s" % (lid, window_label(minutes))
         out.append({"source": "codex", "name": name, "ts": int(ts),
                     "used_percent": float(w["used_percent"]),
-                    "window_minutes": _int(w.get("window_minutes")) or None,
+                    "window_minutes": minutes,
                     "resets_at": _int(w.get("resets_at")) or None,
                     "plan": rl.get("plan_type") or ""})
     return out
@@ -823,6 +825,65 @@ def summary(db, start, end, prices=None, plan_table=None, label=""):
             "sources": out_sources,
             "total_cost_usd": round(sum(s["cost_usd"] for s in out_sources), 4),
             "unpriced_models": sorted(unpriced)}
+
+
+def fmt_dur(sec):
+    sec = max(int(sec), 0)
+    d, h, m = sec // 86400, sec % 86400 // 3600, sec % 3600 // 60
+    if d:
+        return "%dd%dh" % (d, h)
+    if h:
+        return "%dh%02dm" % (h, m)
+    return "%dm" % m
+
+
+def window_label(minutes):
+    if not minutes:
+        return "?"
+    if minutes % 10080 == 0:
+        return "week" if minutes == 10080 else "%dw" % (minutes // 10080)
+    if minutes % 1440 == 0:
+        return "%dd" % (minutes // 1440)
+    if minutes % 60 == 0:
+        return "%dh" % (minutes // 60)
+    return "%dm" % minutes
+
+
+def current_limits(db, t=None):
+    """每個額度視窗最新的一筆。已經過了重置時間的視窗當作 0%。"""
+    t = now() if t is None else t
+    out = []
+    q = ("SELECT l.* FROM limits l JOIN (SELECT source, name, MAX(ts) AS ts FROM limits "
+         "GROUP BY source, name) x ON l.source = x.source AND l.name = x.name AND l.ts = x.ts "
+         "ORDER BY l.source, l.window_minutes")
+    rows = [dict(r) for r in db.execute(q)]
+    newest = {}
+    for r in rows:
+        newest[r["source"]] = max(newest.get(r["source"], 0), r["ts"])
+    for r in rows:
+        if newest[r["source"]] - r["ts"] > 8 * 86400:  # 這個視窗已經很久沒出現，大概是方案換了
+            continue
+        r["stale"] = bool(r["resets_at"] and r["resets_at"] <= t)
+        if r["stale"]:
+            r["used_percent"] = 0.0
+            r["resets_in"] = None
+        else:
+            r["resets_in"] = int(r["resets_at"] - t) if r["resets_at"] else None
+        r["window"] = window_label(r["window_minutes"])
+        r["age"] = int(t - r["ts"])
+        out.append(r)
+    return out
+
+
+def render_limits(limits):
+    lines = []
+    for r in limits:
+        when = "reset since last seen" if r["stale"] else (
+            "resets in " + fmt_dur(r["resets_in"]) if r["resets_in"] is not None else "")
+        lines.append("  %-7s %-24s %5.0f%%  %s%s" % (
+            r["source"], cell(r["name"], 24),
+            r["used_percent"], when, ("  (plan %s)" % r["plan"]) if r["plan"] else ""))
+    return "\n".join(["Limits"] + lines) if lines else ""
 
 
 BREAKDOWNS = {
@@ -1024,7 +1085,10 @@ def run(args, db):
         sync(db, quiet=True)
     start, end, label = pick_range(args)
     s = summary(db, start, end, label=label)
+    s["limits"] = current_limits(db)
     text = render_summary(s)
+    if s["limits"]:
+        text += "\n\n" + render_limits(s["limits"])
     if args.by != "model":
         s["by_" + args.by] = breakdown(db, start, end, args.by)
         text += "\n\n" + render_breakdown(s["by_" + args.by], args.by)
