@@ -787,7 +787,7 @@ def summary(db, start, end, prices=None, plan_table=None, label=""):
     prices = load_prices() if prices is None else prices
     plan_table = plans() if plan_table is None else plan_table
     q = ("SELECT source, model, SUM(requests) AS requests, %s, SUM(cost_usd) AS cost_usd, "
-         "COUNT(cost_usd) AS n_cost, COUNT(*) AS n "
+         "COUNT(cost_usd) AS n_cost, COUNT(*) AS n, SUM(subagent * requests) AS sub "
          "FROM usage WHERE ts >= ? AND ts < ? GROUP BY source, model ORDER BY source, model"
          % ", ".join("SUM(%s) AS %s" % (c, c) for c in TOKEN_COLS))
     by_src = {}
@@ -801,13 +801,15 @@ def summary(db, start, end, prices=None, plan_table=None, label=""):
         if cost is None:
             unpriced.add(r["model"])
         src = by_src.setdefault(r["source"], {"source": r["source"], "models": [],
-                                              "totals": dict.fromkeys(("requests",) + TOKEN_COLS, 0),
+                                              "totals": dict.fromkeys(("requests", "subagent_requests")
+                                                                      + TOKEN_COLS, 0),
                                               "cost_usd": 0.0})
         m = {"model": r["model"], "requests": r["requests"], "cost_usd": cost}
         for c in TOKEN_COLS:
             m[c] = r[c] or 0
             src["totals"][c] += m[c]
         src["totals"]["requests"] += r["requests"] or 0
+        src["totals"]["subagent_requests"] += r["sub"] or 0
         src["cost_usd"] += cost or 0.0
         src["models"].append(m)
     days = max((end - start) / 86400.0, 1e-9)
@@ -1011,6 +1013,13 @@ def render_summary(s):
             "total", fmt_tok(t["requests"]), fmt_tok(t["input"]), fmt_tok(t["cache_read"]),
             fmt_tok(t["cache_write_5m"] + t["cache_write_1h"]), fmt_tok(t["output"]),
             fmt_usd(src["cost_usd"])))
+        extra = []
+        if t["output"] and t["reasoning"]:
+            extra.append("reasoning %d%% of output" % round(100.0 * t["reasoning"] / t["output"]))
+        if t["requests"] and t["subagent_requests"]:
+            extra.append("subagents %d%% of requests" % round(100.0 * t["subagent_requests"] / t["requests"]))
+        if extra:
+            lines.append("  " + ", ".join(extra))
         if src.get("plan"):
             p = src["plan"]
             lines.append("  plan: %s, %s for this range -> usage worth %sx the fee" % (
