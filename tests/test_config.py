@@ -82,3 +82,19 @@ class DefaultPrices(unittest.TestCase):
         self.assertEqual(m.price_for("claude-fable-5-1", prices)["cache_read"], 0.25)
         self.assertEqual(m.price_for("claude-fable-5", prices)["cache_read"], 1)
         self.assertEqual(m.price_for("gpt-5.5", prices)["cache_write_5m"], 5)  # 退回輸入價
+
+
+class InlineComments(unittest.TestCase):
+    def test_inline_comments(self):
+        sb = helpers.Sandbox()
+        try:
+            os.makedirs(sb.config)
+            with open(os.path.join(sb.config, "config.ini"), "w") as f:
+                f.write("[power]\nprice_per_kwh = 3.2   ; summer\ncurrency = TWD # local\n")
+            os.environ["COMPUTAI_CONFIG_DIR"] = sb.config
+            m = helpers.load()
+            ps = m.power_settings()
+            self.assertEqual((ps["price_per_kwh"], ps["currency"]), (3.2, "TWD"))
+        finally:
+            os.environ.pop("COMPUTAI_CONFIG_DIR", None)
+            sb.close()

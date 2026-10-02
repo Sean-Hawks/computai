@@ -287,7 +287,8 @@ checked = 2026-10-03
 
 def _ini():
     import configparser
-    cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=None)
+    # 行尾註解（前面要有空白）：`price_per_kwh = 3.2   ; 台電夏月`
+    cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";", "#"))
     cp.optionxform = str
     return cp
 
