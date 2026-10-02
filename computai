@@ -529,8 +529,111 @@ def day_label(ts):
 
 # ---------------------------------------------------------------- 匯入
 
-# (名稱, 函式)。函式收 db，回傳新增的筆數；各里程碑把自己的來源加進來。
+# (名稱, 函式)。函式收 db，回傳新增的筆數；清單在各來源定義之後補上。
 SOURCES = []
+
+
+def read_jsonl(path):
+    """逐行讀文字檔；讀不到就警告一次，回傳空的。"""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                yield line
+    except OSError as e:
+        warn("cannot read %s: %s" % (path, e.strerror))
+
+
+def line_hash(line):
+    import hashlib
+    return hashlib.sha1(line.encode("utf-8", "replace")).hexdigest()[:20]
+
+
+def walk_files(root, suffix=".jsonl"):
+    for dirpath, _dirs, names in os.walk(root):
+        for n in names:
+            if n.endswith(suffix):
+                yield os.path.join(dirpath, n)
+
+
+def import_files(db, source, paths, parse):
+    """只重讀有變動的檔案；parse(path) 回傳用量列。"""
+    added = 0
+    for path in paths:
+        if not file_changed(db, path):
+            continue
+        added += add_usage(db, parse(path))
+        mark_file(db, path)
+    return added
+
+
+def _int(v):
+    try:
+        return int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+# ---- Claude Code：~/.claude/projects/<專案>/<session>.jsonl
+
+def claude_roots():
+    """CLAUDE_CONFIG_DIR 可以用逗號列好幾個；沒設就看 ~/.claude 和 ~/.config/claude。"""
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    if env:
+        bases = [p.strip() for p in env.split(",") if p.strip()]
+    else:
+        home = os.path.expanduser("~")
+        bases = [os.path.join(home, ".claude"), os.path.join(home, ".config", "claude")]
+    return [os.path.join(b, "projects") for b in bases if os.path.isdir(os.path.join(b, "projects"))]
+
+
+def parse_claude_file(path):
+    """只取 assistant 行的用量欄位；訊息內容不看也不存。
+    同一則訊息會出現在好幾行（串流途中），用 (message.id, requestId) 去重，留 token 最多的那筆。"""
+    best = {}
+    sub_path = (os.sep + "subagents" + os.sep) in path
+    for line in read_jsonl(path):
+        if '"usage"' not in line or '"assistant"' not in line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict) or d.get("type") != "assistant":
+            continue
+        msg = d.get("message") or {}
+        u = msg.get("usage")
+        model = msg.get("model") or ""
+        if not isinstance(u, dict) or model == "<synthetic>":
+            continue
+        ts = iso_ts(d.get("timestamp"))
+        if ts is None:
+            continue
+        mid, req = msg.get("id"), d.get("requestId")
+        uid = "%s:%s" % (mid, req) if mid and req else "line:%s" % (d.get("uuid") or line_hash(line))
+        cc = u.get("cache_creation") or {}
+        c5, c1 = _int(cc.get("ephemeral_5m_input_tokens")), _int(cc.get("ephemeral_1h_input_tokens"))
+        if not cc:  # 舊格式只有總數，當成 5 分鐘快取
+            c5 = _int(u.get("cache_creation_input_tokens"))
+        if u.get("speed") == "fast":
+            model += "@fast"
+        row = {"source": "claude", "uid": uid, "ts": int(ts), "model": normalize_model(model),
+               "project": d.get("cwd") or "", "session": d.get("sessionId") or "",
+               "input": _int(u.get("input_tokens")), "cache_read": _int(u.get("cache_read_input_tokens")),
+               "cache_write_5m": c5, "cache_write_1h": c1, "output": _int(u.get("output_tokens")),
+               "reasoning": _int((u.get("output_tokens_details") or {}).get("thinking_tokens")),
+               "subagent": 1 if (d.get("isSidechain") or sub_path) else 0}
+        old = best.get(uid)
+        if old is None or row["output"] > old["output"]:
+            best[uid] = row
+    return list(best.values())
+
+
+def sync_claude(db):
+    paths = [p for root in claude_roots() for p in sorted(walk_files(root))]
+    return import_files(db, "claude", paths, parse_claude_file)
+
+
+SOURCES.append(("claude", sync_claude))
 
 
 def sync(db, only=None, quiet=False):
@@ -703,6 +806,13 @@ def main(argv=None):
         return 0
     ensure_config()
     db = open_ledger()
+    try:
+        return run(args, db)
+    finally:
+        db.close()
+
+
+def run(args, db):
     if args.sync:
         added = sync(db, quiet=args.json)
         if args.json and not args.summary:
