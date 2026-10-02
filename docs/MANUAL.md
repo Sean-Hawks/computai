@@ -1,0 +1,264 @@
+# ComputAI manual
+
+ComputAI keeps one ledger (a SQLite file) of everything that costs you compute or AI money and
+reports on it. This manual covers setup, every command, the configuration files and how the
+numbers are worked out. 中文版：[MANUAL.zh-TW.md](MANUAL.zh-TW.md).
+
+- [Where things live](#where-things-live)
+- [Subscriptions: Claude Code and Codex](#subscriptions-claude-code-and-codex)
+- [Commands](#commands)
+- [Configuration](#configuration)
+- [Machines and local models](#machines-and-local-models)
+- [The token-counting proxy](#the-token-counting-proxy)
+- [Cloud GPUs](#cloud-gpus)
+- [Organisation API usage](#organisation-api-usage)
+- [Analysis](#analysis)
+- [Dashboards](#dashboards)
+- [How the numbers are worked out](#how-the-numbers-are-worked-out)
+- [Troubleshooting](#troubleshooting)
+
+## Where things live
+
+| What | Default | Override |
+|---|---|---|
+| Settings (`config.ini`, `prices.ini`, `secrets.ini`) | `~/.config/computai/` (Windows: `%APPDATA%\computai`) | `COMPUTAI_CONFIG_DIR`, `XDG_CONFIG_HOME` |
+| Ledger (`ledger.sqlite`) | `~/.local/share/computai/` (Windows: `%LOCALAPPDATA%\computai`) | `COMPUTAI_DATA_DIR`, `XDG_DATA_HOME` |
+| Claude Code logs | `~/.claude/projects/` and `~/.config/claude/projects/` | `CLAUDE_CONFIG_DIR` (comma-separated list allowed) |
+| Codex logs | `~/.codex/sessions/`, `~/.codex/archived_sessions/` | `CODEX_HOME` |
+
+`computai --paths` prints the first two. The first run creates `config.ini` and `prices.ini`
+from templates; after that ComputAI only reads them, so your edits stay. Deleting the ledger
+is safe: the next `--sync` rebuilds subscription history from the logs (machine samples and
+cloud history are lost).
+
+## Subscriptions: Claude Code and Codex
+
+Nothing to set up. `computai --sync` (and every report, which syncs first unless you pass
+`--no-sync`) reads new log lines. Only files that changed since the last sync are re-read.
+
+- **Claude Code**: one row per API response, deduplicated by message id and request id.
+  Claude Code writes the same response several times while it streams; ComputAI keeps the
+  most complete copy. Cache writes are split into 5-minute and 1-hour, thinking tokens are
+  recorded separately (they are part of output), subagent requests are marked, and the
+  working directory is the project.
+- **Codex**: one row per `token_count` event. OpenAI counts cached tokens inside
+  `input_tokens`; ComputAI stores uncached input so both providers mean the same thing.
+  The totals match Codex's own `tokens_used` per thread.
+- **Limits**: Codex logs its limit windows (`rate_limits`); they appear as `week`, `5h` and so on.
+  Claude's limits are only available to a status line command, so set Claude Code's status line
+  to `computai --statusline` (see [one-line.md](one-line.md)); Pro and Max accounts only.
+
+## Commands
+
+All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
+`--until YYYY-MM-DD` (inclusive); the default is this month.
+
+| Command | What it does |
+|---|---|
+| `computai` | On a terminal: the live dashboard. Otherwise the same as `--summary`. |
+| `--summary [--by model\|project\|session\|day]` | Totals per source and model, API-equivalent cost, plan comparison, limits, machines, cloud and alerts. |
+| `--sync` | Import new usage and print how many rows were added per source. |
+| `--line [--sep " · "]` | One line: each subscription's fullest limit window and today's cost. Re-reads logs at most every 30 s. |
+| `--statusline` | For Claude Code's `statusLine`: records Claude's limits from stdin, prints `--line`. |
+| `--live [-n SEC]` | Live terminal dashboard with three areas: compute, AI usage, alerts. `q` quits. |
+| `--web [[HOST:]PORT]` | Browser dashboard (phone layout), `/api/state` JSON and `/metrics` for Prometheus. Default `127.0.0.1:8765`. |
+| `--report [--html FILE]` | Monthly report as text, or a self-contained HTML page with a daily cost chart. |
+| `--analyze` | Month-end forecast, plan check, cache efficiency, energy. |
+| `--payback USD [--gpu-watts W --hours-per-day H --rent-per-hour USD]` | How long a GPU takes to pay for itself versus renting. |
+| `--sample` | Read every machine once and print the machine table. |
+| `--cloud` | List RunPod, Vast.ai and Lambda instances and record their cost. |
+| `--proxy [--listen ... --upstream ... --machine NAME]` | Token-counting proxy for Ollama and OpenAI-compatible servers. |
+| `--paths`, `--version` | |
+
+`--live`, `--web` and `--proxy` keep running; while they do they re-read logs every 30 s,
+sample machines every `--sample-every` seconds (default 60) and, if keys are set, cloud
+providers every 5 minutes.
+
+## Configuration
+
+`config.ini` (comments start with `#`):
+
+```ini
+[general]
+usd_to_local = 32        ; exchange rate, used when electricity is priced in another currency
+local_currency = TWD
+
+[plans]                  ; <source> = <plan name>, <USD per month>, <date checked>
+claude = Claude Max 5x, 100, 2026-10-03
+codex = ChatGPT Pro, 200, 2026-10-03
+
+[plan_options]           ; for the plan simulator: <name> <USD> x<allowance>
+claude = Pro 20 x1, Max 5x 100 x5, Max 20x 200 x20
+codex = Plus 20 x1, Pro 200 x20
+
+[machines]               ; <name> = local | <ssh host>
+this-computer = local
+gpubox = gpubox.tailnet
+
+[machine.gpubox]
+services = ollama:11434, vllm:8000
+base_watts = 80          ; rest of the machine, on top of measured GPU power
+[machine.this-computer]
+idle_watts = 6           ; when GPU power can't be read (Macs): interpolate idle..max by load
+max_watts = 30
+
+[power]
+price_per_kwh = 0.15
+currency = USD
+tariff = flat            ; or tou, see below
+idle_alert_minutes = 15  ; model loaded but unused this long -> alert
+
+[budget]
+monthly_usd = 0          ; 0 = off
+
+[cloud]
+idle_gpu_util = 5        ; % below which a billing GPU counts as idle
+idle_alert_minutes = 20
+ssh_user =               ; read GPU use over SSH when the API has none (Lambda)
+```
+
+`prices.ini` holds API prices per million tokens (`input`, `output`, `cache_read`,
+`cache_write_5m`, `cache_write_1h`, plus `checked` and `source`). A model without its own
+section uses the longest section name that is a prefix of it, so `[claude-sonnet-5]` covers
+`claude-sonnet-5-5`. Fast mode is priced as `<model>@fast`. Models with no price are listed at
+the bottom of `--summary`; add a section for them.
+
+`secrets.ini` (must be `chmod 600`, otherwise it is ignored with a warning):
+
+```ini
+[secrets]
+RUNPOD_API_KEY = ...
+VAST_API_KEY = ...
+LAMBDA_API_KEY = ...
+ANTHROPIC_ADMIN_KEY = ...
+OPENAI_ADMIN_KEY = ...
+```
+
+Environment variables with the same names take precedence.
+
+### Time-of-use electricity
+
+Set `tariff = tou` under `[power]`. The `tou_*` keys describe the tariff in local time at
+`tou_utc_offset`: which months are summer, the peak hours for summer and the rest of the year,
+the four prices, and whether weekends are off-peak all day. The defaults are Taipower's
+residential two-tier plan (簡易型時間電價 二段式); they could not be checked against
+taipower.com.tw, so compare them with your bill. With a time-of-use tariff, energy is priced by
+the time it was used, and `--analyze` shows how much AI work ran at peak and what moving it
+off-peak would save.
+
+## Machines and local models
+
+Each machine in `[machines]` is read with one `ssh` call that runs a POSIX `sh` script (or
+locally, for `local`). Requirements on the machine: `sh`, and `curl` or `wget` to look at
+inference servers. Use key-based SSH that works without a prompt (`ssh -o BatchMode=yes host true`
+must succeed); a machine that does not answer within 25 seconds is skipped for that round.
+
+What is read: CPU use, memory, NVIDIA GPUs (`nvidia-smi`), AMD GPUs (sysfs), Apple GPUs
+(`ioreg`), and these inference servers on the machine's own loopback:
+
+| Service | Default port | Read from |
+|---|---|---|
+| Ollama | 11434 | `/api/ps`: loaded models and their memory |
+| llama.cpp (`--metrics`) | 8080 | `/metrics`: prompt and generated tokens, requests in flight |
+| vLLM | 8000 | `/metrics` |
+| SGLang (`--enable-metrics`) | 30000 | `/metrics` |
+| LM Studio | 1234 | `/api/v0/models`: loaded models |
+| other OpenAI-compatible (MLX, ...) | set it | `/v1/models` |
+
+Set `services = kind:port, ...` per machine to change the list. Token counters that grow
+between two samples become `local` usage rows (cost $0; their cost is the electricity).
+Ollama has no metrics, so its tokens need the proxy, but ComputAI still notices Ollama
+activity: every request pushes the model's `expires_at` forward.
+
+**Alerts**: a model that stays loaded with no activity for `idle_alert_minutes` raises
+"loaded but idle (holding N MB)".
+
+## The token-counting proxy
+
+```sh
+computai --proxy                                   # 127.0.0.1:11435 -> http://127.0.0.1:11434
+OLLAMA_HOST=127.0.0.1:11435 ollama run qwen3:0.6b  # point clients at the proxy
+```
+
+The proxy forwards everything unchanged and reads only the usage fields in responses
+(Ollama's `prompt_eval_count` / `eval_count`, OpenAI's `usage`, the Responses API's
+`response.usage`). Streaming OpenAI requests that did not ask for usage get
+`stream_options.include_usage` added, because otherwise the stream contains no token counts;
+turn that off with `--no-usage-injection`. Tokens are booked to `--machine` (default: the first
+`local` machine). Listening on anything other than loopback prints a warning: anyone who can
+reach the port can use your models.
+
+## Cloud GPUs
+
+Set one or more of `RUNPOD_API_KEY`, `VAST_API_KEY`, `LAMBDA_API_KEY` and run `computai --cloud`
+(or keep `--live`/`--web` running). Only read-only "list my instances" calls are made.
+
+- RunPod: status, price and GPU from the REST API; GPU use from the GraphQL API.
+- Vast.ai: status, `dph_total`, GPU use; stopped instances keep paying `storage_cost`.
+- Lambda: status and price; no GPU use in the API, so set `[cloud] ssh_user` (usually `ubuntu`)
+  to read `nvidia-smi` over SSH.
+
+Each check stores a snapshot; the time between two snapshots is charged at the hourly price
+(gaps over 6 hours are not guessed). **Idle but billing**: a GPU under `idle_gpu_util` % for
+`idle_alert_minutes` raises an alert with the money spent so far while idle.
+
+## Organisation API usage
+
+With `ANTHROPIC_ADMIN_KEY` (`sk-ant-admin...`) or `OPENAI_ADMIN_KEY`, `--sync` also imports the
+organisation's daily usage per model from the admin usage APIs (31 days the first time, then
+from the day before the last sync). Subscription usage (Pro, Max, Plus) is never in these APIs.
+
+## Analysis
+
+`computai --analyze` (uses the chosen range for the cache report, the current month for the rest):
+
+- **Month-end forecast**: subscription fees + money already spent this month (cloud, API,
+  electricity) + the last 7 days' daily average for the rest of the month. Also what each
+  subscription's usage would cost at API prices at the current pace. `[budget] monthly_usd`
+  turns on an over-budget alert.
+- **Plan check**: the highest limit-window use in the last 30 days, scaled by the plans'
+  allowance multipliers, picks the cheapest plan that would have stayed under 90 %. If the
+  API-equivalent cost is below the cheapest plan, it says pay-as-you-go would be cheaper.
+- **Cache efficiency**: within a session and model, a request that writes at least half of its
+  context to the cache again is a rewrite. The waste is the difference between cache-write and
+  cache-read prices for those tokens. Rewrites after a pause longer than the cache lifetime
+  (5 minutes or 1 hour) are counted separately: those come from leaving a session idle.
+- **Energy**: electricity cost per million locally generated tokens, and off-peak savings.
+
+`computai --payback 1800 --gpu-watts 450 --hours-per-day 8` compares buying a GPU with renting:
+the rent comes from `--rent-per-hour` or, if omitted, your cloud history (per GPU). With a
+time-of-use tariff it assumes the work is scheduled off-peak where possible.
+
+## Dashboards
+
+- `computai` / `--live`: three areas (compute, AI usage, alerts), refreshed every `-n` seconds.
+- `--web`: open `http://127.0.0.1:8765/`. To see it on a phone, keep it on loopback and use an
+  SSH tunnel (`ssh -L 8765:127.0.0.1:8765 host`) or `tailscale serve 8765`. `--web 0.0.0.0:8765`
+  exposes your usage, project names and machines to the network and prints a warning.
+- `/metrics`: gauges prefixed `computai_` (month cost and tokens per source, limit use, machine
+  CPU/GPU/power, cloud price and GPU use, forecast, alerts by kind).
+- `--report --html FILE`: a single HTML file you can keep or send.
+
+## How the numbers are worked out
+
+- **API-equivalent cost** = tokens × the prices in `prices.ini`, computed when you ask, so
+  changing a price changes past months too. Cloud rows carry their own cost.
+- **Energy** integrates power between consecutive samples (average of the two × time). Gaps over
+  10 minutes are not integrated, so `hours` in the machine table shows how much was covered.
+  Power is measured GPU power + `base_watts` when GPU power is readable, otherwise interpolated
+  between `idle_watts` and `max_watts` by load.
+- **AI share** is the share of sampled time in which the machine was doing inference: token
+  counters moved, requests were running, the proxy saw traffic, Ollama's `expires_at` moved, or
+  (non-Apple GPUs) a model was loaded and the GPU was over 20 % busy. Mac GPU use includes drawing
+  the screen, so it is not used as a signal.
+- **J/token** = energy during AI time ÷ generated tokens.
+
+## Troubleshooting
+
+- *A model shows "?" cost*: add it to `prices.ini`.
+- *No Claude percentage*: set up `computai --statusline` (Pro/Max only).
+- *A machine never appears*: run `ssh -o BatchMode=yes HOST true`; it must work without prompts.
+  A new host key has to be accepted once by hand.
+- *"ignoring secrets.ini"*: `chmod 600 ~/.config/computai/secrets.ini`.
+- *Start over*: delete `ledger.sqlite`; logs are re-imported on the next run.
+- *Uninstall*: delete the `computai` file, `~/.config/computai` and `~/.local/share/computai`.
