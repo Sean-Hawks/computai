@@ -1,0 +1,10 @@
+[
+  {"id": "pod-busy", "name": "train-llm", "desiredStatus": "RUNNING", "costPerHr": 2.69, "adjustedCostPerHr": 2.69,
+   "gpu": {"id": "NVIDIA H100 80GB HBM3", "count": 1, "displayName": "H100 SXM"},
+   "lastStartedAt": "2026-09-21T10:00:00Z", "publicIp": "203.0.113.10", "vcpuCount": 16, "memoryInGb": 125},
+  {"id": "pod-idle", "name": "forgot-me", "desiredStatus": "RUNNING", "costPerHr": 0.44,
+   "gpu": {"id": "NVIDIA RTX A5000", "count": 2, "displayName": "RTX A5000"},
+   "lastStartedAt": "2026-09-20T22:00:00Z"},
+  {"id": "pod-off", "name": "old-volume", "desiredStatus": "EXITED", "costPerHr": 0.69,
+   "gpu": {"displayName": "RTX 4090", "count": 1}}
+]

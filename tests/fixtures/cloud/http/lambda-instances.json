@@ -1,0 +1,10 @@
+{"data": [
+  {"id": "0920582c7ff041399e34823a0be62549", "name": "lambda-dev", "ip": "192.0.2.15", "status": "active",
+   "region": {"name": "us-east-1"},
+   "instance_type": {"name": "gpu_1x_h100_pcie", "description": "1x H100 (80 GB PCIe)",
+                     "gpu_description": "H100 (80 GB PCIe)", "price_cents_per_hour": 249,
+                     "specs": {"vcpus": 26, "memory_gib": 200, "storage_gib": 1024, "gpus": 1}}},
+  {"id": "aaaa", "name": "gone", "status": "terminated",
+   "instance_type": {"name": "gpu_1x_a10", "gpu_description": "A10", "price_cents_per_hour": 75,
+                     "specs": {"gpus": 1}}}
+]}

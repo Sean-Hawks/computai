@@ -1,0 +1,7 @@
+{"success": true, "total_instances": 2, "instances_found": 2, "next_token": null, "instances": [
+  {"id": 1234567, "label": "sweep-a", "actual_status": "running", "cur_state": "running", "gpu_name": "RTX 4090",
+   "num_gpus": 4, "dph_total": 1.6021, "storage_cost": 0.1, "gpu_util": 2.0, "public_ipaddr": "198.51.100.7",
+   "start_date": 1789990000.5},
+  {"id": 7654321, "label": null, "actual_status": "exited", "cur_state": "stopped", "gpu_name": "RTX 3090",
+   "num_gpus": 1, "dph_total": 0.25, "storage_cost": 0.02, "gpu_util": null}
+]}

@@ -1,0 +1,5 @@
+{"data": {"myself": {"pods": [
+  {"id": "pod-busy", "runtime": {"gpus": [{"id": "gpu0", "gpuUtilPercent": 97}]}},
+  {"id": "pod-idle", "runtime": {"gpus": [{"id": "gpu0", "gpuUtilPercent": 0}, {"id": "gpu1", "gpuUtilPercent": 1}]}},
+  {"id": "pod-off", "runtime": null}
+]}}}
