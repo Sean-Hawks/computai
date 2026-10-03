@@ -129,6 +129,12 @@ idle_alert_minutes = 15
 # Warn when this month's forecast spend goes over this many USD (0 = no budget).
 monthly_usd = 0
 
+[codex]
+# Every N minutes ask the official codex CLI for your account's limits (codex app-server,
+# account/rateLimits/read), so usage from other machines or people on the same account counts too.
+# The codex CLI handles its own login; ComputAI never reads it. 0 turns this off.
+poll_minutes = 10
+
 [card]
 # Keep a GitHub profile card up to date: once a day computai (and --web / --watch) writes
 # computai-card.svg + computai-card-light.svg into this git repo folder and commits them.
@@ -1147,6 +1153,78 @@ def window_label(minutes):
     if minutes % 60 == 0:
         return "%dh" % (minutes // 60)
     return "%dm" % minutes
+
+
+def codex_account_limits(timeout=25, t=None):
+    """問官方的 codex 程式整個帳號的額度（codex app-server 的 account/rateLimits/read）。
+    同一個 ChatGPT 帳號在別台電腦、別人用掉的額度也算得到。登入憑證由 codex 自己處理，ComputAI 不碰；
+    只取每個視窗的使用率、視窗長度、重置時間，以及還有幾次提早重置可以用，帳號 ID 之類的不留。
+    回傳 (額度列, 可用的重置次數)；找不到 codex 或沒回應回傳 ([], None)。"""
+    exe = shutil.which("codex")
+    if not exe or os.environ.get("COMPUTAI_FIXTURES"):
+        return [], None
+    t = now() if t is None else t
+    try:
+        p = subprocess.Popen([exe, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, universal_newlines=True)
+    except OSError:
+        return [], None
+    got = None
+    try:
+        for msg in ({"method": "initialize", "id": 1,
+                     "params": {"clientInfo": {"name": "computai", "title": "ComputAI", "version": __version__}}},
+                    {"method": "initialized"}, {"method": "account/rateLimits/read", "id": 2}):
+            p.stdin.write(json.dumps(msg) + "\n")
+        p.stdin.flush()
+        import select
+        end = time.time() + timeout
+        while time.time() < end and got is None:
+            if os.name != "nt":
+                r, _, _ = select.select([p.stdout], [], [], 1)
+                if not r:
+                    continue
+            line = p.stdout.readline()
+            if not line:
+                break
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get("id") == 2:
+                got = m
+    except (OSError, ValueError):
+        got = None
+    finally:
+        p.kill()
+        p.wait()
+    res = (got or {}).get("result") or {}
+    snap = res.get("rateLimits") or {}
+    rows = []
+    for w in (snap.get("primary"), snap.get("secondary")):
+        if not isinstance(w, dict) or w.get("usedPercent") is None:
+            continue
+        mins = w.get("windowDurationMins")
+        rows.append({"source": "codex", "name": window_label(mins), "ts": int(t), "used_percent": float(w["usedPercent"]),
+                     "window_minutes": mins, "resets_at": w.get("resetsAt"), "plan": str(snap.get("planType") or "")})
+    credits = (res.get("rateLimitResetCredits") or {}).get("availableCount")
+    return rows, (int(credits) if isinstance(credits, int) else None)
+
+
+def codex_account_poll(db, t=None):
+    """讀帳號額度寫進帳本（有變才寫），重置次數放在 meta。回傳寫了幾筆。"""
+    rows, credits = codex_account_limits(t=t)
+    n = add_limits(db, rows, only_changes=True) if rows else 0
+    if credits is not None:
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('codex_reset_credits', ?)", (str(credits),))
+    if rows or credits is not None:
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('codex_account_read', ?)", (str(int(now() if t is None else t)),))
+        db.commit()
+    return n
+
+
+def codex_poll_minutes(cp=None):
+    cp = cp or load_config()
+    return _float(cp.get("codex", "poll_minutes", fallback="10"), 10.0)
 
 
 def limit_reset_rows(db, source, t=None):
@@ -4030,6 +4108,8 @@ def dashboard_state(db):
             "energy": energy, "cloud": latest_cloud(db), "daily": daily_costs(db, 14, t),
             "forecast": forecast(db, t, month_machines=energy),
             "alerts": machine_alerts() + idle_alerts(db, t) + cloud_alerts(db, t)}
+    row = db.execute("SELECT value FROM meta WHERE key = 'codex_reset_credits'").fetchone()
+    _reset_credits["codex"] = st["reset_credits"] = _int(row[0]) if row else 0
     st["verdict"] = verdict(st)
     st["local"] = local_overview(db, st["machines"], energy, t)
     return st
@@ -4128,7 +4208,8 @@ class Updater:
     def __init__(self, sample_every=60, cloud_every=300, sync_every=30, notify=True):
         self.notify = notify
         self.card_at = 0.0
-        self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300}
+        self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300,
+                      "codex": codex_poll_minutes() * 60}
         self.last = {k: 0.0 for k in self.every}
         self.insights = []
         self.stop = threading.Event()
@@ -4141,6 +4222,12 @@ class Updater:
         if self.every["machines"] > 0 and t - self.last["machines"] >= self.every["machines"] and machines():
             self.last["machines"] = t
             sample_machines(db)
+        if self.every["codex"] > 0 and t - self.last["codex"] >= self.every["codex"]:
+            self.last["codex"] = t   # 整個帳號的 Codex 額度（別台電腦、別人用的也算）
+            try:
+                codex_account_poll(db)
+            except Exception as e:
+                warn("codex limits failed: %r" % (e,))
         card = card_settings()
         if card["repo"] and time.time() - self.card_at >= 86400:   # 個人頁卡片一天更新一次
             self.card_at = time.time()
@@ -4303,7 +4390,7 @@ UI = {
         "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
         "v_used_up": "%s %s is used up - resets in %s",
         "lr_note": "until the next real reading", "v_used_up_old": "%s %s was used up when last seen %s ago - use it once to refresh, or computai --limit-reset if it reset early",
-        "q_seen": "seen %s ago", "v_used_up_nr": "%s %s is used up",
+        "q_seen": "seen %s ago", "q_credits": "%d early reset(s) available in the Codex app", "v_used_up_nr": "%s %s is used up",
         "v_high": "%s %s is %d%% used", "v_high_r": "%s %s is %d%% used - resets in %s",
         "v_budget": "this month is heading for %s, over the %s budget",
         "v_down": "%s cannot be reached", "v_idle": "%s: a model is holding memory but not being used",
@@ -4471,7 +4558,7 @@ UI = {
         "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
         "v_used_up": "%s %s用完了，%s 後重置",
         "lr_note": "直到下次讀到真的數字", "v_used_up_old": "%s %s上次看到是用完（%s 前）；用一次就會更新，提早重置了可以用 computai --limit-reset",
-        "q_seen": "%s 前看到的", "v_used_up_nr": "%s %s用完了",
+        "q_seen": "%s 前看到的", "q_credits": "Codex app 裡還有 %d 次提早重置可用", "v_used_up_nr": "%s %s用完了",
         "v_high": "%s %s已用 %d%%", "v_high_r": "%s %s已用 %d%%，%s 後重置",
         "v_budget": "這個月預估 %s，超過 %s 的預算",
         "v_down": "%s 連不上", "v_idle": "%s：有模型佔著記憶體卻沒在用",
@@ -4700,8 +4787,14 @@ def limit_note(r):
     return note
 
 
+_reset_credits = {}   # 來源 -> 還有幾次提早重置可以用（dashboard_state 時填）
+
+
 def _limit_note(r):
     used = r["used_percent"] or 0
+    if used >= LIMIT_FAIL and _reset_credits.get(r["source"]):
+        reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else "?"
+        return rgb(RED, T("q_wait") % reset) + dim(" \u00b7 ") + rgb(AMBER, T("q_credits") % _reset_credits[r["source"]])
     reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
     if used >= LIMIT_FAIL:
         return rgb(RED, T("q_wait") % reset) if reset else ""
@@ -8553,6 +8646,8 @@ def parse_args(argv=None):
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--codex-limits", action="store_true",
+                   help="read your Codex account's limits now through the codex CLI (all machines and people on the account)")
     p.add_argument("--limit-reset", metavar="SOURCE", choices=sorted(SUBSCRIPTION_SOURCES),
                    help="mark a subscription's limits as reset now (claude or codex), e.g. after an early reset; "
                         "the next real reading replaces it")
@@ -8656,7 +8751,7 @@ def local_hostname():
 
 
 ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset",
+           "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
 
@@ -8708,6 +8803,19 @@ def run(args, db):
     if args.bench:
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
+        return 0
+    if args.codex_limits:
+        rows, credits = codex_account_limits()
+        if not rows:
+            print("computai: could not read Codex limits (is the codex CLI installed and logged in?)")
+            return 1
+        add_limits(db, rows, only_changes=True)
+        db.commit()
+        for r in rows:
+            print("computai: Codex %s %d%% (%s)" % (limit_label(r["name"]), round(r["used_percent"]),
+                                                   T("resets") % fmt_dur(max(0, r["resets_at"] - now())) if r["resets_at"] else "-"))
+        if credits:
+            print("computai: " + T("q_credits") % credits)
         return 0
     if args.limit_reset:
         rows = limit_reset_rows(db, args.limit_reset)
