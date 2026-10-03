@@ -1902,17 +1902,14 @@ def discover():
         cands.append({"name": re.sub(r"[^\w-]", "-", h), "host": h, "via": "ssh config"})
     have = {c["host"] for c in cands}
     for name, ip, os_, online in tailscale_peers():
-        if not online or os_ not in ("linux", "macos", "darwin", "freebsd"):
-            continue
-        for c in cands:
-            if c["host"] in (name, ip):
-                c["via"] += " + tailscale"
-                if re.match(r"^[\d.]+$", c["host"]):  # ssh config 裡寫的是 IP：名字用 Tailscale 上的
-                    c["name"] = name
-                break
-        else:
-            if ip not in have:
-                cands.append({"name": name, "host": ip, "via": "tailscale"})
+        match = [c for c in cands if c["host"] in (name, ip)]
+        for c in match:
+            c["via"] += " + tailscale"
+            if re.match(r"^[\d.]+$", c["host"]):  # ssh config 裡寫的是 IP：名字用 Tailscale 上的
+                c["name"] = name
+        # 只有 ssh config 沒寫到、而且在線的 Linux／macOS 才另外加進來（手機、Windows 通常沒有 sh）
+        if not match and online and os_ in ("linux", "macos", "darwin", "freebsd") and ip not in have:
+            cands.append({"name": name, "host": ip, "via": "tailscale"})
     configured = {m["host"] for m in machines()}
     results = [None] * len(cands)
 
