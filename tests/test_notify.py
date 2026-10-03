@@ -15,8 +15,8 @@ class Notify(unittest.TestCase):
         self.db = self.m.open_ledger(":memory:")
         self.addCleanup(self.db.close)
 
-    def step(self, limits, alerts=()):
-        return self.m.notify_events(self.db, {"limits": limits, "alerts": list(alerts), "forecast": {}})
+    def step(self, limits, alerts=(), t=100000):
+        return self.m.notify_events(self.db, {"limits": limits, "alerts": list(alerts), "forecast": {}, "time": t})
 
     def test_first_run_is_silent_then_transitions_once(self):
         self.assertEqual(self.step([lim("codex", "week", 85)]), [])           # 第一次只記下現況
@@ -31,11 +31,25 @@ class Notify(unittest.TestCase):
         self.step([lim("claude", "5h", 50)])
         self.assertEqual(self.step([lim("claude", "5h", 82)]), [("warn", "Claude Code 5-hour limit is 82% used.")])
 
-    def test_new_alert_once(self):
-        a = {"kind": "machine_unreachable", "machine": "wsl", "message": "wsl: timeout"}
-        self.step([])
-        self.assertEqual(self.step([], [a]), [("fail", "wsl: timeout")])
-        self.assertEqual(self.step([], [a]), [])
+    def test_unreachable_waits_and_does_not_flap(self):
+        a = {"kind": "machine_unreachable", "machine": "wsl", "message": "wsl: ssh timeout ..."}
+        self.step([], t=0)
+        self.assertEqual(self.step([], [a], t=60), [])                  # 剛斷線：先不吵
+        self.assertEqual(self.step([], [a], t=400), [])
+        ev = self.step([], [a], t=700)                                   # 斷了 10 分鐘以上才講
+        self.assertEqual(ev, [("fail", "wsl has been unreachable for 10m (asleep, off, or Tailscale/VPN down?)")])
+        self.assertEqual(self.step([], [a], t=760), [])                  # 講過了
+        self.step([], [], t=800)                                         # 恢復
+        self.step([], [a], t=900)                                        # 又斷
+        self.assertEqual(self.step([], [a], t=2000), [])                 # 6 小時內不再講
+        self.step([], [], t=3000)
+        self.step([], [a], t=30000)
+        self.assertEqual(len(self.step([], [a], t=31000)), 1)            # 冷卻過了才再講
+
+    def test_other_alerts_right_away(self):
+        a = {"kind": "idle_model", "machine": "mac", "message": "mac: model idle"}
+        self.step([], t=0)
+        self.assertEqual(self.step([], [a], t=10), [("warn", "mac: model idle")])
 
     def test_deliver_uses_desktop_and_chat(self):
         sent = []

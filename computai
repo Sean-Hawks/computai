@@ -4285,6 +4285,7 @@ UI = {
         "b_vs": "%s / %s: electricity is %.0fx cheaper per token than that (hardware not counted)",
         "b_nopower": "Some machines have no power reading: set idle_watts / max_watts or a plug in [machine.NAME].",
         "b_note": "Each server generated %d-token answers to the same fixed prompt for a few seconds; nothing is stored.",
+        "nt_down": "%s has been unreachable for %s (asleep, off, or Tailscale/VPN down?)",
         "nt_reset": "%s %s has reset - you can use it again",
         "nt_full": "%s %s is used up - resets in %s.", "nt_alt": "%s still has %d%% left.",
         "nt_high": "%s %s is %d%% used.", "nt_pace": "At this pace it runs out in %s.",
@@ -4452,6 +4453,7 @@ UI = {
         "b_vs": "%s / %s：電費每 token 比它便宜 %.0f 倍（沒算硬體成本）",
         "b_nopower": "有些機器讀不到功耗：在 [machine.名稱] 設定 idle_watts／max_watts 或智慧插座。",
         "b_note": "每個服務用同一段固定題目，連續產生 %d token 的回答幾秒鐘；不會存任何內容。",
+        "nt_down": "%s 已經連不上 %s（睡眠、關機，或 Tailscale／VPN 斷了？）",
         "nt_reset": "%s %s重置了，可以繼續用",
         "nt_full": "%s %s用完了，%s 後重置。", "nt_alt": "%s 還剩 %d%%。",
         "nt_high": "%s %s已用 %d%%。", "nt_pace": "照目前速度 %s 後用完。",
@@ -6214,6 +6216,10 @@ def notify_settings(cp=None):
     return {"desktop": yes("desktop", "yes"), "chat": yes("chat", "no")}
 
 
+ALERT_GRACE = {"machine_unreachable": 600}   # 警示要持續這麼久（秒）才通知
+NOTIFY_COOLDOWN = 6 * 3600                    # 同一件事通知過之後，這段時間內不再通知
+
+
 def notify_events(db, st):
     """跟上次比，哪些事情變了：額度到 80%、用完、重置（又可以用了）、新的警示。
     狀態存在帳本的 meta（notify_state），所以重開程式不會重講；同時跑好幾個 computai 也只會有一個講。
@@ -6247,11 +6253,28 @@ def notify_events(db, st):
             elif lv == "high" and was[0] == "ok":
                 pace = (" " + T("nt_pace") % fmt_dur(r["eta_full"])) if r.get("eta_full") else ""
                 out.append(("warn", T("nt_high") % (src, win, round(used)) + pace))
+        t = st.get("time") or now()
         for a in st["alerts"]:
             key = "alert:%s:%s" % (a["kind"], a.get("machine") or a.get("id") or "")
-            new[key] = 1
-            if not first and key not in old:
-                out.append((alert_level(a), a["message"]))
+            prev = old.get(key)
+            if isinstance(prev, list):
+                since, told = prev
+            else:                       # 舊格式（1）視為已經講過
+                since, told = t, bool(prev) or first
+            # 機器偶爾逾時（筆電睡醒、Tailscale 換路）不算數：要持續一段時間才講；
+            # 同一件事講過之後幾個小時內不再講，免得來回跳的時候一直洗版
+            if not told and t - since >= ALERT_GRACE.get(a["kind"], 0):
+                told = True
+                last = old.get("sent:" + key)
+                if last is None or t - last >= NOTIFY_COOLDOWN:
+                    msg = T("nt_down") % (a["machine"], fmt_dur(t - since)) if a["kind"] == "machine_unreachable" \
+                        else a["message"]
+                    out.append((alert_level(a), msg))
+                    new["sent:" + key] = t
+            new[key] = [since, told]
+        for k, v in old.items():        # 冷卻中的紀錄留著，警示消失又出現也不會馬上再講
+            if k.startswith("sent:") and k not in new and t - v < NOTIFY_COOLDOWN:
+                new[k] = v
         if (st.get("forecast") or {}).get("over_budget"):
             new["budget"] = 1
             if not first and "budget" not in old:
