@@ -4471,8 +4471,9 @@ UI = {
         "dr_plan": "%s plan: %s, %s/month", "dr_plan_det": "the logs say %r",
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
         "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
+        "dr_cl_cli": "Claude account limits are read from the claude CLI every %d minutes (no status line needed)",
         "dr_sl_other": "Claude Code uses another status line; combine it with computai to see Claude limits",
-        "dr_sl_none": "Claude limit percentages need computai as Claude Code's status line",
+        "dr_sl_none": "Claude limit percentages need the claude CLI (logged in) or computai as Claude Code's status line",
         "dr_unreach": "%s: cannot read", "dr_pw_plug": "power measured by the plug %s",
         "dr_pw_set": "power settings present", "dr_pw_gpu": "GPU power is measured; add the rest of the machine (%s)",
         "dr_pw_none": "power unknown, so no kWh yet; suggested values for a %s",
@@ -4661,8 +4662,9 @@ UI = {
         "dr_plan": "%s 方案：%s，每月 %s", "dr_plan_det": "log 裡記錄的是 %r",
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
         "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
+        "dr_cl_cli": "Claude 帳號額度每 %d 分鐘從 claude 程式讀一次（不用設 statusline）",
         "dr_sl_other": "Claude Code 用的是別的 statusline；要跟 computai 並用才看得到 Claude 額度",
-        "dr_sl_none": "要看 Claude 的額度百分比，需要把 computai 設成 Claude Code 的 statusline",
+        "dr_sl_none": "要看 Claude 的額度百分比，需要裝好並登入 claude 程式，或把 computai 設成 Claude Code 的 statusline",
         "dr_unreach": "%s：讀不到", "dr_pw_plug": "功耗由插座 %s 實測",
         "dr_pw_set": "功耗已設定", "dr_pw_gpu": "GPU 功耗有實測；建議補上整台其他部分（%s）",
         "dr_pw_none": "不知道功耗，所以還沒有度數；%s 的建議值",
@@ -8832,7 +8834,9 @@ def doctor(db, sample=True):
     # Claude 的額度百分比
     if n_claude:
         sl = claude_statusline()
-        if sl and "computai" in sl:
+        if shutil.which("claude") and not os.environ.get("COMPUTAI_FIXTURES") and claude_poll_minutes() > 0:   # 帳號額度從 claude -p /usage 讀，不用 statusline
+            add("claude", "ok", T("dr_cl_cli") % int(claude_poll_minutes()))
+        elif sl and "computai" in sl:
             add("claude", "ok", T("dr_sl_ok"))
         elif sl:
             add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
