@@ -99,8 +99,9 @@ computai --card --publish ~/Documents/me   # 把卡片 commit 進你的個人頁
 `[general] usd_to_local`（匯率），就會用台電簡易型二段式時間電價計算。預設數字沒能跟台電官網核對，
 請對照你的電費單。
 
-狀態列：tmux、SwiftBar 用 `computai --line`；Claude Code 的 statusLine 設成 `computai --statusline`
-（Claude 的額度百分比只能從這裡取得）。見 [docs/one-line.md](docs/one-line.md)。
+狀態列：tmux、SwiftBar 用 `computai --line`；Claude Code 的 statusLine 可以設成 `computai --statusline`。
+見 [docs/one-line.md](docs/one-line.md)。Claude 的額度百分比會自己從 `claude` 程式讀（不用設 statusLine），
+所以在 T3 Code、別台電腦用的也算得到。
 
 ## GitHub 個人頁的 AI 作戰卡
 
@@ -224,6 +225,7 @@ computai --card --publish ~/Documents/you/assets --push
 
 ## 隱私與安全
 
+- Claude 整個帳號的額度是每 10 分鐘問一次官方的 `claude` 程式（`claude -p /usage`，本機指令，不呼叫模型）。登入由它自己處理，ComputAI 只拿百分比和重置時間，報告裡的其他內容一律不看（`[claude] poll_minutes = 0` 關掉）。
 - Codex 整個帳號的額度（每台電腦、每個人用的都算）是每 10 分鐘問一次官方的 `codex` 程式（`codex app-server` 的 `account/rateLimits/read`）。登入由它自己處理，ComputAI 只拿到百分比和重置時間（`[codex] poll_minutes = 0` 關掉）。
 - 只讀 log 裡的用量欄位，prompt 和回應不會讀進帳本、不會儲存、也不會傳到任何地方。
   不讀 `~/.codex/auth.json` 和 Claude 的 OAuth token。

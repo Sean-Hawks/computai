@@ -115,8 +115,8 @@ Every command takes `--json`. The first run writes `config.ini` and `prices.ini`
 electricity price and API prices. Every price carries the date it was checked.
 
 Status bars: `computai --line` for tmux and SwiftBar, `computai --statusline` as Claude Code's
-status line (that is also how ComputAI learns Claude's limit percentages). See
-[docs/one-line.md](docs/one-line.md).
+status line. See [docs/one-line.md](docs/one-line.md). Claude's limit percentages come from the
+`claude` CLI on their own (no status line needed), so T3 Code and other machines count too.
 
 ## Your AI ops card for your GitHub profile
 
@@ -226,6 +226,7 @@ The snippet `--card --setup` adds to your README:
 
 ## Privacy and security
 
+- Claude limits for your whole account come from asking the official `claude` CLI (`claude -p /usage`, a local command that calls no model) every 10 minutes. The CLI uses its own login; ComputAI only receives percentages and reset times and ignores the rest of the report (`[claude] poll_minutes = 0` turns it off).
 - Codex limits for your whole account (every machine and person on it) come from asking the official `codex` CLI (`codex app-server`, `account/rateLimits/read`) every 10 minutes. The CLI uses its own login; ComputAI only receives percentages and reset times (`[codex] poll_minutes = 0` turns it off).
 - Reads only usage fields from your logs. Prompts and responses are never read into the
   ledger, stored or sent anywhere. `~/.codex/auth.json` and Claude's OAuth tokens are never read.

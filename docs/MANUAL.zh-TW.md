@@ -45,9 +45,11 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
   subagent 的請求會標記；工作目錄就是專案。
 - **Codex**：每個 `token_count` 事件一列。OpenAI 的 `input_tokens` 包含快取命中的部分，
   ComputAI 會扣掉，讓兩家的欄位意思一致。加總跟 Codex 自己記的每個 thread 的 `tokens_used` 一樣。
-- **額度**：Codex 的 log 有額度視窗（`rate_limits`），顯示成 `week`、`5h` 等。Claude 的額度只會傳給
-  statusline 指令，所以要把 Claude Code 的 statusLine 設成 `computai --statusline`
-  （見 [one-line.md](one-line.md)），限 Pro、Max 帳號。
+- **額度**：兩家都讀整個帳號的數字（別台電腦、T3 Code、claude.ai、別人用的都算），每 10 分鐘一次：
+  - Claude：問官方的 `claude` 程式（`claude -p /usage`，本機指令，不呼叫模型、不花額度），限 Pro、Max 帳號。
+    也可以把 Claude Code 的 statusLine 設成 `computai --statusline`（見 [one-line.md](one-line.md)），每次回應都會更新。
+  - Codex：問官方的 `codex` 程式（`codex app-server`）；log 裡的額度視窗也會讀。
+  - 登入都由官方程式自己處理，ComputAI 只拿到百分比和重置時間。`[claude]`／`[codex] poll_minutes = 0` 關掉。
 
 ## 指令
 
@@ -65,6 +67,7 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--once` | 印一次 live 畫面就結束（會先讀 log、取樣機器）。 |
 | `--card --setup` | 幾個問題設定好 GitHub 個人頁卡片（找到或 clone 個人頁 repo、產生第一張卡片、加進 README）。 |
 | `--watch` | 不開畫面：在背景更新帳本並送通知（見「通知」）。 |
+| `--claude-limits` | 現在就透過 claude 程式讀 Claude 帳號的額度（`claude -p /usage`，不呼叫模型）。 |
 | `--codex-limits` | 現在就透過 codex 程式讀 Codex 帳號的額度（包含別台電腦、別人用的）。 |
 | `--limit-reset claude\|codex` | 手動標記某個訂閱的額度已經重置（提早重置時 log 看不到）；下次讀到真的數字就會取代。 |
 | `--notify-test` | 送一則測試通知。 |
@@ -390,7 +393,7 @@ git -C ~/Documents/你的個人頁repo push      # 或是在上面的指令加 -
 ## 疑難排解
 
 - *某個模型的花費顯示「?」*：在 `prices.ini` 加上它的價格。
-- *看不到 Claude 的百分比*：設定 `computai --statusline`（限 Pro／Max）。
+- *看不到 Claude 的百分比*：確認 `claude` 程式裝好並登入（限 Pro／Max），跑 `computai --claude-limits` 試試。
 - *機器一直沒出現*：`--sample`、`--live`、`--web` 會顯示原因（「cannot read: ...」）。執行
   `ssh -o BatchMode=yes 主機 true`，必須不經提示就成功。「Host key verification failed」表示 known_hosts
   裡這台的 key 記在別的名字下：改用你平常 ssh 用的名字或 IP（Tailscale 的機器常常是 100.x 的位址），

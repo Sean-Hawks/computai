@@ -27,6 +27,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -135,6 +136,13 @@ monthly_usd = 0
 # Every N minutes ask the official codex CLI for your account's limits (codex app-server,
 # account/rateLimits/read), so usage from other machines or people on the same account counts too.
 # The codex CLI handles its own login; ComputAI never reads it. 0 turns this off.
+poll_minutes = 10
+
+[claude]
+# Every N minutes ask the official claude CLI for your account's limits (`claude -p /usage`, a local
+# command that calls no model and uses no quota), so usage from T3 Code, other machines or claude.ai
+# counts too, without setting up the statusLine. The claude CLI handles its own login; ComputAI never
+# reads it. 0 turns this off.
 poll_minutes = 10
 
 [card]
@@ -1222,6 +1230,64 @@ def codex_account_poll(db, t=None):
         db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('codex_account_read', ?)", (str(int(now() if t is None else t)),))
         db.commit()
     return n
+
+
+CLAUDE_KINDS = {"session": ("5h", 300), "weekly_all": ("week", 10080), "weekly_scoped": ("week", 10080)}
+
+
+def claude_account_limits(timeout=60, t=None):
+    """問官方的 claude 程式整個帳號的額度：`claude -p /usage` 是本機指令，不會呼叫模型、不花額度，
+    它的 stream-json 輸出裡有 usage_report.rate_limits（伺服器端的數字，別台電腦、claude.ai 用的都算）。
+    登入由 claude 自己處理，ComputAI 不碰 OAuth token；只取每個視窗的使用率和重置時間，
+    同一份輸出裡的文字報告（skill、session 統計）一律不看。找不到 claude 或沒回應回傳 []。"""
+    exe = shutil.which("claude")
+    if not exe or os.environ.get("COMPUTAI_FIXTURES"):
+        return []
+    t = now() if t is None else t
+    cmd = [exe, "-p", "/usage", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
+           "--strict-mcp-config"]
+    try:
+        out = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                             universal_newlines=True, timeout=timeout, cwd=tempfile.gettempdir()).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = []
+    for line in out.splitlines():
+        if '"usage_report"' not in line:
+            continue
+        try:
+            rl = (json.loads(line).get("usage_report") or {}).get("rate_limits") or {}
+        except (ValueError, AttributeError):
+            continue
+        for w in rl.get("limits") or []:
+            if not isinstance(w, dict) or w.get("kind") not in CLAUDE_KINDS or w.get("percent") is None:
+                continue
+            name, mins = CLAUDE_KINDS[w["kind"]]
+            if w["kind"] == "weekly_scoped":   # 單一模型的每週額度（例如 Fable）：用到了才記
+                model = (((w.get("scope") or {}).get("model") or {}).get("display_name") or "").strip()
+                if not model or not w["percent"]:
+                    continue
+                name = "week:" + model
+            reset = iso_ts(w.get("resets_at"))
+            rows.append({"source": "claude", "name": name, "ts": int(t), "used_percent": float(w["percent"]),
+                         "window_minutes": mins, "resets_at": int(reset) if reset else None, "plan": ""})
+        break
+    return rows
+
+
+def claude_account_poll(db, t=None):
+    """讀 Claude 帳號額度寫進帳本（有變才寫）。回傳寫了幾筆。"""
+    rows = claude_account_limits(t=t)
+    n = add_limits(db, rows, only_changes=True) if rows else 0
+    if rows:
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('claude_account_read', ?)", (str(int(now() if t is None else t)),))
+        db.commit()
+    return n
+
+
+def claude_poll_minutes(cp=None):
+    cp = cp or load_config()
+    return _float(cp.get("claude", "poll_minutes", fallback="10"), 10.0)
 
 
 def codex_poll_minutes(cp=None):
@@ -4311,7 +4377,7 @@ class Updater:
         self.notify = notify
         self.card_at = 0.0
         self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300,
-                      "codex": codex_poll_minutes() * 60}
+                      "codex": codex_poll_minutes() * 60, "claude": claude_poll_minutes() * 60}
         self.last = {k: 0.0 for k in self.every}
         self.insights = []
         self.stop = threading.Event()
@@ -4330,6 +4396,12 @@ class Updater:
                 codex_account_poll(db)
             except Exception as e:
                 warn("codex limits failed: %r" % (e,))
+        if self.every["claude"] > 0 and t - self.last["claude"] >= self.every["claude"]:
+            self.last["claude"] = t   # 整個帳號的 Claude 額度（T3 Code、別台電腦、claude.ai 用的也算）
+            try:
+                claude_account_poll(db)
+            except Exception as e:
+                warn("claude limits failed: %r" % (e,))
         card = card_settings()
         if card["repo"] and time.time() - self.card_at >= 86400:   # 個人頁卡片一天更新一次
             self.card_at = time.time()
@@ -4399,8 +4471,9 @@ UI = {
         "dr_plan": "%s plan: %s, %s/month", "dr_plan_det": "the logs say %r",
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
         "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
+        "dr_cl_cli": "Claude account limits are read from the claude CLI every %d minutes (no status line needed)",
         "dr_sl_other": "Claude Code uses another status line; combine it with computai to see Claude limits",
-        "dr_sl_none": "Claude limit percentages need computai as Claude Code's status line",
+        "dr_sl_none": "Claude limit percentages need the claude CLI (logged in) or computai as Claude Code's status line",
         "dr_unreach": "%s: cannot read", "dr_pw_plug": "power measured by the plug %s",
         "dr_pw_set": "power settings present", "dr_pw_gpu": "GPU power is measured; add the rest of the machine (%s)",
         "dr_pw_none": "power unknown, so no kWh yet; suggested values for a %s",
@@ -4494,13 +4567,13 @@ UI = {
         "h_busy": "%d machine(s) generating", "h_power": "POWER NOW (W)", "h_online": "%d/%d NODES ONLINE", "hud_tag": "AI COMPUTE LEDGER",
         "q_title": "LIMITS", "q_wait": "resets in %s",
         "q_eta": "at this pace it runs out in %s (resets in %s)", "q_proj": "at this pace about %(pct)d%% by the reset in %(reset)s",
-        "q_unlinked": "limits not connected: set Claude Code's statusLine to `computai --statusline`",
+        "q_unlinked": "limits not connected yet: install and log in to the claude CLI (read every 10 minutes), or set Claude Code's statusLine to `computai --statusline`",
         "q_foot": "\u2503 = time left in the window; a bar shorter than it is burning faster than time",
         "q_foot_used": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
         "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
         "h_limits": "LIMITS", "hm_today": "TODAY", "hm_month": "THIS MONTH", "h_local": "LOCAL INFERENCE", "hm_power": "POWER",
         "h_nodes": "MACHINES", "h_attention": "NEEDS ATTENTION", "h_mix": "USAGE MIX", "h_fail": "CRITICAL", "h_warn": "WARNING",
-        "h_tip": "TIP", "h_more_tips": "+%d more tips in tab 5", "h_link": "open claude once in a normal terminal",
+        "h_tip": "TIP", "h_more_tips": "+%d more tips in tab 5", "h_link": "install and log in to the claude CLI; computai reads it every 10 minutes",
         "h_api_value": "usage value at API prices", "h_worth": "worth", "h_per_mo": "/mo", "h_payback": "PAYBACK",
         "h_month_kwh": "%.2f kWh this month", "h_machines_n": "%d machines", "h_state": "STATE", "h_node": "MACHINE",
         "h_mem": "MEM", "h_model": "MODEL", "h_down": "DOWN", "hm_online": "%d/%d ONLINE", "h_open": "%d OPEN",
@@ -4589,8 +4662,9 @@ UI = {
         "dr_plan": "%s 方案：%s，每月 %s", "dr_plan_det": "log 裡記錄的是 %r",
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
         "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
+        "dr_cl_cli": "Claude 帳號額度每 %d 分鐘從 claude 程式讀一次（不用設 statusline）",
         "dr_sl_other": "Claude Code 用的是別的 statusline；要跟 computai 並用才看得到 Claude 額度",
-        "dr_sl_none": "要看 Claude 的額度百分比，需要把 computai 設成 Claude Code 的 statusline",
+        "dr_sl_none": "要看 Claude 的額度百分比，需要裝好並登入 claude 程式，或把 computai 設成 Claude Code 的 statusline",
         "dr_unreach": "%s：讀不到", "dr_pw_plug": "功耗由插座 %s 實測",
         "dr_pw_set": "功耗已設定", "dr_pw_gpu": "GPU 功耗有實測；建議補上整台其他部分（%s）",
         "dr_pw_none": "不知道功耗，所以還沒有度數；%s 的建議值",
@@ -4683,13 +4757,13 @@ UI = {
         "h_busy": "%d 台正在推論", "h_power": "目前功耗 (W)", "h_online": "%d/%d 台在線", "hud_tag": "AI 算力總帳",
         "q_title": "額度", "q_wait": "%s 後重置",
         "q_eta": "照目前速度 %s 後用完（%s 後才重置）", "q_proj": "照目前速度，%(reset)s 後重置時約 %(pct)d%%",
-        "q_unlinked": "額度還沒接上：把 Claude Code 的 statusLine 設成 computai --statusline",
+        "q_unlinked": "額度還沒接上：裝好並登入 claude 程式（每 10 分鐘自動讀一次），或把 Claude Code 的 statusLine 設成 computai --statusline",
         "q_foot": "\u2503 標出這個週期還剩多少時間；長條比它短，代表用得比時間快",
         "q_foot_used": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
         "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
         "h_limits": "額度", "hm_today": "今天", "hm_month": "本月", "h_local": "本地推論", "hm_power": "功耗",
         "h_nodes": "機器", "h_attention": "需要處理", "h_mix": "用量組成", "h_fail": "故障", "h_warn": "注意",
-        "h_tip": "建議", "h_more_tips": "還有 %d 條建議在分頁 5", "h_link": "在一般終端機開一次 claude 就會補上",
+        "h_tip": "建議", "h_more_tips": "還有 %d 條建議在分頁 5", "h_link": "裝好並登入 claude 程式，每 10 分鐘會自動讀一次",
         "h_api_value": "照 API 價格算的用量價值", "h_worth": "用量價值", "h_per_mo": "/月", "h_payback": "回本",
         "h_month_kwh": "本月 %.2f 度", "h_machines_n": "%d 台機器", "h_state": "狀態", "h_node": "機器",
         "h_mem": "記憶體", "h_model": "模型", "h_down": "斷線", "hm_online": "%d/%d 在線", "h_open": "%d 件",
@@ -4917,7 +4991,9 @@ def machine_panel(m, width, energy=None, error=None):
 
 
 def limit_label(name):
-    """額度視窗的白話名稱：5h -> 5 小時額度、week -> 每週額度。"""
+    """額度視窗的白話名稱：5h -> 5 小時額度、week -> 每週額度、week:Fable -> 每週額度（Fable）。"""
+    if name.startswith("week:"):
+        return T("win")["week"] + " (" + name[5:] + ")"
     return T("win").get(name, name)
 
 
@@ -8758,7 +8834,9 @@ def doctor(db, sample=True):
     # Claude 的額度百分比
     if n_claude:
         sl = claude_statusline()
-        if sl and "computai" in sl:
+        if shutil.which("claude") and not os.environ.get("COMPUTAI_FIXTURES") and claude_poll_minutes() > 0:   # 帳號額度從 claude -p /usage 讀，不用 statusline
+            add("claude", "ok", T("dr_cl_cli") % int(claude_poll_minutes()))
+        elif sl and "computai" in sl:
             add("claude", "ok", T("dr_sl_ok"))
         elif sl:
             add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
@@ -9427,6 +9505,8 @@ def parse_args(argv=None):
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--claude-limits", action="store_true",
+                   help="read your Claude account's limits now through the claude CLI (`claude -p /usage`; no model call)")
     p.add_argument("--codex-limits", action="store_true",
                    help="read your Codex account's limits now through the codex CLI (all machines and people on the account)")
     p.add_argument("--limit-reset", metavar="SOURCE", choices=sorted(SUBSCRIPTION_SOURCES),
@@ -9585,6 +9665,17 @@ def run(args, db):
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
         return 0
+    if args.claude_limits:
+        rows = claude_account_limits()
+        if not rows:
+            print("computai: could not read Claude limits (is the claude CLI installed and logged in with a Pro/Max plan?)")
+            return 1
+        add_limits(db, rows, only_changes=True)
+        db.commit()
+        for r in rows:
+            print("computai: Claude Code %s %s (%s)" % (limit_label(r["name"]), pct_word(r["used_percent"]),
+                                                         T("resets") % fmt_dur(max(0, r["resets_at"] - now())) if r["resets_at"] else "-"))
+        return 0
     if args.codex_limits:
         rows, credits = codex_account_limits()
         if not rows:
@@ -9593,7 +9684,7 @@ def run(args, db):
         add_limits(db, rows, only_changes=True)
         db.commit()
         for r in rows:
-            print("computai: Codex %s %d%% (%s)" % (limit_label(r["name"]), round(r["used_percent"]),
+            print("computai: Codex %s %s (%s)" % (limit_label(r["name"]), pct_word(r["used_percent"]),
                                                    T("resets") % fmt_dur(max(0, r["resets_at"] - now())) if r["resets_at"] else "-"))
         if credits:
             print("computai: " + T("q_credits") % credits)
