@@ -1,3 +1,6 @@
+import os
+import shutil
+import tempfile
 import unittest
 
 from tests import helpers
@@ -76,6 +79,36 @@ class AdaptiveLimits(unittest.TestCase):
         self.assertEqual(self.plan(T0, None)["why"], "first")
         self.assertIsNone(self.plan(T0, T0, cp=self.config(minutes=0)))
         self.assertEqual(self.m.limits_refresh(self.config("bogus")), "adaptive")
+
+    def test_updater_follows_the_burn(self):
+        """背景更新：Codex 每分鐘燒 4 %，一看出速度就照「剩餘 ÷ 速度 ÷ 4」加快；沒資料的 Claude 照舊 10 分鐘一次。"""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        old = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
+        os.environ["COMPUTAI_CONFIG_DIR"] = tmp
+        m = self.m
+        m.sync = lambda *a, **k: None
+        m.machines = lambda: []
+        m.card_settings = lambda: {"repo": ""}
+        m.CLOUDS = []
+        polls = {"codex": [], "claude": []}
+
+        def codex(db):
+            t = m.now()
+            polls["codex"].append(t)
+            m.add_limits(db, [{"source": "codex", "name": "5h", "ts": int(t), "window_minutes": 300,
+                               "used_percent": 20 + 4 * (t - T0) // 60, "resets_at": T0 + 3 * 3600}],
+                         only_changes=True)
+        m.codex_account_poll = codex
+        m.claude_account_poll = lambda db: polls["claude"].append(m.now())
+        upd = m.Updater()
+        for step in range(0, 15 * 60 + 1, 30):
+            os.environ["COMPUTAI_FAKE_NOW"] = str(T0 + step)
+            upd.tick(self.db)
+        self.assertEqual(polls["claude"], [T0, T0 + 600])
+        # 600 秒時用了 60 %：剩 40 % ÷ 每分鐘 4 % ÷ 4 = 150 秒；750 秒時剩 30 % → 112.5 秒（下一次 30 秒的 tick 是 870）
+        self.assertEqual(polls["codex"], [T0, T0 + 600, T0 + 750, T0 + 870])
 
 
 if __name__ == "__main__":

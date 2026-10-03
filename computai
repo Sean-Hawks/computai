@@ -4467,6 +4467,7 @@ class Updater:
         self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300,
                       "codex": codex_poll_minutes() * 60, "claude": claude_poll_minutes() * 60}
         self.last = {k: 0.0 for k in self.every}
+        self.next_poll = {"codex": 0.0, "claude": 0.0}   # 下次查帳號額度的時間（epoch）
         self.insights = []
         self.stop = threading.Event()
 
@@ -4478,18 +4479,20 @@ class Updater:
         if self.every["machines"] > 0 and t - self.last["machines"] >= self.every["machines"] and machines():
             self.last["machines"] = t
             sample_machines(db)
-        if self.every["codex"] > 0 and t - self.last["codex"] >= self.every["codex"]:
-            self.last["codex"] = t   # 整個帳號的 Codex 額度（別台電腦、別人用的也算）
+        # 整個帳號的額度（別台電腦、別人、T3 Code、claude.ai 用的也算）；多久查一次跟著消耗速度走
+        for src, poll in (("codex", codex_account_poll), ("claude", claude_account_poll)):
+            if self.every[src] <= 0 or now() < self.next_poll[src]:
+                continue
             try:
-                codex_account_poll(db)
+                poll(db)
             except Exception as e:
-                warn("codex limits failed: %r" % (e,))
-        if self.every["claude"] > 0 and t - self.last["claude"] >= self.every["claude"]:
-            self.last["claude"] = t   # 整個帳號的 Claude 額度（T3 Code、別台電腦、claude.ai 用的也算）
+                warn("%s limits failed: %r" % (src, e))
             try:
-                claude_account_poll(db)
+                plan = limit_poll_plan(db, src, now())
+                self.next_poll[src] = plan["at"] if plan else float("inf")
             except Exception as e:
-                warn("claude limits failed: %r" % (e,))
+                self.next_poll[src] = now() + self.every[src]
+                warn("%s limit schedule failed: %r" % (src, e))
         card = card_settings()
         if card["repo"] and time.time() - self.card_at >= 86400:   # 個人頁卡片一天更新一次
             self.card_at = time.time()
