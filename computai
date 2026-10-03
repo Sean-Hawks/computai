@@ -131,6 +131,24 @@ tou_weekend_offpeak = yes
 # Warn when a model sits loaded but unused for this many minutes.
 idle_alert_minutes = 15
 
+[local]
+# Local models versus the cloud (computai --local-cost, the local models tab, Wrapped).
+# compare_models: API models a light request could otherwise go to (names from prices.ini).
+compare_models = claude-haiku-4, gpt-5.4-mini
+# A "light" request: at most this many output tokens and this much context (input + cache).
+light_output = 800
+light_context = 30000
+# Optional depreciation of the hardware that runs your local models: price in USD and years of use.
+hardware_usd = 0
+lifetime_years = 3
+
+[energy]
+# kg CO2e per kWh of grid electricity, for the carbon line. Default: Taiwan, 2024 (ROC 113) electricity
+# emission factor 0.474 kg CO2e/kWh, published by the Energy Administration, MOEA on 2025-04-14
+# (https://www.moeaea.gov.tw/ecw/populace/content/wHandMenuFile.ashx?file_id=16728), checked 2026-10-04.
+# Set your own grid's factor; 0 hides it.
+grid_kg_per_kwh = 0.474
+
 [budget]
 # Warn when this month's forecast spend goes over this many USD (0 = no budget).
 monthly_usd = 0
@@ -314,6 +332,14 @@ cache_write_1h = 2
 cache_read = 0.1
 checked = 2026-10-03
 source = https://platform.claude.com/docs/en/about-claude/pricing
+
+[gpt-5.4-mini]
+# Used as a "small cloud model" to compare local models against.
+input = 0.75
+output = 4.5
+cache_read = 0.075
+checked = 2026-10-04
+source = https://developers.openai.com/api/docs/pricing
 
 # OpenAI: "input" is the uncached input price. Models without a cache-write
 # price on the pricing page bill cache writes as normal input.
