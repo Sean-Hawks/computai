@@ -5026,6 +5026,10 @@ def insights(db, t=None):
                                                       else "i_plan_up") % args})
         if r.get("api_cheaper"):
             out.append({"kind": "api", "text": T("i_api") % {"src": src, "cost": fmt_usd(r["api_equivalent_usd"])}})
+    cur = current_limits(db, t)   # 快重置、還剩很多的額度：現在用最划算（跟 --pick 同一條規則）
+    for r in cur:
+        if not r["stale"] and expiring_soon(r) and 100 - (r["used_percent"] or 0) >= PICK_EXPIRING_LEFT:
+            out.append({"kind": "pick", "text": pick_reason(pick_agent({r["source"]: [r]}, [], "heavy"))})
     c = cache_report(db, start, end)
     if c["wasted_usd"] >= 1:
         out.append({"kind": "cache", "text": T("i_cache") % {"cost": fmt_usd(c["wasted_usd"]),
@@ -9536,6 +9540,11 @@ MCP_TOOLS = [
      "a model still fits.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "advice", "description": "Short advice: plan changes, prompt-cache waste, off-peak savings.",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "pick", "description": "Which agent should take this (sub)task right now: claude, codex or a local model, "
+     "decided by remaining limits, what resets soon and what runs out early. Returns the tool, a shell command and "
+     "a one-line reason.",
+     "inputSchema": {"type": "object", "properties": {"task": {"type": "string", "enum": ["light", "heavy"],
+                                                               "description": "light tasks may go to a local model"}}}},
 ]
 
 
@@ -9559,6 +9568,13 @@ def mcp_call(db, name, args):
                 "alerts": [a["message"] for a in machine_alerts() + idle_alerts(db) + cloud_alerts(db)]}
     if name == "advice":
         return {"advice": [x["text"] for x in insights(db)]}
+    if name == "pick":
+        task = (args or {}).get("task") or "heavy"
+        if task not in ("light", "heavy"):
+            raise SystemExit("task must be light or heavy")
+        subs, local = pick_inputs(db)
+        p_ = pick_agent(subs, local, task)
+        return {"tool": p_["tool"], "command": p_["command"], "reason": pick_reason(p_), "ranked": p_["ranked"]}
     raise KeyError(name)
 
 
