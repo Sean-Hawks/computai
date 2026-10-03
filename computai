@@ -4498,6 +4498,13 @@ UI = {
         "q_foot": "\u2503 = time left in the window; a bar shorter than it is burning faster than time",
         "q_foot_used": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
         "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
+        "h_limits": "LIMITS", "hm_today": "TODAY", "hm_month": "THIS MONTH", "h_local": "LOCAL INFERENCE", "hm_power": "POWER",
+        "h_nodes": "MACHINES", "h_attention": "NEEDS ATTENTION", "h_mix": "USAGE MIX", "h_fail": "CRITICAL", "h_warn": "WARNING",
+        "h_tip": "TIP", "h_more_tips": "+%d more tips in tab 5", "h_link": "open claude once in a normal terminal",
+        "h_api_value": "usage value at API prices", "h_worth": "worth", "h_per_mo": "/mo", "h_payback": "PAYBACK",
+        "h_month_kwh": "%.2f kWh this month", "h_machines_n": "%d machines", "h_state": "STATE", "h_node": "MACHINE",
+        "h_mem": "MEM", "h_model": "MODEL", "h_down": "DOWN", "hm_online": "%d/%d ONLINE", "h_open": "%d OPEN",
+        "m_ok": "OK", "h_yesterday": "yesterday", "h_early": "RUNS OUT EARLY", "h_load": "average load, recent",
         "m_empty": "empty in %s", "m_near": "nearly used up", "m_pace": "on pace", "m_resets": "resets %s",
         "m_unlinked": "not linked", "m_open": "open", "m_worst": "worst first", "m_month": "month",
         "m_nodes": "of %d nodes", "m_counts": "%d critical, %d warning", "m_plans": "plans + power",
@@ -4680,6 +4687,13 @@ UI = {
         "q_foot": "\u2503 標出這個週期還剩多少時間；長條比它短，代表用得比時間快",
         "q_foot_used": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
         "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
+        "h_limits": "額度", "hm_today": "今天", "hm_month": "本月", "h_local": "本地推論", "hm_power": "功耗",
+        "h_nodes": "機器", "h_attention": "需要處理", "h_mix": "用量組成", "h_fail": "故障", "h_warn": "注意",
+        "h_tip": "建議", "h_more_tips": "還有 %d 條建議在分頁 5", "h_link": "在一般終端機開一次 claude 就會補上",
+        "h_api_value": "照 API 價格算的用量價值", "h_worth": "用量價值", "h_per_mo": "/月", "h_payback": "回本",
+        "h_month_kwh": "本月 %.2f 度", "h_machines_n": "%d 台機器", "h_state": "狀態", "h_node": "機器",
+        "h_mem": "記憶體", "h_model": "模型", "h_down": "斷線", "hm_online": "%d/%d 在線", "h_open": "%d 件",
+        "m_ok": "正常", "h_yesterday": "昨天", "h_early": "會提早用完", "h_load": "最近的平均負載（GPU，沒有 GPU 的看 CPU）",
         "m_empty": "%s 後用完", "m_near": "快用完了", "m_pace": "速度正常", "m_resets": "%s 後重置",
         "m_unlinked": "沒接上", "m_open": "待處理", "m_worst": "最嚴重的在上面", "m_month": "本月",
         "m_nodes": "/ %d 台在線", "m_counts": "%d 個故障、%d 個注意", "m_plans": "方案＋電費",
@@ -5593,14 +5607,14 @@ def donut(parts, cols=14, rows=7, center=("", "")):
     return cv.lines()
 
 
-def line_chart(vals, cols, rows, color=None):
+def line_chart(vals, cols, rows, color=None, scale=None):
     """點字折線圖（不是長條）：每個值一個點，相鄰兩點連成線，自動縮放到最大值。"""
     cv = Braille(cols, rows)
     vals = [v or 0 for v in vals]
     if not vals:
         return cv.lines()
     w, h = cols * 2, rows * 4
-    lo_, hi = min(vals), max(vals)
+    lo_, hi = scale or (min(vals), max(vals))
     span = (hi - lo_) or 1.0
     pts = [(int(round(i * (w - 1) / float(max(1, len(vals) - 1)))),
             int(round((h - 1) * (0.5 if hi == lo_ else 1 - (v - lo_) / span)))) for i, v in enumerate(vals)]
@@ -5614,190 +5628,252 @@ def line_chart(vals, cols, rows, color=None):
 ALERT_KIND = {"idle_model": "MODEL", "machine_unreachable": "MACHINE", "cloud_idle": "CLOUD", "budget": "BUDGET"}
 
 
-def attention_cards(st, width):
-    """需要處理：每件事一張小卡（分類字用狀態色、內容白字），最嚴重的在上面，最後是建議。"""
-    out = []
+def attention_cards(st, width, room=12):
+    """需要處理：每件事一張小卡（分類字用狀態色、內容白字），最嚴重的在上面；
+    剩下的空間放建議，放不下就截短並說還有幾條。"""
     v = verdict(st)
-    for lv, txt in v["items"]:
-        out.append((lv, "CRITICAL" if lv == "fail" else "WARNING", txt))
-    for x in st.get("insights") or []:
-        out.append(("text", "INSIGHT", x["text"]))
     lines = []
-    for lv, cat, txt in out:
-        lines.append(tag(cat, tone(lv) if lv != "text" else None) + " " * max(1, width - vlen(cat) - 4) + dim(T("m_open") if lv != "text" else ""))
+    for lv, txt in v["items"]:
+        lines.append(tag(T("h_fail") if lv == "fail" else T("h_warn"), tone(lv)))
         lines += wrap(txt, width)
         lines.append("")
-    return lines or [rgb(GREEN, sym("\u25cf ", "* ") + T("v_ok"))]
+    tips = st.get("insights") or []
+    shown = 0
+    for x in tips:
+        left_ = room - len(lines) - 1          # 留一行給「還有幾條」
+        if left_ < 2:
+            break
+        body = wrap(x["text"], width)
+        if len(body) > left_ - 1:
+            body = body[:max(1, left_ - 1)]
+            body[-1] = clip(body[-1], width - 1) + "\u2026"
+        lines += [tag(T("h_tip"))] + body + [""]
+        shown += 1
+    if len(tips) > shown:
+        lines.append(dim(T("h_more_tips") % (len(tips) - shown)))
+    return lines[:room] or [rgb(GREEN, sym("\u25cf ", "* ") + T("v_ok"))]
 
 
-def fit_cards(lines, h):
-    """卡片清單放不下時整張卡整張卡地拿掉（卡片之間是空行），最後一行說還有更多。"""
-    if len(lines) <= h:
-        return lines
-    cut = max([i for i, x in enumerate(lines[:h]) if x == ""] or [h - 1])
-    return lines[:cut] + ["", dim("\u2026 " + T("more_in_tab"))]
+# 5×7 點陣大字（總覽用）：比 3×5 好認得多，一個數字 5 欄寬、4 列高。
+BIG7 = {
+    "0": "01110 10001 10011 10101 11001 10001 01110", "1": "00100 01100 00100 00100 00100 00100 01110",
+    "2": "01110 10001 00001 00110 01000 10000 11111", "3": "11110 00001 00001 01110 00001 00001 11110",
+    "4": "00010 00110 01010 10010 11111 00010 00010", "5": "11111 10000 11110 00001 00001 10001 01110",
+    "6": "00110 01000 10000 11110 10001 10001 01110", "7": "11111 00001 00010 00100 01000 01000 01000",
+    "8": "01110 10001 10001 01110 10001 10001 01110", "9": "01110 10001 10001 01111 00001 00010 01100",
+    ".": "00 00 00 00 00 11 11", "x": "00000 00000 10001 01010 00100 01010 10001", " ": "000 000 000 000 000 000 000",
+}
+
+
+def bigtext7(s):
+    """用 5×7 點陣畫數字（回傳 4 個字串）；ASCII 模式退回 3×5 的大字。"""
+    if _ascii:
+        return bigtext(s) + [""]
+    rows = ["", "", "", ""]
+    for ch in s:
+        g = BIG7.get(ch, BIG7[" "]).split()
+        g = g + ["0" * len(g[0])]
+        for r in range(4):
+            for a, b in zip(g[2 * r], g[2 * r + 1]):
+                rows[r] += {"11": "\u2588", "10": "\u2580", "01": "\u2584", "00": " "}[a + b]
+            rows[r] += " "
+    return [r.rstrip() for r in rows]
+
+
+def big_num(text, unit="", color=None):
+    """好讀的大數字：只有數字和小數點畫成 5×7 大字，$ 放在左上角、% 和單位放在右下角（小字）。回傳 4 列。"""
+    pre = "$" if text.startswith("$") else ""
+    suf = "%" if text.endswith("%") else ""
+    core = text.strip("$%").replace(",", "")
+    rows = [bold(rgb(color or MAG, r.rstrip())) for r in bigtext7(core)]
+    w = max(vlen(r) for r in rows)
+    rows = [pad(r, w) for r in rows]
+    if pre:
+        rows = [bold(rgb(color or MAG, pre)) + rows[0]] + [" " + r for r in rows[1:]]
+    tail = (bold(rgb(color or MAG, suf)) if suf else "") + ((" " if suf else "") + dim(unit) if unit else "")
+    if tail:
+        rows[-1] += " " + tail
+    return rows
+
+
+def limit_hero(r, width):
+    """額度橫幅的一格：左邊大數字（剩幾 %），右邊名字和重置時間、粗量表、一句白話。"""
+    used = r["used_percent"] or 0
+    lv = limit_level(used)
+    col = tone(lv) if lv != "brand" else MAG
+    big = big_num("%d%%" % round(shown_pct(used)), T("m_left") if _limit_view == "left" else T("m_used"), col) \
+        if used < LIMIT_FAIL else ["", bold(rgb(RED, T("used_up"))), "", ""]
+    bw = max(vlen(x) for x in big)
+    rw = max(16, width - bw - 3)
+    name = bold("%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])))
+    reset = dim(T("m_resets") % fmt_dur(r["resets_in"])) if r.get("resets_in") is not None else ""
+    head = name + " " * max(1, rw - vlen(name) - vlen(reset)) + reset if vlen(name) + vlen(reset) + 1 <= rw else name
+    note = limit_note(r) or ""
+    if used < LIMIT_FAIL and not r.get("eta_full") and lv == "brand":
+        note = rgb(GREEN, sym("\u25cf ", "* ") + T("m_pace")) + (dim(" \u00b7 ") + note if note else "")
+    elif r.get("eta_full") and used < LIMIT_FAIL:
+        note = rgb(AMBER, sym("\u25b2 ", "! ")) + note
+    notes = wrap_colored(note, rw) if note else [""]
+    side = [head, limit_gauge(r, rw)] + (notes + [""])[:2]
+    if len(notes) > 2:
+        side[3] = clip(side[3], rw - 1) + "\u2026"
+    return [pad(b, bw) + "   " + s for b, s in zip(big, side)]
+
+
+def tile(title, big, notes, width, right="", h=6):
+    """數字卡：標題、大數字、兩行說明。big 可以是 (文字, 單位, 顏色)：放不下就去掉小數。"""
+    if isinstance(big, tuple):
+        text, unit, col = big
+        big = big_num(text, unit, col)
+        if max(vlen(x) for x in big) > width - 4 and "." in text:
+            big = big_num(text.split(".")[0], unit, col)
+    return mpanel(tag(title), big + [""] * (4 - len(big)) + notes, width, right, height=h)
 
 
 def render_mission(st, width, height, frame):
-    """總覽 = Minerva 的 Mission Control：
-    上面一條三欄總控（最吃緊的額度／今天的用量價值／整體狀態），下面四張指標卡，右邊一欄「需要處理」，
-    最底下是機器表和本月用量的甜甜圈。字一律白，顏色只代表狀態。"""
+    """總覽：一眼回答三件事——額度還夠不夠、錢花得值不值、機器有沒有在做事。
+    最上面是額度橫幅（大數字＋粗量表＋白話），中間四塊數字卡，下面是機器表和需要處理。
+    字一律白，顏色只代表狀態；大數字只畫數字，$ 和 % 用小字，才不會看錯。"""
     out = []
     v = verdict(st)
-    word = {"ok": "NOMINAL", "warn": "ATTENTION", "fail": "CRITICAL"}[v["level"]]
-    wcol = tone(v["level"])
-    limits = sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0))
-    # ── 總控 ──
-    cw = (width - 4) // 3
-    if limits:
-        r = limits[0]
-        used = r["used_percent"] or 0
-        lv = limit_level(used)
-        c1 = [dim("TIGHTEST LIMIT"), bold("%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])))]
-        c1 += big_value("%d%%" % round(shown_pct(used)), T("m_left") if _limit_view == "left" else T("m_used"),
-                        tone(lv) if lv != "brand" else None)
-        if used >= LIMIT_FAIL:
-            c1.append(rgb(RED, sym("\u25cf ", "* ") + T("used_up")) + dim(" \u00b7 " + T("m_resets") % fmt_dur(r["resets_in"] or 0)))
-        elif lv == "warn":
-            c1.append(rgb(AMBER, sym("\u25b2 ", "! ") + T("m_near")) + dim(" \u00b7 " + T("m_resets") % fmt_dur(r["resets_in"] or 0)))
-        elif r.get("eta_full"):
-            c1.append(rgb(AMBER, sym("\u25b2 ", "! ") + T("m_empty") % fmt_dur(r["eta_full"])) + dim(" \u00b7 " + T("m_resets") % fmt_dur(r["resets_in"] or 0)))
-        else:
-            c1.append(rgb(GREEN, sym("\u25cf ", "* ") + T("m_pace")) + dim(" \u00b7 " + T("m_resets") % fmt_dur(r["resets_in"] or 0)))
-    else:
-        c1 = [dim("TIGHTEST LIMIT"), dim(T("q_unlinked"))[:cw]]
     ms = st["machines"]
-    down = sum(1 for a in st["alerts"] if a["kind"] == "machine_unreachable")
-    c2 = [dim("TODAY \u00b7 USAGE VALUE"), ""] + big_value(fmt_usd(st["today_usd"]).replace(",", "")) + \
-         ["", bold(fmt_usd(st["total_cost_usd"])) + dim(" " + T("m_month")) + "    " +
-          bold(rgb(GREEN if not down else AMBER, "%d" % len(ms))) + dim(" " + T("m_nodes") % (len(ms) + down))]
-    c2 = [" " * max(0, (cw - vlen(x)) // 2) + x for x in c2]
-    n_fail = sum(1 for lv, _ in v["items"] if lv == "fail")
-    n_warn = len(v["items"]) - n_fail
-    f = st["forecast"]
-    c3 = [dim("LEDGER HEALTH"), "", bold(rgb(wcol, spaced(word))),
-          dim(T("m_counts") % (n_fail, n_warn)), "",
-          dim("PROJECTED THIS MONTH"),
-          bold(rgb(RED if f.get("over_budget") else MAG, fmt_usd(f["projected_usd"]))) + dim(" " + T("m_plans"))]
-    sep = rgb(GREY, sym("\u2502", "|"))
-    body = []
-    for i in range(7):
-        cells = [pad(clip(c[i] if i < len(c) else "", cw - 1), cw - 1) for c in (c1, c2, c3)]
-        body.append((" " + sep + " ").join(cells))
-    online = rgb(GREEN, sym("\u25cf ", "* ") + "ONLINE") if not down else rgb(AMBER, sym("\u25b2 ", "! ") + "%d DOWN" % down)
-    out += mpanel(tag(sym("\u25ce ", "") + "MISSION CONTROL"), body, width, online,
-                  dim("sources ") + " \u00b7 ".join(x["source"] for x in st["sources"]) + dim("  \u00b7  %d machines" % len(ms)),
-                  dim("Local ") + time.strftime("%Y-%m-%d %H:%M", time.localtime(st["time"])))
-    # ── 右欄寬度、左邊卡片 ──
-    side = width >= 130
-    aw = max(34, width // 4) if side else width
-    lw = width - aw - 1 if side else width
-    ncard = 4 if lw >= 100 else 2
-    cw = (lw - (ncard - 1)) // ncard
-    iw = cw - 4
-    cards = []
-    # 額度卡
-    lim_rows = []
-    have = {r["source"] for r in limits}
-    for r in sorted(st["limits"], key=lambda r: (r["source"], r["window_minutes"] or 0))[:4]:
-        used = r["used_percent"] or 0
-        lv = limit_level(used)
-        nm = "%s %s" % (T("src").get(r["source"], r["source"]).split()[0], {"week": "wk", "5h": "5h"}.get(r["name"], r["name"]))
-        el = r.get("elapsed_pct")
-        mark = None if el is None else (100 - el if _limit_view == "left" else el)
-        lim_rows.append(cell(nm, 10) + rail(shown_pct(used), max(4, iw - 16), tone(lv) if lv != "brand" else None, mark) +
-                        " " + bold(rgb(tone(lv) if lv != "brand" else MAG, "%3d%%" % round(shown_pct(used)))))
-    for x in st["sources"]:
-        if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
-            lim_rows.append(cell(T("src").get(x["source"], x["source"]).split()[0], 10) + dim(T("m_unlinked")))
-    high = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_WARN)
-    cards.append(mpanel(tag("LIMITS"), [""] + lim_rows, cw, rgb(AMBER, "%d HIGH" % high) if high else rgb(GREEN, "OK"),
-                        dim(sym("\u2503", "|") + " " + T("m_timeleft")), "", height=5))
-    # 推論卡
-    rate = sum(m["recent"]["tok_s"] or 0 for m in ms)
-    busy = [m for m in ms if m["ai_active"]]
-    thr = big_value("%d" % round(rate), "tok/s", GREEN if rate else None) + [""]
-    for m in busy[:1]:
-        mdl = (m.get("loaded") or [{}])[0].get("name", "")
-        thr.append(rgb(GREEN, spinner()) + " " + clip(m["machine"] + dim(" \u00b7 ") + mdl, iw - 2))
     lo = st.get("local") or {}
-    cards.append(mpanel(tag("THROUGHPUT"), thr, cw, rgb(GREEN, "LIVE") if busy else dim("IDLE"),
-                        dim(T("m_today") + " ") + bold(fmt_tok(lo.get("today_tokens") or 0)) + dim(" tok"), "", height=5))
-    # 功耗卡
-    watts = sum(m["power_w"] or 0 for m in ms)
-    n = max([len(m["history"]["power"]) for m in ms] or [0])
-    hist = [sum((m["history"]["power"][-n + i] or 0) if len(m["history"]["power"]) >= n - i else 0 for m in ms)
-            for i in range(n)]
-    pw = big_value("%d" % round(watts), "W") + [""]
-    pw.append(line_chart(hist[-iw * 2:], iw, 1)[0] if any(hist) else dim(T("m_nopower")))
-    kwh = sum(e["kwh"] or 0 for e in st["energy"])
-    ecost = sum(e.get("energy_cost_usd") or 0 for e in st["energy"])
-    cards.append(mpanel(tag("POWER"), pw, cw, "", dim("month ") + bold("%.2f kWh" % kwh) + dim(" \u00b7 ") + fmt_usd(ecost), "", height=5))
-    # 價值卡
-    val = big_value(fmt_usd(st["total_cost_usd"]).replace(",", "").split(".")[0], "month")
+    f = st["forecast"]
+    down = sum(1 for a in st["alerts"] if a["kind"] == "machine_unreachable")
+    # ── 額度橫幅 ──
+    limits = sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0))
+    have = {r["source"] for r in limits}
+    unl = [x for x in st["sources"] if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have]
+    two = width >= 100 and len(limits) > 1
+    cw = (width - 4 - 3) // 2 if two else width - 4
+    heroes = [limit_hero(r, cw) for r in limits]
+    if not two and len(heroes) > 1 and width < 100:   # 窄的時候只有最吃緊的那個畫大，其他一行
+        heroes = heroes[:1] + [[cell(bold("%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]))), 26) +
+                                limit_gauge(r, max(8, cw - 40)) + " " + bold(pct_word(r["used_percent"] or 0))]
+                               for r in limits[1:]]
+    body = []
+    for i in range(0, len(heroes), 2 if two else 1):
+        grp = heroes[i:i + (2 if two else 1)]
+        if i:
+            body.append("")
+        body += side_by_side_many([[pad(x, cw) for x in g] for g in grp], 3) if len(grp) > 1 else grp[0]
+    for x in unl:
+        body.append(("" if not body else "") and "")
+        body.append(dim(cell(T("src").get(x["source"], x["source"]), 14)) + dim(T("m_unlinked") + " \u2014 " + T("h_link")))
+    body = [ln for k, ln in enumerate(body) if not (ln == "" and (k == 0 or body[k - 1] == ""))]
+    full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
+    high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
+    early = sum(1 for r in limits if r.get("eta_full") and (r["used_percent"] or 0) < LIMIT_FAIL)
+    state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else \
+        rgb(AMBER, T("h_early")) if early else rgb(GREEN, T("m_ok"))
+    out += mpanel(tag(T("h_limits")), body or [dim(T("q_unlinked"))], width, state, level="fail" if full else None)
+    # ── 四塊數字卡 ──
+    n = 4 if width >= 100 else 2
+    tw = (width - (n - 1)) // n
+    iw = tw - 4
+    today = fmt_usd(st["today_usd"])
+    days = st.get("daily") or {"sources": {}}
+    series = [sum(v_) for v_ in zip(*days["sources"].values())] if days["sources"] else []
+    yday = (dim(T("h_yesterday") + " ") + bold(fmt_usd(series[-2]))) if len(series) >= 2 else ""
+    t1 = tile(T("hm_today"), (today, "", None), [dim(T("h_api_value")), yday], tw)
+    plans = []
     for x in st["sources"]:
         plan = x.get("plan")
-        if plan and len(val) < 5:
+        if plan:
             ratio = plan["value_ratio"] or 0
-            val.append(cell(T("src").get(x["source"], x["source"]).split()[0], 7) + roi_meter(ratio, max(4, iw - 13)) +
-                       " " + bold(rgb(GREEN if ratio >= 1 else AMBER, "%.1fx" % ratio)))
-    cards.append(mpanel(tag("VALUE"), val, cw, dim("API PRICES"), dim(T("m_pay") + " ") + bold(fmt_usd(f["projected_usd"])) + dim("/mo"), "", height=5))
-    left = []
-    for i in range(0, len(cards), ncard):
-        row = cards[i:i + ncard]
-        left += side_by_side_many(row, 1)
-    # ── 機器表＋用量甜甜圈 ──
-    mixw = 44 if lw >= 100 else lw
-    nw = lw - mixw - 1 if lw >= 100 else lw
-    rows_ = []
-    namew = min(14, max([vlen(m["machine"]) for m in ms] + [6]))
-    bw = 5 if nw >= 76 else 0
+            plans.append(cell(T("src").get(x["source"], x["source"]).split()[0], 7) + roi_meter(ratio, max(4, iw - 14)) +
+                         " " + bold(rgb(GREEN if ratio >= 1 else AMBER, "%.1fx" % ratio)))
+    month = fmt_usd(st["total_cost_usd"]).split(".")[0]
+    t2 = tile(T("hm_month"), big_num(month), (plans + [dim(T("h_api_value"))])[:2], tw,
+              dim(T("m_pay") + " ") + bold(fmt_usd(f["projected_usd"]).split(".")[0]) + dim(T("h_per_mo")))
+    rate = sum(m["recent"]["tok_s"] or 0 for m in ms)
+    gen = [m for m in ms if m["ai_active"] or (m["recent"]["tok_s"] or 0) > 0]
+    if gen:
+        m = max(gen, key=lambda m: m["recent"]["tok_s"] or 0)
+        mdl = (m.get("loaded") or [{}])[0].get("name", "")
+        who = rgb(GREEN, spinner()) + " " + clip(m["machine"] + dim(" \u00b7 ") + mdl, iw - 2)
+    else:
+        who = dim(sym("\u25cb ", "o ") + T("idle"))
+    t3 = tile(T("h_local"), big_num("%d" % round(rate), "tok/s", GREEN if rate else None),
+              [who, dim(T("m_today") + " ") + bold(fmt_tok(lo.get("today_tokens") or 0)) + dim(" token")], tw,
+              rgb(GREEN, T("busy")) if gen else dim(T("idle")))
+    watts = sum(m["power_w"] or 0 for m in ms)
+    nn = max([len(m["history"]["power"]) for m in ms] or [0])
+    hist = [sum((m["history"]["power"][-nn + i] or 0) if len(m["history"]["power"]) >= nn - i else 0 for m in ms)
+            for i in range(nn)]
+    kwh = sum(e["kwh"] or 0 for e in st["energy"])
+    ecost = sum(e.get("energy_cost_usd") or 0 for e in st["energy"])
+    t4 = tile(T("hm_power"), big_num("%d" % round(watts), "W"),
+              [line_chart(hist[-iw * 2:], iw, 1)[0] if any(hist) else dim(T("m_nopower")),
+               dim(T("h_month_kwh") % kwh) + dim(" \u00b7 ") + fmt_usd(ecost)], tw,
+              dim(T("h_machines_n") % len(ms)))
+    tiles = [t1, t2, t3, t4] if n == 4 else [t1, t2]   # 窄的時候只留錢；推論和功耗在分頁 3、4
+    for i in range(0, len(tiles), n):
+        out += side_by_side_many(tiles[i:i + n], 1)
+    # ── 機器表＋需要處理（寬的話中間加用量甜甜圈）──
+    side = width >= 100
+    aw = max(36, width // 3) if side else width
+    mixw = 40 if width >= 160 else 0
+    nw = width - aw - 1 - (mixw + 1 if mixw else 0) if side else width
+    namew = min(14, max([vlen(m["machine"]) for m in ms] + [vlen(T("h_node"))]))
+    bw = 5 if nw >= 80 else 0
     def meter(p):
         txt = _num(p, "%3.0f%%", "   -")
         return (txt + " " + rail(p or 0, bw) if bw else txt) + "  "
-    rows_.append(dim(cell("STATE", 8) + cell("NODE", namew + 1) + cell("CPU", 6 + (bw + 1 if bw else 0)) +
-                     cell("GPU", 6 + (bw + 1 if bw else 0)) + cell("MEM", 6 + (bw + 1 if bw else 0)) + cell("W", 6) + "MODEL"))
+    colw = 6 + (bw + 1 if bw else 0)
+    rows_ = [dim(cell(T("h_state"), 9) + cell(T("h_node"), namew + 1) + cell("CPU", colw) + cell("GPU", colw) +
+                 cell(T("h_mem"), colw) + cell("W", 5) + T("h_model"))]
     for m in ms:
         mem = (100.0 * (m["mem_used"] or 0) / m["mem_total"]) if m.get("mem_total") else None
-        st_ = rgb(GREEN, cell(spinner() + " LIVE", 8)) if m["ai_active"] else cell(sym("\u25cb", "o") + " IDLE", 8)
+        busy = m["ai_active"] or (m["recent"]["tok_s"] or 0) > 0
+        st_ = rgb(GREEN, cell(spinner() + " " + T("busy"), 9)) if busy else cell(sym("\u25cb ", "o ") + T("idle"), 9)
         mdl = ", ".join(x["name"] for x in (m.get("loaded") or [])) or dim("-")
         rate_ = m["recent"]["tok_s"]
         rows_.append(st_ + bold(cell(m["machine"], namew)) + " " + meter(m["cpu_pct"]) +
-                     (meter(m["gpu_util"]) if m.get("gpus") else cell("   -", 6 + (bw + 1 if bw else 0))) + meter(mem) +
-                     cell(_num(m["power_w"], "%3.0f", "  -"), 6) + mdl + (rgb(GREEN, " %.0f tok/s" % rate_) if rate_ else ""))
+                     (meter(m["gpu_util"]) if m.get("gpus") else cell("   -", colw)) + meter(mem) +
+                     cell(_num(m["power_w"], "%3.0f", "  -"), 5) + mdl + (rgb(GREEN, " %.0f tok/s" % rate_) if rate_ else ""))
     for a in st["alerts"]:
         if a["kind"] == "machine_unreachable":
-            rows_.append(rgb(RED, cell(sym("\u25b2", "!") + " DOWN", 8)) + bold(cell(a["machine"], namew)) + " " + dim(T("v_down") % ""))
-    bh = max(len(rows_), 6)
-    nodes = mpanel(tag("NODES"), rows_, nw, rgb(GREEN if not down else AMBER, "%d/%d ONLINE" % (len(ms), len(ms) + down)),
-                   dim(T("m_sampled")), "", height=bh)
-    mix = []
-    parts, legend = [], []
-    shades = [MAG, THEMES["cyber"]["magenta"], GREEN, AMBER]
-    srcs = [x for x in st["sources"] if (x["cost_usd"] or 0) > 0 or x["source"] == "local"]
-    tot = sum((x["cost_usd"] or 0) if x["source"] != "local" else (lo.get("api_usd") or 0) for x in srcs) or 1
-    for i, x in enumerate(srcs):
-        val_ = (x["cost_usd"] or 0) if x["source"] != "local" else (lo.get("api_usd") or 0)
-        c = GREEN if x["source"] == "local" else shades[min(i, 1)]
-        parts.append((val_, c))
-        legend.append(rgb(c, sym("\u25a0 ", "# ")) + cell(T("src").get(x["source"], x["source"]), 11) +
-                      bold("%5s" % fmt_usd(val_).split(".")[0]) + dim(" %3d%%" % round(100 * val_ / tot)))
-    dn = donut(parts, 12, 6, (fmt_usd(tot).split(".")[0], "MONTH")) if not _ascii else []
-    mix = side_by_side_many([dn, [""] * 2 + legend], 2) if dn else legend
-    mixp = mpanel(tag("USAGE MIX"), mix, mixw, dim(st["month"]), dim(T("api_equiv")), "", height=bh)
-    left += side_by_side_many([nodes, mixp], 1) if lw >= 100 else nodes + mixp
-    # ── 右欄：需要處理 ──
-    att = attention_cards(st, aw - 4)
-    total_items = len(v["items"])
-    right_ = rgb(wcol, "%d OPEN" % total_items) if total_items else rgb(GREEN, "CLEAR")
+            rows_.append(rgb(RED, cell(sym("\u25b2 ", "! ") + T("h_down"), 9)) + bold(cell(a["machine"], namew)) + " " +
+                         rgb(RED, T("v_down") % ""))
+    if not ms and not down:
+        rows_ = [dim(T("no_machines"))]
+    room = (height or 0) - len(out) - 5 - 2          # 標頭四列、按鍵一列、框線兩列
+    bh = max(len(rows_), 5, min(16, room)) if side else len(rows_)
+    k = max([len(m["history"]["gpu"]) for m in ms] or [0])
+    load = []
+    for i in range(k):   # 每個時間點：有 GPU 的機器取 GPU、沒有的取 CPU，再平均
+        vals = [(m["history"]["gpu"] if m.get("gpus") else m["history"]["cpu"])[i - k] for m in ms
+                if len(m["history"]["gpu"] if m.get("gpus") else m["history"]["cpu"]) >= k - i]
+        vals = [x for x in vals if x is not None]
+        load.append(sum(vals) / len(vals) if vals else 0)
+    ch = bh - len(rows_) - 2
+    if ch >= 2 and any(load) and not _ascii:
+        rows_ += ["", dim(T("h_load"))] + line_chart(load[-(nw - 6) * 2:], nw - 6, min(6, ch - 1), scale=(0, 100))
+    nodes = mpanel(tag(T("h_nodes")), rows_, nw, rgb(GREEN if not down else AMBER, T("hm_online") % (len(ms), len(ms) + down)),
+                   height=bh)
+    att = attention_cards(st, aw - 4, bh if side else max(3, room - bh - 2))
+    total = len(v["items"])
+    right_ = rgb(tone(v["level"]), T("h_open") % total) if total else rgb(GREEN, T("m_ok"))
+    blocks = [nodes]
+    if mixw and side:
+        parts, legend = [], []
+        srcs = [x for x in st["sources"] if (x["cost_usd"] or 0) > 0 or x["source"] == "local"]
+        vals = [((x["cost_usd"] or 0) if x["source"] != "local" else (lo.get("api_usd") or 0)) for x in srcs]
+        tot = sum(vals) or 1
+        for i, (x, val_) in enumerate(zip(srcs, vals)):
+            c = GREEN if x["source"] == "local" else (MAG if i == 0 else THEMES["cyber"]["magenta"])
+            parts.append((val_, c))
+            legend.append(rgb(c, sym("\u25a0 ", "# ")) + cell(T("src").get(x["source"], x["source"]), 11) +
+                          bold("%5s" % fmt_usd(val_).split(".")[0]) + dim(" %3d%%" % round(100 * val_ / tot)))
+        dn = donut(parts, 10, 5, (fmt_usd(tot).split(".")[0], "")) if not _ascii else []
+        mix = side_by_side_many([dn, [""] + legend], 2) if dn else legend
+        blocks.append(mpanel(tag(T("h_mix")), mix, mixw, dim(st["month"]), height=bh))
     if side:
-        h_ = len(left) - 4
-        att = fit_cards(att, h_)
-        rp = mpanel(tag("ATTENTION REQUIRED"), att, aw, right_, dim(T("m_worst")),
-                    bold(rgb(RED, T("m_crit") % n_fail)) if n_fail else dim(T("m_crit") % 0), height=h_)
-        out += side_by_side_many([left, rp], 1)
+        blocks.append(mpanel(tag(T("h_attention")), att, aw, right_, height=bh))
+        out += side_by_side_many(blocks, 1)
     else:
-        out += left + mpanel(tag("ATTENTION REQUIRED"), fit_cards(att, 4), width, right_)
+        out += nodes + mpanel(tag(T("h_attention")), att, width, right_)
     return out
 
 
@@ -5873,9 +5949,7 @@ def attention_lines(st, width):
 def render_hud(st, width, height, frame, view):
     """cyber 主題的分頁畫面。總覽一定放得進一個畫面；細節在其他分頁。"""
     clock = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))
-    head = [hud_header(st, width, clock, frame), hud_tabs(view, width)]
-    if view != "overview" or _ascii:
-        head += verdict_line(verdict(st), width).split("\n")
+    head = [hud_header(st, width, clock, frame), hud_tabs(view, width)] + verdict_line(verdict(st), width).split("\n")
     body = []
     if view == "overview" and not _ascii:
         body += render_mission(st, width, height, frame)
@@ -5930,7 +6004,7 @@ def render_hud(st, width, height, frame, view):
     elif view == "spend":
         body += usage_panel(st, width) + alerts_panel(st, width) + advice_panel(st, width)
     keys = dim(sym(" \u00b7 ", " | ").join(T("hud_keys")))
-    return "\n".join(head + [""] + body + [keys])
+    return "\n".join(head + [""] + body + [clip(keys, width)])
 
 
 def render_live(st, width=100, color=False, ascii_=False, height=None, theme_name=None, frame=0, view=None):
