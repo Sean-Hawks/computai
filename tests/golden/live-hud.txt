@@ -3,10 +3,10 @@
  [WATCH] Codex weekly limit has only 7% left - resets in 8h20m
 
 ╭─ LIMITS ─────────────────────────────────────────────────────────────────────────────────────────── 1 nearly used up ╮
-│ ▀▀▀▀█          Codex weekly limit           resets 8h20m   █▀▀▀▀ ▄▀▀▀▄          Claude Code 5-hour limit             │
-│   ▄▀           ██|░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   ▀▀▀▀▄ ▀▄▄▄▀          ███████████████|████░░░░░░░░░░░░░░░  │
-│  █             at this pace about 98% by the reset in      ▄   █ █   █          ● on pace · at this pace about 74%   │
-│  ▀    % LEFT   8h20m                                        ▀▀▀   ▀▀▀  % LEFT   by the reset in 2h10m                │
+│ ▀▀▀▀█                Codex weekly limit     resets 8h20m   █▀▀▀▀ ▄▀▀▀▄          Claude Code 5-hour limit             │
+│   ▄▀                 █|░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   ▀▀▀▀▄ ▀▄▄▄▀          ███████████████|████░░░░░░░░░░░░░░░  │
+│  █                   at this pace about 98% by the reset   ▄   █ █   █          ● on pace · at this pace about 74%   │
+│  ▀    % LEFT         in 8h20m                               ▀▀▀   ▀▀▀  % LEFT   by the reset in 2h10m                │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ TODAY ───────────────────╮ ╭─ THIS MONTH ─── pay $0/mo ╮ ╭─ LOCAL INFERENCE ─── busy ╮ ╭─ POWER ─────── 2 machines ╮
 │ $ ▄█    ▄█                │ │ $ ▄█   █▀▀▀▀              │ │ ▄▀▀▀▄                     │ │   ▄█  ▀▀▀▀▄  ▄█           │
@@ -17,7 +17,7 @@
 │ yesterday $0.00           │ │                           │ │ today 438k token          │ │ 0.04 kWh this month · $0. │
 ╰───────────────────────────╯ ╰───────────────────────────╯ ╰───────────────────────────╯ ╰───────────────────────────╯
 ╭─ MACHINES ────────────────────────────────────────────────────── 2/2 ONLINE ╮ ╭─ NEEDS ATTENTION ──────────── 1 OPEN ╮
-│ STATE    MACHINE CPU   GPU   MEM   W    MODEL                               │ │ WARNING                              │
+│ STATE    MACHINE  CPU   GPU   MEM    W  MODEL                               │ │ WARNING                              │
 │ ⠋ busy   gpubox   50%   90%   33%  410  Qwen/Qwen3-32B                      │ │ Codex weekly limit has only 7% left  │
 │ ○ idle   mac      21%   22%   85%   21  qwen3:0.6b                          │ │ - resets in 8h20m                    │
 │                                                                             │ │                                      │

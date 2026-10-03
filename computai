@@ -5696,14 +5696,14 @@ def big_num(text, unit="", color=None):
     return rows
 
 
-def limit_hero(r, width):
+def limit_hero(r, width, bw=None):
     """額度橫幅的一格：左邊大數字（剩幾 %），右邊名字和重置時間、粗量表、一句白話。"""
     used = r["used_percent"] or 0
     lv = limit_level(used)
     col = tone(lv) if lv != "brand" else MAG
     big = big_num("%d%%" % round(shown_pct(used)), T("m_left") if _limit_view == "left" else T("m_used"), col) \
         if used < LIMIT_FAIL else ["", bold(rgb(RED, T("used_up"))), "", ""]
-    bw = max(vlen(x) for x in big)
+    bw = max([vlen(x) for x in big] + [bw or 0])
     rw = max(16, width - bw - 3)
     name = bold("%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])))
     reset = dim(T("m_resets") % fmt_dur(r["resets_in"])) if r.get("resets_in") is not None else ""
@@ -5746,7 +5746,9 @@ def render_mission(st, width, height, frame):
     unl = [x for x in st["sources"] if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have]
     two = width >= 100 and len(limits) > 1
     cw = (width - 4 - 3) // 2 if two else width - 4
-    heroes = [limit_hero(r, cw) for r in limits]
+    bw = max([max(vlen(x) for x in big_num("%d%%" % round(shown_pct(r["used_percent"] or 0)),
+                                               T("m_left") if _limit_view == "left" else T("m_used"))) for r in limits] + [0])
+    heroes = [limit_hero(r, cw, bw) for r in limits]
     if not two and len(heroes) > 1 and width < 100:   # 窄的時候只有最吃緊的那個畫大，其他一行
         heroes = heroes[:1] + [[cell(bold("%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]))), 26) +
                                 limit_gauge(r, max(8, cw - 40)) + " " + bold(pct_word(r["used_percent"] or 0))]
@@ -5821,8 +5823,9 @@ def render_mission(st, width, height, frame):
         txt = _num(p, "%3.0f%%", "   -")
         return (txt + " " + rail(p or 0, bw) if bw else txt) + "  "
     colw = 6 + (bw + 1 if bw else 0)
-    rows_ = [dim(cell(T("h_state"), 9) + cell(T("h_node"), namew + 1) + cell("CPU", colw) + cell("GPU", colw) +
-                 cell(T("h_mem"), colw) + cell("W", 5) + T("h_model"))]
+    num = lambda h: cell(" " * max(0, 4 - vlen(h)) + h, colw)   # 數字欄的表頭靠右，對齊下面的百分比
+    rows_ = [dim(cell(T("h_state"), 9) + cell(T("h_node"), namew + 1) + num("CPU") + num("GPU") +
+                 num(T("h_mem")) + cell("  W", 5) + T("h_model"))]
     for m in ms:
         mem = (100.0 * (m["mem_used"] or 0) / m["mem_total"]) if m.get("mem_total") else None
         busy = m["ai_active"] or (m["recent"]["tok_s"] or 0) > 0
