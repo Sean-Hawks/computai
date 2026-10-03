@@ -4225,6 +4225,21 @@ UI = {
         "su_keepit": "keep", "su_price": "Price per kWh", "su_currency": "Currency",
         "su_tou_note": "Taipower two-tier rates are preset; compare them with your bill (tou_* in config.ini).",
         "su_rate": "How many %s is one USD", "su_budget": "Budget", "su_budget_q": "Monthly budget in USD (0 = none)",
+        "cs_intro": "ComputAI profile card: a cyberpunk card of how AI agents work for you, kept up to date in your GitHub profile README.",
+        "cs_privacy": "It is made on this computer from your own logs and only contains totals and model names - no projects, paths or prompts.",
+        "cs_manual": "No profile repo found. Create a public repo named exactly like your GitHub account (github.com/<you>/<you>), clone it, then run computai --card --setup again.",
+        "cs_no_profile": "GitHub shows the README of %s on your profile, but that repo does not exist yet.",
+        "cs_create_q": "Create %s as a public repo now?", "cs_clone_q": "Clone %s to",
+        "cs_mkdir": "Create %s?", "cs_notgit": "That folder is not inside a git repository.",
+        "cs_owner": "The card will say SYS.%s (change it with computai --set card.handle=NAME).",
+        "cs_style": "Style",
+        "cs_style_netrunner": "cyan, magenta and yellow neon (default)", "cs_style_arasaka": "corporate red on black",
+        "cs_style_militech": "hazard yellow", "cs_style_amber": "violet into amber", "cs_style_matrix": "green phosphor",
+        "cs_style_synthwave": "pink and teal",
+        "cs_readme_q": "Add the card to %s?", "cs_readme_done": "added the card to README.md and committed it",
+        "cs_readme_fail": "could not commit README.md", "cs_pushed": "Pushed. Your profile shows the card now.",
+        "cs_watch_q": "Update the card every day in the background (computai --install-watch)?",
+        "cs_done": "Done: %s",
         "su_card": "GitHub profile card", "su_card_q": "Keep an AI usage card in your GitHub profile README?",
         "su_card_help": "Clone your profile repo (github.com/<you>/<you>) first. The card only has totals and model names; it is rewritten and committed once a day.",
         "su_card_repo": "Folder in that repo for the card", "su_card_norepo": "That folder does not exist; skipped.",
@@ -4373,6 +4388,20 @@ UI = {
         "su_keepit": "保留", "su_price": "每度價格", "su_currency": "幣別",
         "su_tou_note": "台電二段式電價已經預設好；請對照你的電費單（config.ini 的 tou_*）。",
         "su_rate": "一美元等於多少 %s", "su_budget": "預算", "su_budget_q": "每月預算（美元，0 = 不設）",
+        "cs_intro": "ComputAI 個人頁卡片：一張 cyberpunk 風的卡片，展示 AI agent 怎麼替你工作，自動更新在 GitHub 個人頁 README 上。",
+        "cs_privacy": "卡片在這台電腦上用你自己的 log 產生，只有總數和模型名稱，沒有專案、路徑或對話內容。",
+        "cs_manual": "找不到個人頁 repo。先在 GitHub 建一個和帳號同名的公開 repo（github.com/<帳號>/<帳號>），clone 下來，再執行一次 computai --card --setup。",
+        "cs_no_profile": "GitHub 會把 %s 的 README 顯示在你的個人頁，但這個 repo 還不存在。",
+        "cs_create_q": "現在建立公開的 %s 嗎？", "cs_clone_q": "%s 要 clone 到",
+        "cs_mkdir": "要建立 %s 嗎？", "cs_notgit": "那個資料夾不在 git repo 裡。",
+        "cs_owner": "卡片標題會是 SYS.%s（用 computai --set card.handle=名字 可以改）。",
+        "cs_style": "主題",
+        "cs_style_netrunner": "青、洋紅、黃的霓虹（預設）", "cs_style_arasaka": "企業紅黑", "cs_style_militech": "警示黃",
+        "cs_style_amber": "紫到琥珀", "cs_style_matrix": "綠色螢光", "cs_style_synthwave": "粉紅和青綠",
+        "cs_readme_q": "要把卡片加進 %s 嗎？", "cs_readme_done": "已經把卡片加進 README.md 並 commit",
+        "cs_readme_fail": "README.md 沒辦法 commit", "cs_pushed": "已經推上去了，個人頁現在看得到卡片。",
+        "cs_watch_q": "要每天在背景自動更新卡片嗎（computai --install-watch）？",
+        "cs_done": "完成：%s",
         "su_card": "GitHub 個人頁卡片", "su_card_q": "要在 GitHub 個人頁 README 放一張 AI 用量卡片嗎？",
         "su_card_help": "先把個人頁 repo（github.com/<帳號>/<帳號>）clone 下來。卡片只有總數和模型名稱，每天重寫並 commit 一次。",
         "su_card_repo": "卡片要放在那個 repo 的哪個資料夾", "su_card_norepo": "找不到那個資料夾，先跳過。",
@@ -6250,6 +6279,16 @@ def notify_tick(db, st):
         return []
 
 
+def watch_installed():
+    """--install-watch 裝過了嗎（只看設定檔在不在，不管它現在有沒有在跑）。"""
+    if sys.platform == "darwin":
+        return os.path.exists(os.path.expanduser("~/Library/LaunchAgents/%s.plist" % WATCH_LABEL))
+    if os.name == "nt":
+        return subprocess.run(["schtasks", "/Query", "/TN", "ComputAI watch"], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode == 0
+    return os.path.exists(os.path.expanduser("~/.config/systemd/user/computai-watch.service"))
+
+
 def run_watch(interval, sample_every):
     """不開畫面，只在背景更新帳本並通知（--watch；--install-watch 讓它開機自動跑）。"""
     print("computai: watching limits, machines and alerts; notifications: %s (Ctrl-C to stop)"
@@ -7473,6 +7512,44 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netr
     return "".join(o)
 
 
+PROJECT_URL = "https://github.com/Sean-Hawks/computai"
+
+
+def repo_git(root):
+    def git(*a):
+        return subprocess.run(["git", "-C", root] + list(a), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True)
+    return git
+
+
+def git_fail(what, r):
+    lines = [x for x in (r.stderr or r.stdout or "").strip().splitlines() if x.strip()]
+    raise SystemExit("computai: %s failed: %s" % (what, lines[-1] if lines else "exit %d" % r.returncode))
+
+
+def push_repo(root):
+    """推上去；個人頁 repo 常有機器人推的 commit，遠端已經有這個分支的話先 rebase 接上再推。"""
+    git = repo_git(root)
+    git("fetch", "-q")
+    if git("rev-parse", "--verify", "-q", "@{u}").returncode == 0:
+        r = git("rebase", "-q", "@{u}")
+        if r.returncode:
+            git("rebase", "--abort")
+            git_fail("git rebase", r)
+    r = git("push")
+    if r.returncode:
+        git_fail("git push", r)
+
+
+def card_snippet(rel_dir="assets"):
+    """要貼進個人頁 README 的那段：深淺兩版，點了連到 ComputAI。"""
+    d = (rel_dir.strip("/") + "/") if rel_dir and rel_dir != "." else ""
+    return ('<a href="%s">\n  <picture>\n'
+            '    <source media="(prefers-color-scheme: light)" srcset="%scomputai-card-light.svg" />\n'
+            '    <img src="%scomputai-card.svg" alt="AI ops: tokens, agent hours, parallel agents, activity, rank and models" width="100%%" />\n'
+            '  </picture>\n</a>' % (PROJECT_URL, d, d))
+
+
 def publish_card(db, period, path, push=False, prices=None, plan_table=None):
     """把深色和淺色兩張卡片寫進本機的 git repo（例如 <帳號>/<帳號> 那個個人頁 repo）並 commit。
     不加 --push 就絕對不會推出去。回傳要印給使用者看的每一行；失敗丟 SystemExit。"""
@@ -7482,14 +7559,7 @@ def publish_card(db, period, path, push=False, prices=None, plan_table=None):
     if not shutil.which("git"):
         raise SystemExit("computai: git is not installed")
 
-    def git(*a):
-        return subprocess.run(["git", "-C", root] + list(a), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              universal_newlines=True)
-
-    def fail(what, r):
-        lines = [x for x in (r.stderr or r.stdout or "").strip().splitlines() if x.strip()]
-        raise SystemExit("computai: %s failed: %s" % (what, lines[-1] if lines else "exit %d" % r.returncode))
-
+    git, fail = repo_git(root), git_fail
     if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
         raise SystemExit("computai: %s is not a git repository" % root)
     c = card_data(db, period, prices, plan_table)
@@ -7511,16 +7581,7 @@ def publish_card(db, period, path, push=False, prices=None, plan_table=None):
             fail("git commit", r)
         lines.append("committed %s in %s: %s" % (git("rev-parse", "--short", "HEAD").stdout.strip(), root, msg))
     if push:
-        # 個人頁 repo 常有機器人推的 commit：遠端已經有這個分支的話先接上再推
-        git("fetch", "-q")
-        if git("rev-parse", "--verify", "-q", "@{u}").returncode == 0:
-            r = git("rebase", "-q", "@{u}")
-            if r.returncode:
-                git("rebase", "--abort")
-                fail("git rebase", r)
-        r = git("push")
-        if r.returncode:
-            fail("git push", r)
+        push_repo(root)
         lines.append("pushed with `git push`")
     else:
         lines.append("did not push (add --push to push)")
@@ -7854,12 +7915,6 @@ SECRET_KEYS = (("RUNPOD_API_KEY", "RunPod"), ("VAST_API_KEY", "Vast.ai"), ("LAMB
                ("HA_TOKEN", "Home Assistant token"))
 
 
-CARD_README_SNIPPET = """<picture>
-  <source media="(prefers-color-scheme: light)" srcset="assets/computai-card-light.svg" />
-  <img src="assets/computai-card.svg" alt="AI usage: tokens, activity, rank and models" width="100%" />
-</picture>"""
-
-
 def detect_profile_repo():
     """找本機的 GitHub 個人頁 repo（github.com/<帳號>/<帳號>）：只看幾個常見資料夾往下兩層，不連網路。
     有 assets/ 資料夾就回傳它，不然回傳 repo 本身。"""
@@ -7933,6 +7988,93 @@ class Setup:
         self.step_secrets()
         return self.finish()
 
+    # ---- computai --card --setup：只設定卡片
+    def run_card(self):
+        self.out(bold(T("cs_intro")))
+        self.out(dim(T("cs_privacy")))
+        cur = card_settings()
+        guess = cur["repo"] or detect_profile_repo() or self.offer_profile_repo()
+        if not guess:
+            return 1
+        path = os.path.expanduser(self.q(T("su_card_repo"), guess).strip())
+        if not os.path.isdir(path):
+            parent = os.path.dirname(path.rstrip("/"))
+            if os.path.isdir(os.path.join(parent, ".git")) and self.yes(T("cs_mkdir") % path):
+                os.makedirs(path)
+            else:
+                self.out(rgb(AMBER, T("su_card_norepo")))
+                return 1
+        root = repo_git(path)("rev-parse", "--show-toplevel").stdout.strip()
+        if not root:
+            self.out(rgb(AMBER, T("cs_notgit")))
+            return 1
+        owner = github_owner(path)
+        if owner:
+            self.out(dim(T("cs_owner") % owner.upper()))
+        for name in CARD_STYLES:
+            self.out("  %s %s" % (bold(cell(name, 10)), dim(T("cs_style_" + name))))
+        style = self.q(T("cs_style"), cur["style"]).lower()
+        style = CARD_STYLE_ALIASES.get(style, style)
+        style = style if style in CARD_STYLES else "netrunner"
+        push = self.yes(T("su_card_push"), default=True)
+        write_config([("card", "repo", path), ("card", "style", style), ("card", "push", "yes" if push else "no")])
+        for ln in publish_card(self.db, cur["period"], path, push=False):
+            self.out("  " + ln)
+        readme = os.path.join(root, "README.md")
+        rel = os.path.relpath(os.path.realpath(path), os.path.realpath(root))   # 捷徑（/var -> /private/var）也算對
+        snippet = card_snippet(rel)
+        have = os.path.exists(readme) and "computai-card" in open(readme, encoding="utf-8").read()
+        if not have and self.yes(T("cs_readme_q") % readme, default=True):
+            with open(readme, "a", encoding="utf-8") as f:
+                f.write("\n## AI ops\n\n%s\n" % snippet)
+            git = repo_git(root)
+            git("add", "--", "README.md")
+            r = git("commit", "-q", "-m", "Add ComputAI card to README", "--", "README.md")
+            self.out("  " + (T("cs_readme_done") if r.returncode == 0 else T("cs_readme_fail")))
+        elif not have:
+            self.out(dim(T("su_card_snippet")))
+            self.out(snippet)
+        if push:
+            try:
+                push_repo(root)
+                self.out(rgb(GREEN, T("cs_pushed")))
+            except SystemExit as e:
+                self.out(rgb(AMBER, str(e)))
+        if not watch_installed() and self.yes(T("cs_watch_q"), default=True):
+            what, where = watch_service(True)
+            self.out("  --watch %s: %s" % (what, where))
+        self.out(rgb(GREEN, T("cs_done") % os.path.join(path, CARD_FILES["dark"])))
+        return 0
+
+    def offer_profile_repo(self):
+        """本機找不到個人頁 repo：有登入 gh 就提議 clone（GitHub 上沒有就提議建立，一定先問）；不然說明怎麼做。"""
+        login = run_cmd(["gh", "api", "user", "-q", ".login"], timeout=20).strip() if shutil.which("gh") else ""
+        if not re.match(r"^[A-Za-z0-9-]{1,39}$", login or ""):
+            self.out(T("cs_manual"))
+            return None
+        name = "%s/%s" % (login, login)
+        docs = os.path.join(os.path.expanduser("~"), "Documents")
+        dest = os.path.join(docs if os.path.isdir(docs) else os.path.expanduser("~"), login)
+        exists = bool(run_cmd(["gh", "repo", "view", name, "--json", "name"], timeout=20).strip())
+        if not exists:
+            self.out(T("cs_no_profile") % name)
+            if not self.yes(T("cs_create_q") % name, default=False):
+                return None
+            err = []
+            run_cmd(["gh", "repo", "create", name, "--public", "--add-readme",
+                     "--description", "My GitHub profile"], timeout=60, errors=err)
+            if err:
+                self.out(rgb(AMBER, err[0]))
+                return None
+        dest = os.path.expanduser(self.q(T("cs_clone_q") % name, dest))
+        if not os.path.isdir(os.path.join(dest, ".git")):
+            err = []
+            run_cmd(["gh", "repo", "clone", name, dest], timeout=120, errors=err)
+            if err and not os.path.isdir(os.path.join(dest, ".git")):
+                self.out(rgb(AMBER, err[0]))
+                return None
+        return os.path.join(dest, "assets")
+
     # GitHub 個人頁卡片
     def step_card(self):
         self.title(T("su_card"))
@@ -7953,7 +8095,7 @@ class Setup:
             if str(cur.get(key)) != val and not (key == "push" and cur["push"] == push):
                 self.changes.append(("card", key, val))
         self.out(dim(T("su_card_snippet")))
-        self.out(CARD_README_SNIPPET)
+        self.out(card_snippet())
 
     # 語言
     def step_lang(self):
@@ -8521,7 +8663,7 @@ def run(args, db):
             sync(db, quiet=True)
         set_style(use_color(), not can_draw_blocks())
         try:
-            return Setup(db).run()
+            return Setup(db).run_card() if args.card else Setup(db).run()
         except (KeyboardInterrupt, EOFError):
             print("\n" + T("su_cancel"))
             return 1

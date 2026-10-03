@@ -252,3 +252,62 @@ class Publish(unittest.TestCase):
         self.assertIn("not a folder", r.stderr)
         r = self.sb.run("--card", "--push", "--no-sync", **self.env)
         self.assertIn("--push only works", r.stderr)
+
+
+class CardSetup(unittest.TestCase):
+    """computai --card --setup：HOME 指到暫存資料夾，絕對碰不到使用者真的個人頁 repo。"""
+    def setUp(self):
+        import tempfile
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, self.home)
+        self.old = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(self.old)))
+        cfg, data = os.path.join(self.home, "cfg"), os.path.join(self.home, "data")
+        os.makedirs(cfg)
+        os.environ.update(HOME=self.home, COMPUTAI_CONFIG_DIR=cfg, COMPUTAI_DATA_DIR=data, TZ="UTC")
+        os.environ.update(git_env(self.home))
+        self.m = helpers.load()
+        self.m.set_lang("en")
+        self.db = self.m.open_ledger()
+        self.addCleanup(self.db.close)
+        self.m.add_usage(self.db, [dict(source="claude", uid="1", ts=self.m.now() - 3600, model="claude-opus-5-5",
+                                        session="s", output=1000)])
+        self.db.commit()
+
+    def wizard(self, answers):
+        out = []
+        answers = list(answers)
+        code = self.m.Setup(self.db, ask=lambda p: answers.pop(0), out=out.append).run_card()
+        self.assertEqual(answers, [], "unused answers")
+        return code, "\n".join(map(str, out))
+
+    def test_finds_repo_commits_card_and_readme_without_pushing(self):
+        repo = os.path.join(self.home, "Documents", "octocat")
+        os.makedirs(os.path.join(repo, "assets"))
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        subprocess.run(["git", "-C", repo, "remote", "add", "origin", "https://github.com/octocat/octocat.git"], check=True)
+        with open(os.path.join(repo, "README.md"), "w") as f:
+            f.write("# hi\n")
+        code, text = self.wizard(["", "matrix", "n", "y", "n"])   # 接受找到的資料夾、matrix、不推、加進 README、不裝 watch
+        self.assertEqual(code, 0, text)
+        self.assertIn("SYS.OCTOCAT", text)
+        cfg = open(os.path.join(self.home, "cfg", "config.ini")).read()
+        self.assertIn("style = matrix", cfg)
+        self.assertIn("push = no", cfg)
+        self.assertTrue(os.path.exists(os.path.join(repo, "assets", "computai-card.svg")))
+        readme = open(os.path.join(repo, "README.md")).read()
+        self.assertIn('srcset="assets/computai-card-light.svg"', readme)
+        log = subprocess.run(["git", "-C", repo, "log", "--format=%s"], capture_output=True, text=True).stdout
+        self.assertIn("Add ComputAI card to README", log)
+        self.assertIn("Update ComputAI card", log)
+
+    def test_no_repo_and_no_gh_explains(self):
+        self.m.run_cmd = lambda *a, **k: ""
+        self.m.shutil.which = lambda name: None if name == "gh" else __import__("shutil").which(name)
+        try:
+            code, text = self.wizard([])
+        finally:
+            import importlib
+            importlib.reload(__import__("shutil"))
+        self.assertEqual(code, 1)
+        self.assertIn("github.com/<you>/<you>", text)
