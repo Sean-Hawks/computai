@@ -47,7 +47,7 @@ class AdaptiveLimits(unittest.TestCase):
         p = self.plan(T0 - 60, T0 - 60)
         self.assertEqual(p["why"], "burn")
         self.assertAlmostEqual(p["interval"], 55.5 / (4 / 60.0) / 4)
-        self.assertAlmostEqual(p["args"]["eta"], 55.5 * 15)
+        self.assertEqual(p["args"]["eta"], round(55.5 * 15))
         # 剩不多又燒很快：最短 1 分鐘
         self.samples([(0, 90), (60, 94)])
         p = self.plan(T0 + 60, T0 + 60)

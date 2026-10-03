@@ -134,6 +134,23 @@ class Doctor(unittest.TestCase):
         self.assertEqual(text.count("Claude Code\n"), 1)                      # 同一類只出現一次
         self.assertIn("thing(s) to set up", text)
 
+    def test_next_limit_check(self):
+        """--doctor 說每個來源下次什麼時候查額度、為什麼。"""
+        t0 = 1790000000
+        os.environ["COMPUTAI_FAKE_NOW"] = str(t0)
+        self.m.add_limits(self.db, [{"source": "codex", "name": "week", "ts": t0 - 600 + dt, "used_percent": u,
+                                     "window_minutes": 10080, "resets_at": t0 + 86400}
+                                    for dt, u in ((0, 80), (300, 81), (600, 82))])
+        self.db.execute("INSERT INTO meta (key, value) VALUES ('codex_account_read', ?)", (str(t0),))
+        items = [x for x in self.m.doctor(self.db, sample=False) if "next check" in x["text"]]
+        # 每 5 分鐘用 1 %，剩 18 % → 1h30m 後用完；÷ 4 → 每 22 分鐘，但最長是設定的 10 分鐘
+        self.assertEqual([x["text"] for x in items],
+                         ["Codex limits: next check in 10m (nothing close to running out: every 10m)"])
+        self.db.execute("UPDATE limits SET used_percent = used_percent + 15")   # 剩 3 % → 15 分鐘後用完
+        items = [x for x in self.m.doctor(self.db, sample=False) if "next check" in x["text"]]
+        self.assertEqual(items[0]["text"],
+                         "Codex limits: next check in 3m (weekly limit runs out in 15m at this pace: every 3m)")
+
     def test_statusline_detection(self):
         os.makedirs(os.path.join(self.sb.root, "cc"))
         os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(self.sb.root, "cc")

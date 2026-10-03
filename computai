@@ -1341,6 +1341,16 @@ def limit_burn(samples, t, base):
     return rate
 
 
+def limit_poll_why(plan):
+    """把 limit_poll_plan 的原因寫成一句話，例如「每週額度照速度 3h00m 後用完 → 每 1m」。"""
+    why, a, every = plan["why"], plan["args"], fmt_dur(plan["interval"])
+    if why == "burn":
+        return T("why_burn") % (limit_label(a["name"]), fmt_dur(a["eta"]), every)
+    if why == "reset":
+        return T("why_reset") % limit_label(a["name"])
+    return T("why_" + why) % every if why != "first" else T("why_first")
+
+
 def limit_poll_plan(db, source, last, t=None, cp=None):
     """下次什麼時候查這個來源（claude、codex）的帳號額度，以及原因。last 是上次查的時間（epoch，沒查過是 None）。
     回傳 {"at", "interval", "why", "args"}；這個來源沒開就回傳 None。
@@ -1366,7 +1376,7 @@ def limit_poll_plan(db, source, last, t=None, cp=None):
             left = 100.0 - (r["used_percent"] or 0.0)
             iv = poll_interval(left, rate, base)
             if iv < plan["interval"]:
-                plan.update(interval=iv, why="burn", args={"name": r["name"], "eta": left / rate})
+                plan.update(interval=iv, why="burn", args={"name": r["name"], "eta": round(left / rate)})
             elif plan["why"] == "idle":
                 plan["why"] = "calm"
     if last is None:
@@ -4568,7 +4578,11 @@ UI = {
         "dr_plan": "%s plan: %s, %s/month", "dr_plan_det": "the logs say %r",
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
         "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
-        "dr_cl_cli": "Claude account limits are read from the claude CLI every %d minutes (no status line needed)",
+        "dr_cl_cli": "Claude account limits are read from the claude CLI at least every %d minutes (no status line needed)",
+        "dr_next": "%s limits: next check %s (%s)", "dr_now": "now", "dr_in": "in %s",
+        "why_first": "not read yet", "why_fixed": "fixed: every %s", "why_idle": "not being used: every %s",
+        "why_calm": "nothing close to running out: every %s",
+        "why_burn": "%s runs out in %s at this pace: every %s", "why_reset": "%s resets: check 30 seconds after",
         "dr_sl_other": "Claude Code uses another status line; combine it with computai to see Claude limits",
         "dr_sl_none": "Claude limit percentages need the claude CLI (logged in) or computai as Claude Code's status line",
         "dr_unreach": "%s: cannot read", "dr_pw_plug": "power measured by the plug %s",
@@ -4759,7 +4773,11 @@ UI = {
         "dr_plan": "%s 方案：%s，每月 %s", "dr_plan_det": "log 裡記錄的是 %r",
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
         "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
-        "dr_cl_cli": "Claude 帳號額度每 %d 分鐘從 claude 程式讀一次（不用設 statusline）",
+        "dr_cl_cli": "Claude 帳號額度從 claude 程式讀，最久 %d 分鐘一次（不用設 statusline）",
+        "dr_next": "%s 額度：%s再查（%s）", "dr_now": "現在", "dr_in": "%s 後",
+        "why_first": "還沒讀過", "why_fixed": "固定每 %s", "why_idle": "沒在消耗 → 每 %s",
+        "why_calm": "沒有快用完的額度 → 每 %s",
+        "why_burn": "%s照速度 %s 後用完 → 每 %s", "why_reset": "%s重置 → 過 30 秒多查一次",
         "dr_sl_other": "Claude Code 用的是別的 statusline；要跟 computai 並用才看得到 Claude 額度",
         "dr_sl_none": "要看 Claude 的額度百分比，需要裝好並登入 claude 程式，或把 computai 設成 Claude Code 的 statusline",
         "dr_unreach": "%s：讀不到", "dr_pw_plug": "功耗由插座 %s 實測",
@@ -8939,6 +8957,15 @@ def doctor(db, sample=True):
             add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
         else:
             add("claude", "todo", T("dr_sl_none"), "computai --setup")
+    # 帳號額度下次什麼時候查、為什麼（跟著消耗速度走）
+    for src, name in (("claude", "Claude"), ("codex", "Codex")):
+        row = db.execute("SELECT value FROM meta WHERE key = ?", (src + "_account_read",)).fetchone()
+        if row is None and (os.environ.get("COMPUTAI_FIXTURES") or not shutil.which(src)):
+            continue
+        plan = limit_poll_plan(db, src, float(row["value"]) if row else None, t=t)
+        if plan:
+            add(src, "ok", T("dr_next") % (name, T("dr_now") if plan["at"] <= t else T("dr_in") % fmt_dur(plan["at"] - t),
+                                           limit_poll_why(plan)))
     # 機器
     ms = machines()
     snaps = sample_machines(db) if (sample and ms) else {}
