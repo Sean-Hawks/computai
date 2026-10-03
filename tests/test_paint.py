@@ -64,3 +64,13 @@ class Paint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HtmlThemes(unittest.TestCase):
+    def test_report_and_recap_follow_theme(self):
+        m = helpers.load()
+        r = {"year": 2026, "tokens": 1, "api_equivalent_usd": 1.0, "value_ratio": None, "active_days": 1,
+             "longest_streak": 1, "busiest_day": None, "top_models": []}
+        self.assertIn('<body class="cyber">', m.render_recap_html(r, "cyber"))
+        self.assertNotIn('class="cyber"', m.render_recap_html(r, "classic"))
+        self.assertIn("--s1:#00a3bf", m.REPORT_CSS)                 # 驗證過的霓虹配色

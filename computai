@@ -4913,10 +4913,24 @@ th { color:var(--muted); font-weight:600; }
 pre { white-space:pre-wrap; font-size:13px; background:transparent; border:1px solid var(--line);
       border-radius:8px; padding:10px; overflow-x:auto; }
 details summary { cursor:pointer; color:var(--muted); font-size:14px; }
+
+/* cyberpunk 主題。圖表的四個顏色用 dataviz 的 validate_palette.js 對 #07040f 驗證過（亮度、彩度、色盲、對比都通過）。 */
+body.cyber { --bg:#07040f; --ink:#e4f9ff; --muted:#8f84bd; --line:#2c1d52;
+  --s1:#00a3bf; --s2:#8a63ff; --s3:#ff1aa8; --s4:#a89100; color-scheme:dark;
+  background-image:linear-gradient(rgba(0,240,255,.04) 1px, transparent 1px),
+                   linear-gradient(90deg, rgba(255,0,170,.03) 1px, transparent 1px);
+  background-size:32px 32px; }
+body.cyber h1 { color:#00f0ff; letter-spacing:.12em; text-transform:uppercase; text-shadow:0 0 10px rgba(0,240,255,.5); }
+body.cyber h2 { color:#ff00aa; letter-spacing:.2em; text-transform:uppercase; }
+body.cyber h2::before { content:"// "; color:#00f0ff; }
+body.cyber .tile { border-color:rgba(0,240,255,.4); border-radius:0;
+  clip-path:polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
+body.cyber .tile b { color:#00f0ff; text-shadow:0 0 8px rgba(0,240,255,.45); }
+body.cyber pre { border-color:rgba(255,0,170,.35); }
 """
 
 
-def render_report_html(r):
+def render_report_html(r, theme_name=None):
     import html
     e = html.escape
     s = r["summary"]
@@ -4929,7 +4943,8 @@ def render_report_html(r):
     h = ['<!doctype html><html lang="en"><head><meta charset="utf-8">',
          '<meta name="viewport" content="width=device-width, initial-scale=1">',
          '<meta name="color-scheme" content="light dark">',
-         "<title>ComputAI %s</title><style>%s</style></head><body>" % (e(rng["label"]), REPORT_CSS),
+         "<title>ComputAI %s</title><style>%s</style></head><body class=\"%s\">" % (
+             e(rng["label"]), REPORT_CSS, "cyber" if (theme_name or _theme) == "cyber" else ""),
          "<h1>ComputAI report %s</h1>" % e(rng["label"]),
          '<div class="muted">%s to %s &middot; computai %s</div>' % (
              e(day_label(rng["start"])), e(day_label(rng["end"] - 1)), e(__version__)),
@@ -5116,7 +5131,22 @@ def render_recap(r):
     return "\n".join(lines)
 
 
-def render_recap_html(r):
+RECAP_CYBER_CSS = """
+body.cyber { background:#07040f; background-image:linear-gradient(rgba(0,240,255,.05) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(255,0,170,.04) 1px, transparent 1px); background-size:28px 28px; }
+body.cyber .card { border-radius:0; background:linear-gradient(145deg, rgba(20,8,44,.95), rgba(8,4,20,.95));
+  border:1px solid #00f0ff; box-shadow:0 0 0 1px rgba(255,0,170,.5), 0 0 40px rgba(0,240,255,.18),
+  inset 0 0 40px rgba(255,0,170,.08);
+  clip-path:polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px)); }
+body.cyber h1 { color:#ff00aa; letter-spacing:.35em; text-shadow:0 0 10px rgba(255,0,170,.6); }
+body.cyber .y { color:#00f0ff; text-shadow:0 0 14px rgba(0,240,255,.7), 3px 0 0 rgba(255,0,170,.55); }
+body.cyber .t b { color:#00f0ff; text-shadow:0 0 8px rgba(0,240,255,.45); }
+body.cyber .t span { color:#ff00aa; text-transform:uppercase; letter-spacing:.12em; }
+body.cyber .m { color:#fcee0a; } body.cyber .f { letter-spacing:.2em; text-transform:uppercase; }
+"""
+
+
+def render_recap_html(r, theme_name=None):
     import html
     e = html.escape
     stats = [("tokens", fmt_tok(r["tokens"])), ("at API prices", fmt_usd(r["api_equivalent_usd"])),
@@ -5139,7 +5169,9 @@ h1 { margin:0; font-size:15px; color:#56d3f0; letter-spacing:.12em; }
 </style></head><body><div class="card"><h1>COMPUTAI RECAP</h1><div class="y">%(year)d</div>
 <div class="g">%(tiles)s</div><div class="m">%(models)s</div>
 <div class="f">where your compute and AI money goes</div></div></body></html>
-""" % {"year": r["year"], "tiles": tiles, "models": models})
+""" % {"year": r["year"], "tiles": tiles, "models": models}).replace(
+        "<body>", '<body class="cyber">' if (theme_name or _theme) == "cyber" else "<body>").replace(
+        "</style>", RECAP_CYBER_CSS + "</style>")
 
 
 # ---- 實驗室彙總（--totals 匯出、--lab 合併）
