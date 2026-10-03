@@ -270,3 +270,56 @@ class WrappedHtml(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out, encoding="utf-8") as f:
             self.assertIn("ComputAI Wrapped 2026-09", f.read())
+
+
+class WrappedSvg(unittest.TestCase):
+    def setUp(self):
+        if hasattr(time, "tzset"):
+            os.environ["TZ"] = "UTC"
+            time.tzset()
+        self.m = helpers.load()
+        self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
+        seed(self.m, self.db)
+        self.addCleanup(self.m.set_lang, "en")
+
+    def wrapped(self):
+        s, e, label, kind = self.m.wrapped_period("2026-09")
+        return self.m.wrapped(self.db, s, e, label, kind, PRICES, PLANS, t=self.m.calendar_ts(2026, 10, 3, 12))
+
+    def test_share_card(self):
+        import xml.etree.ElementTree as ET
+        svg = self.m.render_wrapped_svg(self.wrapped())
+        root = ET.fromstring(svg)                              # 要是合法的 XML
+        self.assertEqual((root.get("width"), root.get("height"), root.get("viewBox")), ("1200", "630", "0 0 1200 630"))
+        for bad in ("<script", "<image", "<foreignObject", "href", "@font-face", "@import", "url(http"):
+            self.assertNotIn(bad, svg)
+        self.assertEqual(svg.count("http"), 1)                   # 只有 xmlns
+        self.assertNotIn("secret", svg)
+        self.assertNotIn("sess-3f9a1c", svg)
+        for want in ("2026-09", "Night owl", "02:00", "claude-opus-5-5"):
+            self.assertIn(want, svg)
+
+    def test_escapes_text(self):
+        import xml.etree.ElementTree as ET
+        self.m.add_usage(self.db, [dict(source="claude", uid="evil", ts=self.m.calendar_ts(2026, 9, 11, 3),
+                                        model='m"><script>x</script>&', output=10 ** 10)])
+        svg = self.m.render_wrapped_svg(self.wrapped())
+        ET.fromstring(svg)
+        self.assertNotIn("<script", svg)
+
+    def test_zh_and_empty(self):
+        import xml.etree.ElementTree as ET
+        self.m.set_lang("zh")
+        svg = self.m.render_wrapped_svg(self.wrapped())
+        ET.fromstring(svg)
+        self.assertIn("夜貓子", svg)
+        ET.fromstring(self.m.render_wrapped_svg(self.m.wrapped(self.db, 0, 100, "x", "month", PRICES, PLANS)))
+
+    def test_cli_writes_svg_and_html_together(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        svg, page = os.path.join(sb.root, "w.svg"), os.path.join(sb.root, "w.html")
+        r = sb.run("--wrapped", "2026-09", "--no-sync", "--svg", svg, "--html", page)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.path.getsize(svg) > 500 and os.path.getsize(page) > 500)

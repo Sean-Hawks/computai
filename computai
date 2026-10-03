@@ -4111,6 +4111,7 @@ UI = {
         "wr_vs_value": "Value: %s.", "wr_card_k": "YOUR WRAPPED",
         "wr_hint": "click, tap or press space for the next one", "wr_replay": "replay",
         "wr_tagline": "where your compute and AI money goes",
+        "wr_days_card": "%d days, streak %d",
     },
     "zh": {
         "node": "節點", "local": "本機", "ssh": "SSH", "ago": "%s 前", "load": "負載 %.1f",
@@ -4244,6 +4245,7 @@ UI = {
         "wr_vs_value": "價值：%s。", "wr_card_k": "你的回顧",
         "wr_hint": "點一下、輕觸或按空白鍵看下一張", "wr_replay": "重播",
         "wr_tagline": "一眼看完你的算力和 AI 花費",
+        "wr_days_card": "%d 天，連續 %d 天",
     },
 }
 _lang = "en"
@@ -6240,7 +6242,7 @@ def wrapped_slides(w):
             punch += " " + T("wr_vs_value") % _sign(pv["value_change_pct"])
         add("vs", T("wr_vs_month" if month else "wr_vs_year"), _sign(pv["tokens_change_pct"]), punch)
     rows = [[T("wr_tokens_k"), fmt_tok(w["tokens"])], [T("wr_value_k"), fmt_usd(w["api_equivalent_usd"])],
-            [T("wr_days_k"), "%d / %d" % (w["active_days"], w["longest_streak"])]]
+            [T("wr_days_k"), T("wr_days_card") % (w["active_days"], w["longest_streak"])]]
     if w["persona"]:
         rows.append([T("wr_hour_k"), "%02d:00" % w["peak_hour"]])
     if w["top_models"]:
@@ -6434,6 +6436,90 @@ def render_wrapped_html(w):
             '<script type="application/json" id="wrapped-data">%s</script>\n<script>%s</script>\n</body></html>\n'
             % ("zh-Hant" if _lang == "zh" else "en", html.escape("ComputAI Wrapped " + w["label"]), WRAPPED_CSS,
                html.escape(T("wr_title") + " " + w["label"]), plain, json_for_script(data), WRAPPED_JS))
+
+
+def svg_escape(s):
+    import html
+    return html.escape(str(s), quote=True)
+
+
+SVG_FONT = "ui-monospace,SFMono-Regular,Menlo,Consolas,'Noto Sans Mono CJK TC','PingFang TC',monospace"
+
+
+def svg_text(x, y, text, size, fill, anchor="start", weight="400", spacing=0, opacity=1):
+    """一行 SVG 文字；內容一律跳脫。"""
+    return ('<text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="%s" font-weight="%s"%s%s>%s</text>'
+            % (x, y, size, fill, anchor, weight, (' letter-spacing="%s"' % spacing) if spacing else "",
+               (' opacity="%s"' % opacity) if opacity != 1 else "", svg_escape(text)))
+
+
+def svg_bars(values, x, y, w, h, fill, gap=3, min_h=3):
+    """迷你長條圖：values 平均分在寬度 w 裡，最高的那根撐滿 h；0 的畫一條很短的底線。"""
+    if not values:
+        return ""
+    top = max(values) or 1.0
+    bw = max(1.0, (w - gap * (len(values) - 1)) / float(len(values)))
+    out = []
+    for i, v in enumerate(values):
+        bh = max(min_h, h * v / top) if v > 0 else min_h
+        out.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="1" fill="%s"%s/>'
+                   % (x + i * (bw + gap), y + h - bh, bw, bh, fill, "" if v > 0 else ' opacity="0.25"'))
+    return "".join(out)
+
+
+def clip_text(s, n):
+    s = str(s)
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def persona_short(key):
+    return T("wr_persona_" + key).split(":")[0].split("：")[0]
+
+
+def render_wrapped_svg(w):
+    """1200x630 的分享卡。沒有外部字型、圖片或腳本；只放彙總數字和模型名稱。"""
+    cy, mg, fg, dim = "#67e8f9", "#f472b6", "#e8f1f5", "#8a97a3"
+    t = []
+    a = t.append
+    a('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" '
+      'aria-label="%s">' % svg_escape("ComputAI Wrapped " + w["label"]))
+    a('<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0e14"/>'
+      '<stop offset="1" stop-color="#150a1c"/></linearGradient>'
+      '<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">'
+      '<path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.04"/></pattern></defs>')
+    a('<rect width="1200" height="630" fill="url(#bg)"/><rect width="1200" height="630" fill="url(#grid)"/>')
+    a('<rect x="14" y="14" width="1172" height="602" rx="18" fill="none" stroke="%s" stroke-opacity="0.55" '
+      'stroke-width="2"/>' % cy)
+    a('<g font-family="%s">' % svg_escape(SVG_FONT))
+    a(svg_text(60, 84, T("wr_title"), 26, cy, weight="700", spacing=6))
+    a(svg_text(1140, 84, w["label"], 26, mg, anchor="end", weight="700", spacing=4))
+    if not w["tokens"]:
+        a(svg_text(60, 330, T("wr_none"), 36, fg))
+    else:
+        a(svg_text(60, 270, fmt_tok(w["tokens"]), 170, fg, weight="800"))
+        a(svg_text(64, 312, T("wr_tokens_k"), 24, cy, spacing=6))
+        a(svg_text(64, 380, fmt_usd(w["api_equivalent_usd"]), 64, mg, weight="800"))
+        a(svg_text(64, 414, T("wr_value_k"), 20, dim, spacing=4))
+        rows = [(T("wr_days_k"), T("wr_days_card") % (w["active_days"], w["longest_streak"]))]
+        if w["peak_hour"] is not None:
+            rows.append((T("wr_hour_k"), "%02d:00" % w["peak_hour"]))
+        if w["top_models"]:
+            rows.append((T("wr_models_k"), clip_text(w["top_models"][0]["model"], 24)))
+        pv = w["previous"]
+        if pv and pv["tokens_change_pct"] is not None:
+            rows.append((T("wr_vs_month" if w["kind"] == "month" else "wr_vs_year"), _sign(pv["tokens_change_pct"])))
+        y = 190
+        for label, val in rows:
+            a(svg_text(1140, y, val, 36, fg, anchor="end", weight="700"))
+            a(svg_text(1140, y + 28, label, 17, dim, anchor="end", spacing=3))
+            y += 82
+        if w["persona"]:
+            a(svg_text(60, 478, persona_short(w["persona"]), 30, cy, weight="700"))
+        a(svg_bars(wrapped_bars(w), 60, 500, 1080, 70, cy))
+    a(svg_text(60, 600, "computai", 18, cy, weight="700", spacing=3))
+    a(svg_text(1140, 600, T("wr_tagline"), 18, dim, anchor="end", spacing=2))
+    a("</g></svg>\n")
+    return "".join(t)
 
 
 # ---- 實驗室彙總（--totals 匯出、--lab 合併）
@@ -7427,10 +7513,14 @@ def run(args, db):
             sync(db, quiet=True)
         start, end, label, kind = wrapped_period(args.wrapped)
         w = wrapped(db, start, end, label, kind)
-        if args.html:
-            with open(args.html, "w", encoding="utf-8") as f:
-                f.write(render_wrapped_html(w))
-            print("computai: wrote %s" % args.html)
+        wrote = False
+        for path, render in ((args.html, render_wrapped_html), (args.svg, render_wrapped_svg)):
+            if path:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(render(w))
+                print("computai: wrote %s" % path)
+                wrote = True
+        if wrote:
             return 0
         emit(w, render_wrapped(w), args.json)
         return 0
