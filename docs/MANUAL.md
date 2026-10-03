@@ -64,6 +64,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
 | `--lang zh` | Traditional Chinese for the live and web dashboards and `--line` (or `[general] lang = zh`). |
 | `--web [[HOST:]PORT]` | Browser dashboard (phone layout), `/api/state` JSON and `/metrics` for Prometheus. Default `127.0.0.1:8765`. |
+| `--csv FILE` | Every usage record in the range (time, source, model, project, tokens, cost) as CSV; text starting with `= + - @` is prefixed with `'` so spreadsheets don't run it. |
 | `--report [--html FILE]` | Monthly report as text, or a self-contained HTML page with a daily cost chart. |
 | `--analyze` | Month-end forecast, plan check, cache efficiency, energy. |
 | `--payback USD [--gpu-watts W --hours-per-day H --rent-per-hour USD]` | How long a GPU takes to pay for itself versus renting. |

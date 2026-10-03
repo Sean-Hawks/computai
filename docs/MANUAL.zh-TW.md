@@ -58,6 +58,7 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--once` | 印一次 live 畫面就結束（會先讀 log、取樣機器）。 |
 | `--lang zh` | live 畫面、網頁版和 `--line` 用繁體中文（也可以設 `[general] lang = zh`）。 |
 | `--web [[位址:]埠]` | 瀏覽器版（手機排版）、`/api/state` JSON、給 Prometheus 的 `/metrics`。預設 `127.0.0.1:8765`。 |
+| `--csv 檔名` | 範圍內每一筆用量（時間、來源、模型、專案、token、金額）輸出成 CSV；`= + - @` 開頭的文字前面會加 `'`，避免試算表把它當公式執行。 |
 | `--report [--html 檔名]` | 月報，文字版或一個獨立的 HTML 檔（含每日花費圖）。 |
 | `--analyze` | 月底預測、方案檢查、快取效率、電費分析。 |
 | `--payback 美元 [--gpu-watts W --hours-per-day H --rent-per-hour 美元]` | 買一張卡跟租雲端比，多久回本。 |
