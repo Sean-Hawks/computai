@@ -3637,6 +3637,11 @@ def temp_color(t):
 
 def gradbar(pct, width=12, level=None):
     """長條。classic：每一格依位置做熱度漸層；cyber：實心粗量表，整條一個顏色（見 docs/DESIGN.md）。"""
+    if theme().get("flat") and not _ascii and _color:
+        # cyber：▆（下方 3/4 的方塊）畫的粗長條，上面留一點縫，上下兩列的長條才不會黏成一塊
+        pct = max(0.0, min(100.0, pct or 0.0))
+        filled = int(round(pct / 100 * width)) or (1 if pct > 0 else 0)
+        return rgb(tone(level or "brand"), "\u2586" * filled) + rgb((40, 44, 50), "\u2586" * (width - filled))
     if theme().get("flat"):
         return gauge(pct, width, level or "brand")
     pct = max(0.0, min(100.0, pct or 0.0))
