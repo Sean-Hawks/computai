@@ -138,8 +138,9 @@ period = 30d
 push = no
 # The name on the card's title bar (SYS.<handle> // AI USAGE); empty uses the repo's GitHub account.
 handle =
-# Look: computai (cyan to violet), amber, matrix, synthwave, mono. colors = #from, #to overrides it.
-style = computai
+# Look: netrunner (cyan, magenta, yellow), arasaka (red), militech (yellow), amber, matrix, synthwave.
+# colors = #from, #to sets your own neon pair.
+style = netrunner
 colors =
 # Card language (en, zh); empty follows [general] lang.
 lang =
@@ -4227,7 +4228,7 @@ UI = {
         "su_card": "GitHub profile card", "su_card_q": "Keep an AI usage card in your GitHub profile README?",
         "su_card_help": "Clone your profile repo (github.com/<you>/<you>) first. The card only has totals and model names; it is rewritten and committed once a day.",
         "su_card_repo": "Folder in that repo for the card", "su_card_norepo": "That folder does not exist; skipped.",
-        "su_card_style": "Style (computai, amber, matrix, synthwave, mono)", "su_card_push": "Push it automatically?",
+        "su_card_style": "Style (netrunner, arasaka, militech, amber, matrix, synthwave)", "su_card_push": "Push it automatically?",
         "su_card_snippet": "Put this in your profile README.md:",
         "su_secrets": "Keys (optional)", "su_secrets_q": "Add keys for cloud GPUs, admin APIs or weekly messages?",
         "su_secrets_help": "Typing is hidden. Enter skips. Saved to secrets.ini with chmod 600.", "su_set": "set",
@@ -4375,7 +4376,7 @@ UI = {
         "su_card": "GitHub 個人頁卡片", "su_card_q": "要在 GitHub 個人頁 README 放一張 AI 用量卡片嗎？",
         "su_card_help": "先把個人頁 repo（github.com/<帳號>/<帳號>）clone 下來。卡片只有總數和模型名稱，每天重寫並 commit 一次。",
         "su_card_repo": "卡片要放在那個 repo 的哪個資料夾", "su_card_norepo": "找不到那個資料夾，先跳過。",
-        "su_card_style": "主題（computai、amber、matrix、synthwave、mono）", "su_card_push": "要自動推上去嗎？",
+        "su_card_style": "主題（netrunner、arasaka、militech、amber、matrix、synthwave）", "su_card_push": "要自動推上去嗎？",
         "su_card_snippet": "把這段貼進個人頁的 README.md：",
         "su_secrets": "金鑰（可略過）", "su_secrets_q": "要輸入雲端 GPU、admin API 或週報的金鑰嗎？",
         "su_secrets_help": "輸入時不會顯示，Enter 跳過。存在權限 600 的 secrets.ini。", "su_set": "已設定",
@@ -6103,7 +6104,8 @@ _card_style_flag = None
 
 def args_style(cs):
     """--card-style 優先，其次 [card] style。"""
-    return _card_style_flag if _card_style_flag in CARD_STYLES else cs["style"]
+    flag = CARD_STYLE_ALIASES.get(_card_style_flag, _card_style_flag)
+    return flag if flag in CARD_STYLES else cs["style"]
 
 
 def card_colors(spec):
@@ -6133,7 +6135,9 @@ def card_settings(cp=None):
     g = lambda k, d="": (cp.get("card", k, fallback=d) or d).strip()
     return {"repo": os.path.expanduser(g("repo")) if g("repo") else "", "period": g("period", "30d"),
             "handle": re.sub(r"[^A-Za-z0-9_.-]", "", g("handle"))[:24] or github_owner(g("repo")) or None,
-            "style": g("style", "computai").lower() if g("style", "computai").lower() in CARD_STYLES else "computai",
+            "style": CARD_STYLE_ALIASES.get(g("style", "netrunner").lower(), g("style", "netrunner").lower())
+            if CARD_STYLE_ALIASES.get(g("style", "netrunner").lower(), g("style", "netrunner").lower()) in CARD_STYLES
+            else "netrunner",
             "colors": card_colors(g("colors")),
             "lang": g("lang").lower()[:2] if g("lang").lower()[:2] in UI else None,
             "push": g("push", "no").lower() in ("yes", "true", "1", "on")}
@@ -7127,6 +7131,45 @@ def card_level(tokens):
     return lv, round(100 * (x - lv)), title
 
 
+AGENT_GAP = 300   # 同一個 session 兩筆用量隔超過 5 分鐘，中間就算 agent 在等你，不算工作時間
+
+
+def card_ops(db, start, end):
+    """agent 怎麼替你工作：實際工作的時數（session 裡相鄰兩筆隔不到 5 分鐘的時間加總）、最多同時跑幾個、
+    最長一次連續執行、送出幾次請求、派出幾個子代理、快取命中率，以及各來源（Claude Code、Codex、本地）的佔比。"""
+    rows = db.execute("SELECT source, session, ts FROM usage WHERE source != 'cloud' AND ts >= ? AND ts < ? "
+                      "ORDER BY source, session, ts", (start, end)).fetchall()
+    active, longest, events = 0, 0, []
+    key, seg0, last = None, None, None
+    for r in rows + [(None, None, None)]:
+        k = (r[0], r[1])
+        if k != key or (last is not None and r[2] - last > AGENT_GAP):
+            if seg0 is not None and last is not None:   # 收掉上一段連續工作
+                longest = max(longest, last - seg0)
+                events += [(seg0, 1), (last + 1, -1)]
+            key, seg0 = k, r[2]
+        elif last is not None:
+            active += r[2] - last
+        last = r[2]
+    peak = cur = 0
+    for _, d in sorted(events):
+        cur += d
+        peak = max(peak, cur)
+    # subagent 是旗標（這筆是不是子代理做的）；子代理數 = 有子代理活動的 session 數
+    t = db.execute("SELECT COALESCE(SUM(requests), 0), COUNT(DISTINCT CASE WHEN subagent = 1 "
+                   "THEN source || ':' || session END), COALESCE(SUM(input), 0), COALESCE(SUM(cache_read), 0), "
+                   "COALESCE(SUM(cache_write_5m + cache_write_1h), 0) FROM usage WHERE source != 'cloud' AND ts >= ? AND ts < ?",
+                   (start, end)).fetchone()
+    fed = (t[2] or 0) + (t[3] or 0) + (t[4] or 0)
+    fleet = [(r[0], r[1]) for r in db.execute(
+        "SELECT source, SUM(input + cache_read + cache_write_5m + cache_write_1h + output) FROM usage "
+        "WHERE source != 'cloud' AND ts >= ? AND ts < ? GROUP BY source ORDER BY 2 DESC", (start, end)) if r[1]]
+    total = sum(v for _, v in fleet) or 1
+    return {"agent_hours": round(active / 3600.0, 1), "peak_parallel": peak, "longest_run": longest,
+            "prompts": t[0] or 0, "subagents": t[1] or 0, "cache_hit_pct": round(100.0 * (t[3] or 0) / fed) if fed else None,
+            "fleet": [{"source": src, "pct": round(100.0 * v / total)} for src, v in fleet]}
+
+
 def card_extras(db, w, today, start, end):
     """卡片的有趣部分：近 13 週每天的 token（熱力圖）、近 30 天的脈搏、累計等級、裝備欄（前三名模型）、
     作息人格、目前連續天數、快取省下的錢，以及照真實資料解鎖的成就。只有彙總數字和模型名稱。"""
@@ -7167,7 +7210,8 @@ def card_extras(db, w, today, start, end):
         badges.append("POLYGLOT")
     if maxed >= LIMIT_FAIL:
         badges.append("MAXED OUT")
-    return {"heat": heat, "heat_start": first.isoformat(), "pulse": pulse, "streak": streak,
+    ops = card_ops(db, start, end)
+    return {"heat": heat, "heat_start": first.isoformat(), "pulse": pulse, "streak": streak, "ops": ops,
             "all_tokens": total, "level": lv, "xp_pct": xp, "rank": title, "models": models,
             "persona": w.get("persona"), "peak_hour": w.get("peak_hour"),
             "cache_savings_usd": w.get("cache_savings_usd") or 0, "value_ratio": w.get("value_ratio"),
@@ -7175,34 +7219,38 @@ def card_extras(db, w, today, start, end):
 
 
 CARD_FONT = "'JetBrains Mono','Fira Code','SF Mono',Menlo,Consolas,'Liberation Mono','Noto Sans Mono CJK TC',monospace"
-# 卡片的底色（深／淺）大家共用；主題只決定漸層（from -> to）、強調色（key：括號、標籤、最忙的日子）
-# 和熱力圖的四階。預設 computai 是品牌的青到紫；amber 是暖色的紫到琥珀。[card] colors = #起,#迄 可以自訂。
+# 卡片的底色（深／淺）大家共用；主題決定霓虹的兩個色（from -> to，也用在色差殘影）、強調色 key
+# （外框、標籤、警示條紋、最忙的日子）和熱力圖四階。全部是 cyberpunk 系；[card] colors = #起,#迄 自訂。
 CARD_BASE = {
-    "dark": {"bg": "#111018", "frame": "#2a2633", "grid_op": ".055", "text": "#ece8f4", "gray": "#8b8597",
-             "green": "#4ade80", "track": "#24212d", "empty": "#1d1b25", "chip": "#1a1822"},
-    "light": {"bg": "#fbfaff", "frame": "#ddd8ea", "grid_op": ".05", "text": "#1b1a22", "gray": "#6b6577",
-              "green": "#15803d", "track": "#ebe7f3", "empty": "#ece9f3", "chip": "#f3f0fa"},
+    "dark": {"bg": "#0a0a0f", "panel": "#12121a", "frame": "#2a2a38", "grid_op": ".05", "text": "#f2f2f7",
+             "gray": "#8a8aa0", "green": "#39ff88", "track": "#1e1e2a", "empty": "#16161f", "ink": "#0a0a0f"},
+    "light": {"bg": "#f7f7fb", "panel": "#ffffff", "frame": "#d6d6e4", "grid_op": ".05", "text": "#14141c",
+              "gray": "#5e5e72", "green": "#0f8a4a", "track": "#e6e6f0", "empty": "#ececf4", "ink": "#ffffff"},
 }
 CARD_STYLES = {
     # 名稱: {模式: (from, to, key, 熱力圖四階)}
-    "computai": {"dark": ("#67e8f9", "#a78bfa", "#67e8f9", ("#173a44", "#1f6f80", "#3fb4c8", "#c4b5fd")),
-                 "light": ("#0e7490", "#6d28d9", "#0e7490", ("#cdeff5", "#7dd3e3", "#22a6bf", "#7c3aed"))},
+    "netrunner": {"dark": ("#00f0ff", "#ff2a6d", "#fcee0a", ("#0b3540", "#0a7a8f", "#00c8e0", "#ff2a6d")),
+                  "light": ("#0091a8", "#d1104e", "#b8a400", ("#c6eef5", "#6fd3e3", "#0aa9c2", "#d1104e"))},
+    "arasaka": {"dark": ("#ff003c", "#ff7a90", "#ff003c", ("#3a0a14", "#7a0f26", "#c4103a", "#ffffff")),
+                "light": ("#c8002f", "#ff4d6d", "#c8002f", ("#fbd0d8", "#f58a9e", "#e0244a", "#14141c"))},
+    "militech": {"dark": ("#fcee0a", "#ff8a00", "#fcee0a", ("#38340a", "#7a6f0a", "#d4c40a", "#ff8a00")),
+                 "light": ("#9a8a00", "#c46a00", "#8a7c00", ("#f4efc0", "#e6d76a", "#c9b400", "#c46a00"))},
     "amber": {"dark": ("#a78bfa", "#fbbf24", "#fbbf24", ("#3b2f63", "#5b46a8", "#8b6cf0", "#fbbf24")),
               "light": ("#6d28d9", "#b45309", "#b45309", ("#d8ccf9", "#b39af2", "#8b5cf6", "#d97706"))},
-    "matrix": {"dark": ("#22c55e", "#a3e635", "#4ade80", ("#123a22", "#166534", "#22c55e", "#bef264")),
-               "light": ("#15803d", "#4d7c0f", "#15803d", ("#d1f2dc", "#86efac", "#22c55e", "#4d7c0f"))},
-    "synthwave": {"dark": ("#f472b6", "#38bdf8", "#f472b6", ("#3d1d3a", "#7a2d6b", "#c0479a", "#38bdf8")),
-                  "light": ("#be185d", "#0369a1", "#be185d", ("#fbd5e8", "#f9a8d4", "#ec4899", "#0284c7"))},
-    "mono": {"dark": ("#f5f5f5", "#a3a3a3", "#e5e5e5", ("#2a2a2a", "#525252", "#8a8a8a", "#f5f5f5")),
-             "light": ("#171717", "#525252", "#171717", ("#e5e5e5", "#bdbdbd", "#7a7a7a", "#171717"))},
+    "matrix": {"dark": ("#00ff9c", "#b6ff3b", "#00ff9c", ("#0b3322", "#0f6b40", "#14c46e", "#b6ff3b")),
+               "light": ("#0a8f55", "#5a8f00", "#0a8f55", ("#cdf3df", "#7fe0b0", "#1fae68", "#5a8f00"))},
+    "synthwave": {"dark": ("#ff2bd6", "#2de2e6", "#ff2bd6", ("#3a0f35", "#7a1f6e", "#d22bb6", "#2de2e6")),
+                  "light": ("#c4129f", "#0a9da0", "#c4129f", ("#f7cdee", "#ee8ed8", "#d63bb6", "#0a9da0"))},
 }
+CARD_STYLE_ALIASES = {"computai": "netrunner", "mono": "netrunner"}   # 舊名稱照樣能用
 
 
-def card_palette(style="computai", mode="dark", colors=None):
-    """主題 + 深淺 -> 畫卡片要的所有顏色。colors=(起, 迄) 時用自訂漸層，強調色跟著用迄色。"""
-    base = dict(CARD_BASE.get(mode, CARD_BASE["dark"]))
-    st = CARD_STYLES.get(style, CARD_STYLES["computai"])[mode if mode in CARD_BASE else "dark"]
-    a, b, key, heat = st
+def card_palette(style="netrunner", mode="dark", colors=None):
+    """主題 + 深淺 -> 畫卡片要的所有顏色。colors=(起, 迄) 時用自訂霓虹，強調色跟著用迄色。"""
+    style = CARD_STYLE_ALIASES.get(style, style)
+    mode = mode if mode in CARD_BASE else "dark"
+    base = dict(CARD_BASE[mode])
+    a, b, key, heat = CARD_STYLES.get(style, CARD_STYLES["netrunner"])[mode]
     if colors:
         a, b = colors
         key = b
@@ -7211,16 +7259,22 @@ def card_palette(style="computai", mode="dark", colors=None):
 
 
 CARD_TXT = {
-    "en": {"usage": "AI USAGE", "tokens": "TOKENS THROUGH AI AGENTS", "api": "AT API PRICES", "value": "SUBSCRIPTION VALUE",
-           "activity": "ACTIVITY // 13 WEEKS", "less": "LESS", "more": "MORE", "rank": "RANK", "xp": "XP %d%% TO LV.%d",
-           "all": "ALL-TIME %s TOK", "loadout": "LOADOUT", "streak": "STREAK %dD", "peak": "PEAK %02d:00",
-           "cache": "CACHE SAVED %s", "lotr": "%.1fx LORD OF THE RINGS, WRITTEN", "sync": "SYNC %s", "online": "ONLINE",
-           "none": "NO USAGE YET", "30d": "LAST 30 DAYS", "month": "THIS MONTH", "year": "THIS YEAR", "all_p": "ALL TIME"},
-    "zh": {"usage": "AI 用量", "tokens": "流過 AI 代理的 TOKEN", "api": "照 API 價格", "value": "訂閱回本",
-           "activity": "活動 // 13 週", "less": "少", "more": "多", "rank": "等級", "xp": "XP %d%% 升到 LV.%d",
-           "all": "累計 %s TOK", "loadout": "裝備", "streak": "連續 %d 天", "peak": "高峰 %02d:00",
-           "cache": "快取省下 %s", "lotr": "AI 寫了 %.1f 套《魔戒》", "sync": "同步 %s", "online": "在線",
-           "none": "還沒有用量", "30d": "近 30 天", "month": "本月", "year": "今年", "all_p": "全部"},
+    "en": {"usage": "AI_OPS", "kana": "エージェント稼働ログ", "tokens": "TOKENS", "api": "AT API PRICES",
+           "value": "PLAN VALUE", "hours": "AGENT HOURS", "parallel": "PEAK PARALLEL", "run": "LONGEST RUN",
+           "cache_hit": "CACHE HIT", "activity": "ACTIVITY // 13W", "less": "LESS", "more": "MORE", "fleet": "FLEET",
+           "rank": "RANK", "xp": "XP %d%% > LV.%d", "all": "ALL-TIME %s TOK", "prompts": "PROMPTS", "subagents": "SUBAGENTS",
+           "loadout": "LOADOUT", "streak": "STREAK %dD", "peak": "PEAK %02d:00", "cache": "CACHE SAVED %s",
+           "sync": "SYNC %s", "online": "ONLINE", "none": "NO SIGNAL // NO USAGE YET",
+           "30d": "30D", "month": "MONTH", "year": "YEAR", "all_p": "ALL TIME",
+           "src": {"claude": "CLAUDE", "codex": "CODEX", "local": "LOCAL", "anthropic": "ANTHROPIC API", "openai": "OPENAI API"}},
+    "zh": {"usage": "AI_OPS", "kana": "エージェント稼働ログ", "tokens": "TOKEN", "api": "照 API 價格",
+           "value": "方案回本", "hours": "AGENT 工時", "parallel": "最多同時", "run": "最長連續",
+           "cache_hit": "快取命中", "activity": "活動 // 13 週", "less": "少", "more": "多", "fleet": "艦隊",
+           "rank": "等級", "xp": "XP %d%% > LV.%d", "all": "累計 %s TOK", "prompts": "請求", "subagents": "子代理",
+           "loadout": "裝備", "streak": "連續 %d 天", "peak": "高峰 %02d:00", "cache": "快取省下 %s",
+           "sync": "同步 %s", "online": "在線", "none": "沒有訊號 // 還沒有用量",
+           "30d": "近 30 天", "month": "本月", "year": "今年", "all_p": "全部",
+           "src": {"claude": "CLAUDE", "codex": "CODEX", "local": "本地", "anthropic": "ANTHROPIC API", "openai": "OPENAI API"}},
 }
 
 
@@ -7234,63 +7288,98 @@ def card_persona(key, lang):
     return name.upper() if lang == "en" else name
 
 
-def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="computai", colors=None):
-    """GitHub 個人頁卡片（900x360）：琥珀四角括號、細格線、紫到琥珀的漸層大數字、13 週熱力圖（有掃描光）、
-    等級環、裝備欄、一行事實、成就徽章，分隔線是近 30 天的脈搏。只有彙總數字和模型名稱；不放腳本和外部資源。
-    動畫是 CSS／SMIL，系統設了「減少動態效果」就停。"""
+def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netrunner", colors=None):
+    """GitHub 個人頁卡片（900x390），cyberpunk HUD：切角霓虹外框和光暈、掃描線、警示條紋、片假名副標、
+    色差殘影的大數字、反白的區段標籤、13 週熱力圖（有掃描光）、分段等級環、agent 工作指標（工時、最多同時、
+    最長連續、快取命中）、各來源佔比、裝備欄、成就徽章，分隔線是近 30 天的脈搏。
+    所有內容都是靜態畫好的；動畫（故障抖動、掃描、游標、光暈呼吸）只是裝飾，停在第一格也什麼都不缺，
+    系統設了「減少動態效果」就停。只有彙總數字和模型名稱；沒有腳本和外部資源。"""
     p = card_palette(style, theme, colors)
     lang = lang if lang in CARD_TXT else _lang
     tx = CARD_TXT.get(lang, CARD_TXT["en"])
-    W, H = 900, 360
+    W, H, C = 900, 390, 22          # C：切角大小
     e = svg_escape
     handle = (handle or "COMPUTAI").upper()
-    label = "SYS.%s // %s" % (handle, tx["usage"])
+    label = "SYS.%s :: %s" % (handle, tx["usage"])
     period = tx["all_p"] if c["period"] == "all" else tx[c["period"]]
     sync = time.strftime("%m-%d %H:%M", time.localtime(now() if t is None else t))
+    ops = c.get("ops") or {}
 
-    def text(x, y, s, size, fill, **kw):
-        return svg_text(x, y, s, size, fill, **kw)
+    def text(x, y, s_, size, fill, **kw):
+        return svg_text(x, y, s_, size, fill, **kw)
+
+    def tab(x, y, s_):              # 反白的區段標籤：強調色底、底色字
+        w_ = 6.6 * vlen(s_) + 14
+        return ('<path d="M%.1f %.1fh%.1fl6 6v8h-%.1fz" fill="%s"/>' % (x, y - 11, w_, w_ + 6, p["amber"]) +
+                text(x + 6, y, s_, 9, p["ink"], weight="800", spacing=1.5))
+    frame = "M%d 1H%d V%d L%d %d H1 V%d Z" % (C, W - 1, H - C, W - C, H - 1, C)
     o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="%s">'
-         % (W, H, W, H, e("%s · %s · %s tokens" % (label, period, fmt_tok(c["tokens"])))),
-         '<style>text{font-family:%s}.sc{animation:sc 5s linear infinite}@keyframes sc{0%%{transform:translateX(0)}'
-         '100%%{transform:translateX(250px)}}.rg{animation:rg 3s ease-in-out infinite}@keyframes rg{50%%{opacity:.15}}'
+         % (W, H, W, H, e("%s · %s · %s tokens · %s agent hours" % (label, period, fmt_tok(c["tokens"]), ops.get("agent_hours", 0)))),
+         '<style>text{font-family:%s}'
+         '.sc{animation:sc 5s linear infinite}@keyframes sc{to{transform:translateX(250px)}}'
+         '.rg{animation:rg 3s ease-in-out infinite}@keyframes rg{50%%{opacity:.1}}'
          '.pl{stroke-dasharray:6 4;animation:pl 2s linear infinite}@keyframes pl{to{stroke-dashoffset:-20}}'
          '.on{animation:on 1.6s steps(2) infinite}@keyframes on{50%%{opacity:.25}}'
          '.cu{animation:cu 1s steps(2) infinite}@keyframes cu{50%%{opacity:0}}'
-         '@media (prefers-reduced-motion:reduce){.sc,.rg,.pl,.on,.cu{animation:none}}</style>' % CARD_FONT,
+         '.g1{animation:g1 3.7s steps(1) infinite}.g2{animation:g2 3.7s steps(1) infinite}'
+         '@keyframes g1{0%%,88%%,100%%{transform:none}90%%{transform:translate(-5px,-2px)}93%%{transform:translate(4px,1px)}}'
+         '@keyframes g2{0%%,88%%,100%%{transform:none}90%%{transform:translate(5px,2px)}93%%{transform:translate(-3px,-1px)}}'
+         '@media (prefers-reduced-motion:reduce){.sc,.rg,.pl,.on,.cu,.g1,.g2{animation:none}}</style>' % CARD_FONT,
          '<defs><linearGradient id="ac" x1="0" x2="1"><stop offset="0" stop-color="%(violet)s"/><stop offset="1" stop-color="%(to)s"/></linearGradient>'
-         '<linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="%(amber)s" stop-opacity="0"/><stop offset=".5" stop-color="%(amber)s" stop-opacity=".35"/>'
-         '<stop offset="1" stop-color="%(amber)s" stop-opacity="0"/></linearGradient>'
+         '<linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="%(violet)s" stop-opacity="0"/><stop offset=".5" stop-color="%(violet)s" stop-opacity=".4"/>'
+         '<stop offset="1" stop-color="%(violet)s" stop-opacity="0"/></linearGradient>'
          '<pattern id="gd" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="%(grid)s" stroke-opacity="%(grid_op)s"/></pattern>'
-         '<clipPath id="hm"><rect x="338" y="84" width="236" height="128"/></clipPath>'
-         '</defs>' % p,
-         '<rect x=".5" y=".5" width="%d" height="%d" rx="14" fill="%s" stroke="%s"/>' % (W - 1, H - 1, p["bg"], p["frame"]),
-         '<rect x="1" y="1" width="%d" height="%d" rx="14" fill="url(#gd)"/>' % (W - 2, H - 2)]
-    for x, y, dx, dy in ((18, 18, 1, 1), (W - 18, 18, -1, 1), (18, H - 18, 1, -1), (W - 18, H - 18, -1, -1)):
-        o.append('<path d="M%d %dV%dH%d" fill="none" stroke="%s" stroke-width="2"/>' % (x, y + 22 * dy, y, x + 22 * dx, p["amber"]))
-    # 動畫只是裝飾：標題、等級弧都是靜態畫好的，動畫停住（有些 README 檢視器會）也什麼都不缺
-    o.append(text(40, 42, label, 12, p["amber"], weight="700", spacing=3))
-    o.append('<rect class="cu" x="%.1f" y="32" width="7" height="12" fill="%s"/>' % (44 + 10.2 * vlen(label), p["amber"]))
+         '<pattern id="sl" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="1" fill="#000" opacity=".22"/></pattern>'
+         '<pattern id="hz" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="10" fill="%(amber)s"/></pattern>'
+         '<filter id="gw" x="-20%%" y="-20%%" width="140%%" height="140%%"><feGaussianBlur stdDeviation="3"/></filter>'
+         '<clipPath id="hm"><rect x="330" y="88" width="236" height="128"/></clipPath>'
+         '<clipPath id="fr"><path d="%(frame)s"/></clipPath></defs>' % dict(p, frame=frame)]
+    # 外框：切角、霓虹描邊加一層光暈；裡面是格線和掃描線
+    o.append('<path d="%s" fill="%s"/>' % (frame, p["bg"]))
+    o.append('<g clip-path="url(#fr)"><rect width="%d" height="%d" fill="url(#gd)"/>' % (W, H) +
+             ('<rect width="%d" height="%d" fill="url(#sl)"/>' % (W, H) if theme == "dark" else "") + '</g>')
+    o.append('<path d="%s" fill="none" stroke="%s" stroke-width="2" opacity=".55" filter="url(#gw)"/>' % (frame, p["violet"]))
+    o.append('<path d="%s" fill="none" stroke="%s" stroke-width="1.5"/>' % (frame, p["violet"]))
+    o.append('<path d="M%d 1H%d" stroke="%s" stroke-width="4"/>' % (C, C + 120, p["amber"]))          # 角上的強調色塊
+    o.append('<path d="M%d %dH%d" stroke="%s" stroke-width="4"/>' % (W - C - 120, H - 1, W - C, p["amber"]))
+    # 標頭：警示條紋、SYS 標籤（閃爍游標）、片假名；右邊期間、同步時間、在線
+    o.append('<rect x="34" y="27" width="40" height="12" fill="url(#hz)"/>')
+    o.append(text(84, 38, label, 13, p["amber"], weight="800", spacing=3))
+    lx = 88 + 10.8 * vlen(label)
+    o.append('<rect class="cu" x="%.1f" y="28" width="8" height="12" fill="%s"/>' % (lx, p["amber"]))
+    o.append(text(lx + 18, 38, tx["kana"], 10, p["gray"], spacing=2))
     on = "● " + tx["online"]
-    o.append('<g class="on">' + text(W - 40, 42, on, 11, p["green"], anchor="end", spacing=1.5) + '</g>')
-    o.append(text(W - 40 - 8.2 * vlen(on) - 10, 42, "%s · %s ·" % (period, tx["sync"] % sync), 11, p["gray"],
+    o.append('<g class="on">' + text(W - 34, 38, on, 11, p["green"], anchor="end", spacing=1.5) + '</g>')
+    o.append(text(W - 34 - 8.2 * vlen(on) - 10, 38, "%s · %s ·" % (period, tx["sync"] % sync), 11, p["gray"],
                   anchor="end", spacing=1.5))
-    o.append('<rect x="40" y="54" width="300" height="2" fill="url(#ac)" opacity=".8"/>')
+    o.append('<path d="M34 52H%d" stroke="%s"/>' % (W - 34, p["frame"]))
     if not c["tokens"]:
-        o.append(text(W / 2, 200, tx["none"], 18, p["gray"], anchor="middle", spacing=4))
+        o.append(text(W / 2, 210, tx["none"], 18, p["gray"], anchor="middle", spacing=4))
         o.append("</svg>\n")
         return "".join(o)
-    # 左：大數字
-    o.append('<text x="38" y="124" font-size="64" font-weight="800" fill="url(#ac)">%s</text>' % e(fmt_tok(c["tokens"])))
-    o.append(text(40, 146, tx["tokens"], 10, p["gray"], spacing=2))
-    o.append(text(40, 184, fmt_usd(c["api_equivalent_usd"]), 22, p["text"], weight="700"))
-    o.append(text(40 + 13.5 * len(fmt_usd(c["api_equivalent_usd"])) + 8, 184, tx["api"], 10, p["gray"], spacing=1.5))
+    # 左：色差殘影的大數字、價值、agent 工作指標
+    big = e(fmt_tok(c["tokens"]))
+    o.append(tab(34, 76, "%s // %s" % (tx["tokens"], period)))
+    o.append('<text class="g1" x="30" y="136" font-size="62" font-weight="800" fill="%s" opacity=".75">%s</text>' % (p["to"], big))
+    o.append('<text class="g2" x="38" y="136" font-size="62" font-weight="800" fill="%s" opacity=".75">%s</text>' % (p["violet"], big))
+    o.append('<text x="34" y="136" font-size="62" font-weight="800" fill="%s">%s</text>' % (p["text"], big))
+    o.append(text(34, 160, fmt_usd(c["api_equivalent_usd"]), 12, p["text"], weight="700", spacing=1))
+    o.append(text(34 + 8.4 * vlen(fmt_usd(c["api_equivalent_usd"])) + 10, 160, tx["api"], 10, p["gray"], spacing=1))
     if c.get("value_ratio"):
         vr = "%.1fx" % c["value_ratio"]
-        o.append(text(40, 214, vr, 22, p["amber"], weight="700"))
-        o.append(text(40 + 13.5 * len(vr) + 8, 214, tx["value"], 10, p["gray"], spacing=1.5))
-    # 中：13 週熱力圖
-    o.append(text(338, 76, tx["activity"], 10, p["gray"], spacing=2))
+        o.append(text(34, 177, vr, 12, p["amber"], weight="800", spacing=1))
+        o.append(text(34 + 8.4 * len(vr) + 10, 177, tx["value"], 10, p["gray"], spacing=1))
+    stats = [(tx["hours"], "%sh" % ("%.0f" % ops["agent_hours"] if ops.get("agent_hours", 0) >= 10 else ops.get("agent_hours", 0))),
+             (tx["parallel"], "x%d" % ops.get("peak_parallel", 0)),
+             (tx["run"], fmt_dur(ops.get("longest_run", 0)) if ops.get("longest_run") else "-"),
+             (tx["cache_hit"], "%d%%" % ops["cache_hit_pct"] if ops.get("cache_hit_pct") is not None else "-")]
+    for k, (lab, val) in enumerate(stats):
+        x, y = 34 + (k % 2) * 140, 206 + (k // 2) * 44
+        o.append('<path d="M%d %dv30" stroke="%s" stroke-width="2"/>' % (x, y - 12, p["violet"]))
+        o.append(text(x + 10, y, lab, 9, p["gray"], spacing=1.5))
+        o.append(text(x + 10, y + 20, val, 19, p["text"], weight="800"))
+    # 中：13 週熱力圖（直角格子、掃描光）、艦隊佔比
+    o.append(tab(330, 76, tx["activity"]))
     known = [v for v in c["heat"] if v]
     top = max(known) if known else 1
     for i, v in enumerate(c["heat"]):
@@ -7299,71 +7388,87 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="comp
             continue
         r = v / float(top) if top else 0
         k = 0 if not v else 1 if r <= .25 else 2 if r <= .5 else 3 if r <= .8 else 4
-        o.append('<rect x="%d" y="%d" width="14" height="14" rx="3" fill="%s"/>' % (338 + col * 18, 84 + row * 18, p["heat"][k]))
-    o.append('<g clip-path="url(#hm)"><rect class="sc" x="310" y="84" width="40" height="128" fill="url(#sw)"/></g>')
-    o.append(text(338, 232, tx["less"], 9, p["gray"]))
+        o.append('<rect x="%d" y="%d" width="14" height="14" fill="%s"/>' % (330 + col * 18, 88 + row * 18, p["heat"][k]))
+    o.append('<g clip-path="url(#hm)"><rect class="sc" x="300" y="88" width="40" height="128" fill="url(#sw)"/></g>')
+    o.append(text(330, 233, tx["less"], 9, p["gray"]))
     for k in range(5):
-        o.append('<rect x="%d" y="223" width="10" height="10" rx="2" fill="%s"/>' % (366 + k * 14, p["heat"][k]))
-    o.append(text(440, 232, tx["more"], 9, p["gray"]))
-    # 右：等級環
-    cx, cy, rr = 668, 148, 44
+        o.append('<rect x="%d" y="224" width="10" height="10" fill="%s"/>' % (358 + k * 14, p["heat"][k]))
+    o.append(text(432, 233, tx["more"], 9, p["gray"]))
+    fleet = ops.get("fleet") or []
+    if fleet:
+        o.append(text(330, 258, tx["fleet"], 9, p["amber"], weight="800", spacing=1.5))
+        x, cols_ = 372, (p["violet"], p["to"], p["amber"], p["gray"])
+        for k, f in enumerate(fleet[:4]):
+            w_ = max(2, 194 * f["pct"] / 100.0)
+            o.append('<rect x="%.1f" y="250" width="%.1f" height="8" fill="%s"/>' % (x, w_ - 2, cols_[k]))
+            x += w_
+        o.append(text(330, 274, "  ".join("%s %s" % (tx["src"].get(f["source"], f["source"].upper()),
+                                                     "%d%%" % f["pct"] if f["pct"] else "<1%") for f in fleet[:4]),
+                      9, p["gray"], spacing=1))
+    # 右：分段等級環、稱號、請求數和子代理
+    o.append(tab(606, 76, tx["rank"]))
+    cx, cy, rr = 656, 156, 44
     circ = 2 * math.pi * rr
-    o.append('<circle cx="%d" cy="%d" r="%d" fill="none" stroke="%s" stroke-width="7"/>' % (cx, cy, rr, p["track"]))
-    arc = ('cx="%d" cy="%d" r="%d" fill="none" stroke="url(#ac)" stroke-linecap="round" stroke-dasharray="%.1f" '
-           'stroke-dashoffset="%.1f" transform="rotate(-90 %d %d)"' % (cx, cy, rr, circ, circ * (1 - max(3, c["xp_pct"]) / 100.0), cx, cy))
-    o.append('<circle %s stroke-width="7"/>' % arc)
-    o.append('<circle class="rg" %s stroke-width="13" opacity=".35"/>' % arc)   # 呼吸的光暈
+    seg = circ / 36.0
+    o.append('<circle cx="%d" cy="%d" r="%d" fill="none" stroke="%s" stroke-width="8" stroke-dasharray="%.2f %.2f"/>'
+             % (cx, cy, rr, p["track"], seg * .7, seg * .3))
+    arc = ('cx="%d" cy="%d" r="%d" fill="none" stroke="url(#ac)" stroke-dasharray="%.2f %.2f" transform="rotate(-90 %d %d)"'
+           % (cx, cy, rr, seg * .7, seg * .3, cx, cy))
+    filled = int(round(36 * max(3, c["xp_pct"]) / 100.0))
+    o.append('<g><mask id="xp"><circle cx="%d" cy="%d" r="%d" fill="none" stroke="#fff" stroke-width="10" '
+             'stroke-dasharray="%.1f %.1f" transform="rotate(-90 %d %d)"/></mask>'
+             '<circle %s stroke-width="8" mask="url(#xp)"/><circle class="rg" %s stroke-width="14" opacity=".3" mask="url(#xp)"/></g>'
+             % (cx, cy, rr, seg * filled, circ, cx, cy, arc, arc))
     o.append(text(cx, cy - 12, "LV", 10, p["gray"], anchor="middle", spacing=2))
     o.append(text(cx, cy + 16, str(c["level"]), 30, p["text"], anchor="middle", weight="800"))
-    o.append(text(730, 108, tx["rank"], 10, p["gray"], spacing=2))
     words = c["rank"].split(" ")
     lines = [" ".join(words[:len(words) // 2 + len(words) % 2]), " ".join(words[len(words) // 2 + len(words) % 2:])] \
         if len(c["rank"]) > 13 else [c["rank"]]
     for k, ln in enumerate(lines):
-        o.append(text(730, 132 + k * 20, ln, 16, p["amber"], weight="800", spacing=1))
-    y0 = 132 + len(lines) * 20 + 6
-    o.append(text(730, y0, tx["xp"] % (c["xp_pct"], c["level"] + 1), 10, p["gray"], spacing=1))
-    o.append(text(730, y0 + 18, tx["all"] % fmt_tok(c["all_tokens"]), 10, p["gray"], spacing=1))
+        o.append(text(716, 116 + k * 20, ln, 16, p["amber"], weight="800", spacing=1))
+    y0 = 116 + len(lines) * 20 + 4
+    o.append(text(716, y0, tx["xp"] % (c["xp_pct"], c["level"] + 1), 10, p["gray"], spacing=1))
+    o.append(text(716, y0 + 16, tx["all"] % fmt_tok(c["all_tokens"]), 10, p["gray"], spacing=1))
+    for k, (lab, val) in enumerate(((tx["prompts"], fmt_tok(ops.get("prompts", 0))), (tx["subagents"], str(ops.get("subagents", 0))))):
+        x = 606 + k * 130
+        o.append(text(x, 238, lab, 9, p["gray"], spacing=1.5))
+        o.append(text(x, 258, val, 17, p["text"], weight="800"))
     # 分隔線：近 30 天的脈搏
     pv = c["pulse"]
     pt = max(pv) or 1
-    pts = " ".join("%.1f,%.1f" % (40 + i * (820.0 / (len(pv) - 1)), 256 - 14 * v / pt) for i, v in enumerate(pv))
-    o.append('<line x1="40" y1="256" x2="860" y2="256" stroke="%s"/>' % p["frame"])
-    o.append('<polyline class="pl" points="%s" fill="none" stroke="%s" stroke-width="1.5" opacity=".75"/>' % (pts, p["amber"]))
+    pts = " ".join("%.1f,%.1f" % (34 + i * ((W - 68.0) / (len(pv) - 1)), 290 - 14 * v / pt) for i, v in enumerate(pv))
+    o.append('<line x1="34" y1="290" x2="%d" y2="290" stroke="%s"/>' % (W - 34, p["frame"]))
+    o.append('<polyline class="pl" points="%s" fill="none" stroke="%s" stroke-width="1.5" opacity=".8"/>' % (pts, p["violet"]))
     # 裝備欄
-    o.append(text(40, 286, tx["loadout"], 10, p["amber"], weight="700", spacing=2))
+    o.append(tab(34, 318, tx["loadout"]))
     for k, m in enumerate(c["models"]):
-        x = 130 + k * 245
-        o.append(text(x, 284, clip_text(m["model"], 22), 12, p["text"], weight="700"))
-        o.append('<rect x="%d" y="291" width="190" height="4" rx="2" fill="%s"/>' % (x, p["track"]))
-        o.append('<rect x="%d" y="291" width="%.1f" height="4" rx="2" fill="url(#ac)"/>' % (x, 190 * m["share_pct"] / 100.0))
-        o.append(text(x + 200, 296, "%d%%" % m["share_pct"], 10, p["gray"]))
-    # 一行事實
+        x = 130 + k * 250
+        o.append(text(x, 316, clip_text(m["model"], 22), 12, p["text"], weight="700"))
+        o.append('<rect x="%d" y="322" width="190" height="4" fill="%s"/>' % (x, p["track"]))
+        o.append('<rect x="%d" y="322" width="%.1f" height="4" fill="url(#ac)"/>' % (x, 190 * m["share_pct"] / 100.0))
+        o.append(text(x + 198, 327, "%d%%" % m["share_pct"], 10, p["gray"]))
+    # 一行事實 + 成就徽章
     facts = []
-    if c["streak"]:
-        facts.append(tx["streak"] % c["streak"])
     if c.get("persona"):
         facts.append(card_persona(c["persona"], lang))
     if c.get("peak_hour") is not None:
         facts.append(tx["peak"] % c["peak_hour"])
+    if c["streak"]:
+        facts.append(tx["streak"] % c["streak"])
     if c["cache_savings_usd"] >= 1:
         facts.append(tx["cache"] % fmt_usd(c["cache_savings_usd"]))
-    if c.get("lotr"):
-        facts.append(tx["lotr"] % c["lotr"])
-    while facts and vlen("  //  ".join(facts)) * 7.6 > W - 80:   # 放不下就從後面拿掉
+    while facts and vlen("  //  ".join(facts)) * 7.6 > W - 68:
         facts.pop()
-    o.append(text(40, 322, "  //  ".join(facts), 11, p["text"], spacing=1))
-    # 成就徽章
-    x = 48
+    o.append(text(34, 350, "  //  ".join(facts), 11, p["text"], spacing=1))
+    x = 34
     for b in c["badges"]:
         label_ = "◆ " + (card_persona(b[8:], lang) if b.startswith("persona:") else b)
         w_ = 7.2 * vlen(label_) + 20
-        if x + w_ > W - 40:
+        if x + w_ > W - C - 30:
             break
-        o.append('<rect x="%.1f" y="333" width="%.1f" height="18" rx="4" fill="%s" stroke="%s" stroke-opacity=".6"/>'
-                 % (x, w_, p["chip"], p["amber"]))
-        o.append(text(x + 10, 346, label_, 10, p["amber"], weight="700", spacing=1))
-        x += w_ + 8
+        o.append('<path d="M%.1f 361h%.1fl6 6v12h-%.1fz" fill="none" stroke="%s"/>' % (x, w_, w_ + 6, p["amber"]))
+        o.append(text(x + 9, 374, label_, 10, p["amber"], weight="700", spacing=1))
+        x += w_ + 12
     o.append("</svg>\n")
     return "".join(o)
 
@@ -7841,7 +7946,8 @@ class Setup:
             self.out(rgb(AMBER, T("su_card_norepo")))
             return
         style = self.q(T("su_card_style"), cur["style"]).lower()
-        style = style if style in CARD_STYLES else "computai"
+        style = CARD_STYLE_ALIASES.get(style, style)
+        style = style if style in CARD_STYLES else "netrunner"
         push = self.yes(T("su_card_push"), default=cur["push"])
         for key, val in (("repo", repo), ("style", style), ("push", "yes" if push else "no")):
             if str(cur.get(key)) != val and not (key == "push" and cur["push"] == push):
@@ -8255,7 +8361,8 @@ def parse_args(argv=None):
                         "and commit them there (never pushes unless --push is also given)")
     p.add_argument("--push", action="store_true", help="with --card --publish: also run `git push` in that repo")
     p.add_argument("--card-theme", choices=sorted(CARD_THEMES), default="dark", help="with --card --svg: dark (default) or light")
-    p.add_argument("--card-style", choices=sorted(CARD_STYLES), help="with --card: computai (default), amber, matrix, synthwave or mono")
+    p.add_argument("--card-style", choices=sorted(set(CARD_STYLES) | set(CARD_STYLE_ALIASES)),
+                   help="with --card: netrunner (default), arasaka, militech, amber, matrix or synthwave")
     p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
     p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
     p.add_argument("--lab", metavar="DIR", help="combine everyone's --totals files in a shared folder into one table")
