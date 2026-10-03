@@ -3634,7 +3634,9 @@ def temp_color(t):
 
 
 def gradbar(pct, width=12, level=None):
-    """長條。classic：每一格依位置做熱度漸層；cyber 或指定 level：整條一個顏色（見 docs/DESIGN.md）。"""
+    """長條。classic：每一格依位置做熱度漸層；cyber：實心粗量表，整條一個顏色（見 docs/DESIGN.md）。"""
+    if theme().get("flat"):
+        return gauge(pct, width, level or "brand")
     pct = max(0.0, min(100.0, pct or 0.0))
     filled = int(round(pct / 100 * width))
     _, full, empty, lcap, rcap, _box = glyphs()
@@ -3646,6 +3648,9 @@ def gradbar(pct, width=12, level=None):
 def spark(vals, width=12, top=100.0, color=None, relative=False):
     """歷史走勢（預設 0-100 用熱度上色）。relative=True 時依這段資料的最小到最大值縮放
     （功耗、花費這種沒有固定上限的量），一律用 color 這一個顏色，平的時候畫在中間。"""
+    if theme().get("flat") and not _ascii:  # cyber：點字走勢，解析度高四倍
+        vv = [x for v in (vals or [])[-width:] for x in (v, v)]  # 一個取樣佔一整格（兩個點寬），寬度和原本一樣
+        return braille(vv, width, top=None if relative else top, color=color)[0]
     chars = glyphs()[0]
     dot = "." if _ascii else "\u00b7"
     v = [x for x in (vals or [])][-width:]
@@ -3745,6 +3750,14 @@ def wrap(text, width, indent=""):
     if line.strip():
         out.append(line.rstrip())
     return out or [""]
+
+
+_frame = 0
+
+
+def spinner():
+    """推論中的旋轉指示（live 畫面每一格動畫換一個字）。"""
+    return "*" if _ascii else "\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f"[_frame % 10]
 
 
 def label(s):
@@ -4126,6 +4139,8 @@ UI = {
         "nt_full": "%s %s is used up - resets in %s.", "nt_alt": "%s still has %d%% left.",
         "nt_high": "%s %s is %d%% used.", "nt_pace": "At this pace it runs out in %s.",
         "nt_test": "Notifications work. You will hear from ComputAI when a limit runs low, runs out or resets.",
+        "h_today": "TODAY'S USAGE VALUE", "h_month": "this month %s", "h_rate": "LOCAL TOKENS/S",
+        "h_busy": "%d machine(s) generating", "h_power": "POWER NOW (W)", "h_online": "%d/%d NODES ONLINE", "hud_tag": "AI COMPUTE LEDGER",
         "q_title": "LIMITS", "q_wait": "resets in %s",
         "q_eta": "at this pace it runs out in %s (resets in %s)", "q_proj": "at this pace about %(pct)d%% by the reset in %(reset)s",
         "q_unlinked": "limits not connected: set Claude Code's statusLine to `computai --statusline`",
@@ -4235,6 +4250,8 @@ UI = {
         "nt_full": "%s %s用完了，%s 後重置。", "nt_alt": "%s 還剩 %d%%。",
         "nt_high": "%s %s已用 %d%%。", "nt_pace": "照目前速度 %s 後用完。",
         "nt_test": "通知可以用了。額度快用完、用完、重置的時候，ComputAI 會告訴你。",
+        "h_today": "今天用量價值", "h_month": "本月 %s", "h_rate": "本地推論 tok/s",
+        "h_busy": "%d 台正在推論", "h_power": "目前功耗 (W)", "h_online": "%d/%d 台在線", "hud_tag": "AI 算力總帳",
         "q_title": "額度", "q_wait": "%s 後重置",
         "q_eta": "照目前速度 %s 後用完（%s 後才重置）", "q_proj": "照目前速度，%(reset)s 後重置時約 %(pct)d%%",
         "q_unlinked": "額度還沒接上：把 Claude Code 的 statusLine 設成 computai --statusline",
@@ -4351,10 +4368,10 @@ def machine_panel(m, width, energy=None, error=None):
     gpus = m.get("gpus") or []
     load = (m["gpu_util"] if m["gpu_util"] is not None else m["cpu_pct"]) or 0.0
     where = T("local") if m.get("host") == "local" else T("ssh")
-    ai = " " + rgb(GREEN, sym("\u25cf ", "* ") + T("busy")) if m["ai_active"] else ""
+    ai = " " + rgb(GREEN, spinner() + " " + T("busy")) if m["ai_active"] else ""
     stale = (" " + rgb(AMBER, T("ago") % fmt_dur(m["age"]))) if m["age"] > 300 else ""
     if theme().get("flat"):  # cyber：標題只放名字和狀態字，來源（SSH／本機、多久前取樣）放在下框線
-        left = "%s %s%s%s" % (dim(T("node")), bold(m["machine"]), ai, stale)
+        left = "%s%s%s%s" % (rgb(CYAN, sym("\u25e2", ">")), bold(m["machine"]), ai, stale)
         foot = dim("%s %s %s" % (where, sym("\u00b7", "|"), T("sampled") % fmt_dur(m["age"])))
     else:
         left = "%s %s %s %s%s%s" % (dim(T("node")), bold(rgb(CYAN, m["machine"])), rgb(heat(load), dot), dim(where),
@@ -4406,7 +4423,7 @@ def machine_panel(m, width, energy=None, error=None):
         key = (svc["kind"], svc["port"])
         models = by_svc.pop(key, [])
         busy = svc.get("busy", m["ai_active"])
-        state = rgb(GREEN, sym("\u25cf", "*") + " " + T("busy")) if busy else \
+        state = rgb(GREEN, (spinner() if theme().get("flat") else sym("\u25cf", "*")) + " " + T("busy")) if busy else \
             (sym("\u25cb", "o") + " " + T("idle") if theme().get("flat") else dim(sym("\u25cb", "o") + " " + T("idle")))
         names = ", ".join("%s%s" % (x["name"], dim(" %s MB" % format(x["vram_mb"], ",")) if x.get("vram_mb") else "")
                           for x in models) or dim(T("no_model"))
@@ -4431,6 +4448,105 @@ def limit_label(name):
     return T("win").get(name, name)
 
 
+def limit_note(r):
+    """額度下面那一行：已用完就講重置時間，用太快就講幾點用完，不然講重置時大約到幾 %。"""
+    used = r["used_percent"] or 0
+    reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
+    if used >= LIMIT_FAIL:
+        return rgb(RED, T("q_wait") % reset) if reset else ""
+    if r.get("eta_full"):
+        return rgb(AMBER, T("q_eta") % (fmt_dur(r["eta_full"]), reset))
+    if r.get("projected_pct") is not None:
+        return dim(T("q_proj") % {"pct": r["projected_pct"], "reset": reset})
+    return dim(T("resets") % reset) if reset else ""
+
+
+def ptitle(n, text):
+    """面板標題。cyber：品牌色的 ◢ 加兩位數編號，像儀器上的通道號碼；classic 就是粗體字。"""
+    if not theme().get("flat"):
+        return bold(text)
+    return rgb(CYAN, sym("\u25e2", ">")) + dim("%02d" % n) + " " + bold(text)
+
+
+def hud_tiles(tiles, width, gap=3):
+    """大字讀數一格一格橫著排，放不下就換到下一排。每格是幾列字串（同寬）。"""
+    out, row, used = [], [], 0
+    for t in tiles:
+        w = max(vlen(x) for x in t)
+        if row and used + gap + w > width:
+            out += side_by_side_many(row, gap)
+            out.append("")
+            row, used = [], 0
+        row.append(t)
+        used += (gap if used else 0) + w
+    if row:
+        out += side_by_side_many(row, gap)
+    return out
+
+
+def side_by_side_many(blocks, gap):
+    n = max(len(b) for b in blocks)
+    widths = [max(vlen(x) for x in b) for b in blocks]
+    return [(" " * gap).join(pad(b[i] if i < len(b) else "", w) for b, w in zip(blocks, widths)).rstrip()
+            for i in range(n)]
+
+
+def hero_panel(st, width, frame=0):
+    """[01] 最上面的大字讀數：每個額度一格（大字百分比、粗量表、速度），加上今天的用量價值和本地推論速度。
+    最重要的數字最大——這是整個畫面的主角。"""
+    tiles = []
+    limits = sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0))
+    tw = 26
+    for r in limits:
+        used = r["used_percent"] or 0
+        lv = limit_level(used)
+        big = bigtext("%d%%" % round(used))
+        col = tone(lv) if lv != "brand" else MAG
+        label = "%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]))
+        state = (" " + bold(rgb(RED, T("used_up")))) if used >= LIMIT_FAIL else ""
+        note = limit_note(r)
+        w = max(tw, vlen(big[0]))
+        tiles.append([dim(cell(label, w - vlen(state)) ) + state] + [bold(rgb(col, x)) for x in big] +
+                     [gauge(used, w, lv, r.get("elapsed_pct"))] + wrap_colored(note, w))
+    today = bigtext(fmt_usd(st["today_usd"]).replace(",", ""))
+    tiles.append([dim(T("h_today"))] + [bold(rgb(CYAN, x)) for x in today] + [""] +
+                 [dim(T("h_month") % fmt_usd(st["total_cost_usd"]))])
+    rate = sum(m["recent"]["tok_s"] for m in st["machines"])
+    busy = [m for m in st["machines"] if m["ai_active"]]
+    if rate:
+        spin = "\u280b\u2819\u2839\u2838\u283c\u2834\u2826\u2827\u2807\u280f"[frame % 10] if not _ascii else "*"
+        tiles.append([dim(T("h_rate"))] + [bold(rgb(GREEN, x)) for x in bigtext("%d" % round(rate))] + [""] +
+                     [rgb(GREEN, spin + " " + T("h_busy") % len(busy))])
+    elif st["machines"]:
+        watts = sum(m["power_w"] or 0 for m in st["machines"])
+        tiles.append([dim(T("h_power"))] + [bold(x) for x in bigtext("%d" % round(watts))] + [""] +
+                     [dim(T("machine_1") if len(st["machines"]) == 1 else T("machines_n") % len(st["machines"]))])
+    main, extra = tiles[:len(limits) + 1], tiles[len(limits) + 1:]
+    fits = sum(max(vlen(x) for x in t) + 3 for t in main + extra) <= width - 4
+    lines = [" " + x for x in hud_tiles(main + (extra if fits else []), width - 4)]  # 次要的格子放得下才放
+    have = {r["source"] for r in limits}
+    for x in st["sources"]:
+        if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
+            name = T("src").get(x["source"], x["source"])
+            for i, ln in enumerate(wrap(T("q_unlinked"), max(20, width - vlen(name) - 6))):
+                lines.append(" %s  %s" % (bold(name) if i == 0 else " " * vlen(name), dim(ln)))
+    full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
+    high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
+    state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
+    foot = dim(T("q_foot").replace("\u2503", sym("\u2503", "|"))) if any(r.get("elapsed_pct") is not None for r in limits) else ""
+    return panel(ptitle(1, T("q_title")), state, lines, width, 0, foot=foot, level="fail" if full else None)
+
+
+def wrap_colored(text, width):
+    """有顏色的一句話折行：去掉色碼折行後，每一行套回第一個顏色。"""
+    if not text:
+        return [""]
+    m = re.match(r"(\033\[[0-9;]*m)", text)
+    plain = re.sub(r"\033\[[0-9;]*m", "", text)
+    rows = wrap(plain, width)
+    return [(m.group(1) + r + "\033[0m") if m else r for r in rows]
+
+
 def quota_panel(st, width):
     """額度：每個訂閱的每個視窗一條粗量表，後面是大大的百分比，下一行用白話講速度和重置時間。
     有用量卻沒有額度資料的訂閱（通常是 Claude 沒接 statusLine）也列出來，告訴你怎麼接。"""
@@ -4447,15 +4563,7 @@ def quota_panel(st, width):
         pct = T("used_up") if used >= LIMIT_FAIL else "%d%%" % round(used)
         pct = bold(rgb(tone(lv), pct)) if lv != "brand" else bold(pct)
         lines.append(" %s %s  %s" % (cell(name, name_w), gauge(used, gw, lv, r.get("elapsed_pct")), pct))
-        reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
-        if used >= LIMIT_FAIL:
-            note = rgb(RED, T("q_wait") % reset) if reset else ""
-        elif r.get("eta_full"):
-            note = rgb(AMBER, T("q_eta") % (fmt_dur(r["eta_full"]), reset))
-        elif r.get("projected_pct") is not None:
-            note = dim(T("q_proj") % {"pct": r["projected_pct"], "reset": reset})
-        else:
-            note = dim(T("resets") % reset) if reset else ""
+        note = limit_note(r)
         if note:
             lines.append(" " * (name_w + 2) + note)
     for x in st["sources"]:
@@ -4535,7 +4643,7 @@ def usage_panel(st, width):
     full = sum(1 for r in st["limits"] if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in st["limits"] if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
-    return panel(bold(T("usage")) + " " + dim(st["month"]), "", lines, width, 0, foot=dim(T("api_equiv")))
+    return panel(ptitle(3, T("usage")) + " " + dim(st["month"]), "", lines, width, 0, foot=dim(T("api_equiv")))
 
 
 def cloud_panel(st, width):
@@ -4562,7 +4670,7 @@ def alerts_panel(st, width):
         lines = [" " + rgb(GREEN, sym("\u25cf ", "* ") + T("clear"))] if theme().get("flat") else [dim(" " + T("clear"))]
     count = "%d" % len(st["alerts"]) if st["alerts"] else ""
     if theme().get("flat"):
-        return panel(bold(T("alerts")), rgb(tone(worst), count) if count else "", lines, width, 0,
+        return panel(ptitle(4, T("alerts")), rgb(tone(worst), count) if count else "", lines, width, 0,
                      level="fail" if worst == "fail" else None)
     return panel(bold(T("alerts")), dim(count) if count else "", lines, width, 100 if st["alerts"] else 0)
 
@@ -4580,7 +4688,7 @@ def advice_panel(st, width):
     for x in items:
         for i, ln in enumerate(wrap(x["text"], max(20, width - 4 - vlen(arrow)))):
             lines.append(" %s %s" % (rgb(CYAN, arrow) if i == 0 else " " * vlen(arrow), ln))
-    return panel(bold(T("advice")), "", lines, width, 0)
+    return panel(ptitle(5, T("advice")), "", lines, width, 0)
 
 
 LIMIT_WARN, LIMIT_FAIL = 80.0, 99.5
@@ -4619,6 +4727,28 @@ def verdict(st):
     return {"level": level, "word": T("v_" + level), "items": items}
 
 
+def hud_header(st, width, clock, frame=0):
+    """cyber 的標頭：◢◤ C O M P U T A I ◥◣ 加副標，右邊是時間、在線機器數和全部機器的功耗心電圖。"""
+    logo = rgb(CYAN, sym("\u25e2\u25e4 ", "// ")) + bold(rgb(CYAN, " ".join("COMPUTAI"))) + \
+        rgb(CYAN, sym(" \u25e5\u25e3", " //"))
+    left = " " + logo + "  " + dim(T("hud_tag"))
+    ms = st["machines"]
+    errors = sum(1 for a in st["alerts"] if a["kind"] == "machine_unreachable")
+    bits = []
+    if ms or errors:
+        total = len(ms) + errors
+        bits.append(rgb(GREEN if not errors else AMBER, sym("\u25cf ", "* ") + T("h_online") % (len(ms), total)))
+        n = max(len(m["history"]["power"]) for m in ms) if ms else 0
+        watts = [sum((m["history"]["power"][-n + i] or 0) if len(m["history"]["power"]) >= n - i else 0 for m in ms)
+                 for i in range(n)]
+        if any(watts):
+            bits.append(braille(watts, 8, color=CYAN)[0])
+    bits.append(dim(clock))
+    right = "  ".join(bits) + " "
+    gap = width - vlen(left) - vlen(right)
+    return left + " " * gap + right if gap >= 2 else left
+
+
 def verdict_line(v, width):
     """總結列：等級（正常是綠字；注意、警告是整個畫面唯一的反白色塊）＋最嚴重那件事＋還有幾件。"""
     if v["level"] == "ok":
@@ -4651,22 +4781,25 @@ def header_text(st):
     return dim(sym(" \u00b7 ", " | ")).join(header_parts(st))
 
 
-def render_live(st, width=100, color=False, ascii_=False, height=None, theme_name=None):
+def render_live(st, width=100, color=False, ascii_=False, height=None, theme_name=None, frame=0):
     """整個畫面：上面一行總覽，下面是算力（每台機器、雲端）、AI 用量、警示。
     寬度夠（>= 150）就兩欄：左邊算力，右邊 AI 用量和警示；不夠就上下排。"""
+    global _frame
     set_style(color, ascii_, theme_name)
+    _frame = frame
     width = max(60, width)
-    brand = bold(rgb(CYAN, "COMPUTAI")) if theme().get("flat") else bold("ComputAI")
-    # 標頭三段：品牌和時間／總結列（現在有沒有事）／每個額度和今天的用量價值（在「·」之間換行）
-    head = "%s %s  %s\n%s" % (rgb(CYAN, led()), brand,
-                              dim(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))),
-                              verdict_line(verdict(st), width))
+    clock = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))
+    if theme().get("flat"):
+        head = hud_header(st, width, clock, frame) + "\n" + verdict_line(verdict(st), width)
+    else:
+        # 標頭三段：品牌和時間／總結列（現在有沒有事）／每個額度和今天的用量價值（在「·」之間換行）
+        head = "%s %s  %s\n%s" % (rgb(CYAN, led()), bold("ComputAI"), dim(clock), verdict_line(verdict(st), width))
     sep, rows = dim(sym(" \u00b7 ", " | ")), [""]
-    for part in header_parts(st):
+    for part in header_parts(st) if not theme().get("flat") else []:  # cyber 的大字讀數已經講了這些
         if rows[-1] and vlen(rows[-1] + sep + part) > width - 1:
             rows.append("")
         rows[-1] += (sep if rows[-1] else "") + part
-    head += "".join("\n " + ln for r in rows for ln in wrap(r, width - 1))
+    head += "".join("\n " + ln for r in rows if r for ln in wrap(r, width - 1))
     two = width >= 150
     col = (width - 2) // 2 if two else width
     errors = {a["machine"]: a for a in st["alerts"] if a["kind"] == "machine_unreachable"}
@@ -4680,7 +4813,7 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
     if st["cloud"]:
         left += cloud_panel(st, col)
     right = usage_panel(st, col) + alerts_panel(st, col) + advice_panel(st, col)
-    used = 4 + len(quota_panel(st, width)) + (max(len(left), len(right)) if two else len(left) + len(right)) + 1
+    used = 4 + len(hero_panel(st, width, frame) if theme().get("flat") else quota_panel(st, width)) + (max(len(left), len(right)) if two else len(left) + len(right)) + 1
     if height and used > height and st["machines"]:
         # 放不下：機器改成一台一列的精簡版（照 slurmtop 的 dense 模式）
         rows = [machine_compact(m, col - 2) for m in st["machines"]]
@@ -4711,9 +4844,10 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
             bits.append(rgb(GREEN, "%s tok/s" % rate))
         if st["cloud"]:
             bits.append("cloud " + rgb(MAG, fmt_usd(billing) + "/h"))
-        left = [" " + bold(T("compute")) + "  " + dim(sym(" \u00b7 ", " | ")).join(bits)] + left
+        left = [" " + (ptitle(2, T("compute")) if theme().get("flat") else bold(T("compute"))) + "  " +
+                dim(sym(" \u00b7 ", " | ")).join(bits)] + left
     body = side_by_side(left, right) if two else left + right
-    quota = quota_panel(st, width)
+    quota = hero_panel(st, width, frame) if theme().get("flat") else quota_panel(st, width)
     body = quota + ([""] if quota else []) + body  # 額度最重要，放在最上面、整個寬度
     foot = dim(sym(" \u00b7 ", " | ").join(T("foot")))
     return "\n".join([head, ""] + body + [foot])

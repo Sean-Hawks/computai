@@ -19,7 +19,7 @@ class Paint(unittest.TestCase):
         m = self.m
         m.set_style(color=False, theme="cyber")
         self.assertEqual(m.heat(0), m.heat(100))                    # 沒有熱度漸層，一律品牌青
-        self.assertEqual(m.gradbar(50, 4), "\u2501\u2501\u2500\u2500")
+        self.assertEqual(m.gradbar(50, 4), "\u2588\u2588\u2591\u2591")          # cyber：實心粗量表
         self.assertEqual(m.limit_level(42), "brand")
         self.assertEqual(m.limit_level(85), "warn")
         self.assertEqual(m.limit_level(100), "fail")

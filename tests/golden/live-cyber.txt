@@ -1,47 +1,48 @@
-● COMPUTAI  2026-09-21 14:13:20
+ ◢◤ C O M P U T A I ◥◣  AI COMPUTE LEDGER         ● 2/2 NODES ONLINE  ⠀⠀⠀⠀⠀⣿⣿⣿  2026-09-21 14:13:20 
  [WATCH] Codex weekly limit is 93% used - resets in 8h20m
- Claude 5-hour limit 42% used · Codex weekly limit 93% used (resets in 8h20m)
- today's usage worth $11.50
 
-┌── LIMITS ────────────────────────────────────────────────────────────────────── 1 nearly used up ┐
-│ Claude Code 5-hour limit ████████████████████░░░░░░░|░░░░░░░░░░░░░░░░░░░░  42%                   │
-│                          at this pace about 74% by the reset in 2h10m                            │
-│ Codex weekly limit       █████████████████████████████████████████████|░░  93%                   │
-│                          at this pace about 98% by the reset in 8h20m                            │
+┌── ◢01 LIMITS ────────────────────────────────────────────────────────────────── 1 nearly used up ┐
+│ Codex weekly limit           Claude Code 5-hour limit     TODAY'S USAGE VALUE                    │
+│ █▀█ ▀▀█ ▀ █                  █ █ ▀▀█ ▀ █                  ▄█▀ ▄█  ▄█      █▀▀ █▀█                │
+│ ▀▀█ ▀▀█ ▄▀                   ▀▀█ █▀▀ ▄▀                    █▄  █   █      ▀▀█ █ █                │
+│ ▀▀▀ ▀▀▀ ▀ ▀                    ▀ ▀▀▀ ▀ ▀                  ▀▀  ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀                │
+│ ████████████████████████|░   ███████████░░░|░░░░░░░░░░░                                          │
+│ at this pace about 98% by    at this pace about 74% by    this month $15.50                      │
+│ the reset in 8h20m           the reset in 2h10m                                                  │
 └── ┃ = how much of the window has passed; a bar beyond it is burning faster than time ────────────┘
 
- COMPUTE  2 machines · drawing 431 W now ······█▂█▂█▂ · GPU avg 56%
-┌── NODE gpubox ● busy ────────────────────────────────────────────────── 2x nvidia · 410 W · 70°C ┐
-│ CPU ━━━━━━──────  50.0% ·····▅·▅·▅ load 1.2                                                      │
-│ MEM ━━━━────────  32.8% 21/62 GiB                                                                │
-│ G0 ━━━━━━━━━━━─  90% ····▇▇▇▇▇▇ 29.3/80G 70°  320W                                               │
-│ G1 ────────────   - ····▁·▁·▁· 0.5/80G 35°                                                       │
-│ PWR   410 W ··········█▂█▂█▂  0.04 kWh this month, AI 100%                                       │
-│ vllm:8000 ● busy Qwen/Qwen3-32B                                                                  │
+ ◢02 COMPUTE  2 machines · drawing 431 W now ⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿ · GPU avg 56%
+┌── ◢gpubox ⠋ busy ────────────────────────────────────────────────────── 2x nvidia · 410 W · 70°C ┐
+│ CPU ██████░░░░░░  50.0% ⠀⠀⠀⠀⠀⣤⠀⣤⠀⣤ load 1.2                                                      │
+│ MEM ████░░░░░░░░  32.8% 21/62 GiB                                                                │
+│ G0 ███████████░  90% ⠀⠀⠀⠀⣶⣿⣶⣿⣶⣿ 29.3/80G 70°  320W                                               │
+│ G1 ░░░░░░░░░░░░   - ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ 0.5/80G 35°                                                       │
+│ PWR   410 W ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿  0.04 kWh this month, AI 100%                                       │
+│ vllm:8000 ⠋ busy Qwen/Qwen3-32B                                                                  │
 │ 79.2 GB free: room for a ~120B model (4-bit)                                                     │
 └── SSH · read 1m ago ─────────────────────────────────────────────────────────────────────────────┘
-┌── NODE mac ────────────────────────────────────────────────────────── 1x Apple M3 10-core · 21 W ┐
-│ CPU ━━━─────────  20.9% ····▂▂▂▂▂▂ load 2.5                                                      │
-│ MEM ━━━━━━━━━━──  84.8% 14/16 GiB                                                                │
-│ G0 ━━━─────────  22% ····▃▃▃▃▃▃ 1.7/16G   -                                                      │
-│ PWR    21 W ··········▅▅▅▅▅▅  0.00 kWh this month, AI 0%                                         │
+┌── ◢mac ────────────────────────────────────────────────────────────── 1x Apple M3 10-core · 21 W ┐
+│ CPU ███░░░░░░░░░  20.9% ⠀⠀⠀⠀⣀⣀⣀⣀⣀⣀ load 2.5                                                      │
+│ MEM ██████████░░  84.8% 14/16 GiB                                                                │
+│ G0 ███░░░░░░░░░  22% ⠀⠀⠀⠀⣀⣀⣀⣀⣀⣀ 1.7/16G   -                                                      │
+│ PWR    21 W ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿  0.00 kWh this month, AI 0%                                         │
 │ ollama:11434 ○ idle qwen3:0.6b 981 MB                                                            │
 │ 1.8 GB free: room for a ~1.5B model (4-bit)                                                      │
 └── SSH · read 1m ago ─────────────────────────────────────────────────────────────────────────────┘
-┌── AI SUBSCRIPTIONS & SPEND 2026-09 ──────────────────────────────────────────────────────────────┐
+┌── ◢03 AI SUBSCRIPTIONS & SPEND 2026-09 ──────────────────────────────────────────────────────────┐
 │ Claude Code    used $14.40 worth · monthly fee not set (computai --setup)                        │
-│   last 14 days ▁▁▁▁▁▁▁▁▁▁▄▁▁█ today $10.40 worth                                                 │
+│   last 14 days ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⠀⠀⣿ today $10.40 worth                                                 │
 │ Codex          used $1.10 worth · monthly fee not set (computai --setup)                         │
-│   last 14 days ▁▁▁▁▁▁▁▁▁▁▁▁▁█ today $1.10 worth                                                  │
+│   last 14 days ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿ today $1.10 worth                                                  │
 │ Local models   438k tokens · free apart from electricity                                         │
 │                                                                                                  │
 │ Usage value: $15.50 this month, $11.50 today (at API prices)                                     │
 │ You will actually pay about $0.01 this month (plans + cloud + electricity)                       │
 └── $ = value at API prices ───────────────────────────────────────────────────────────────────────┘
-┌── ALERTS ────────────────────────────────────────────────────────────────────────────────────────┐
+┌── ◢04 ALERTS ────────────────────────────────────────────────────────────────────────────────────┐
 │ ● all clear                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌── ADVICE ────────────────────────────────────────────────────────────────────────────────────────┐
+┌── ◢05 ADVICE ────────────────────────────────────────────────────────────────────────────────────┐
 │ → Codex: example advice                                                                          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 q quit · -n SEC refresh · computai --web for the browser · --analyze for advice

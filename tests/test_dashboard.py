@@ -55,7 +55,7 @@ class Dashboard(unittest.TestCase):
 
     def test_live_render_has_three_areas(self):
         text = self.m.render_live(self.st, 90)
-        for title in ("COMPUTE", "AI SUBSCRIPTIONS", "ALERTS", "NODE mac"):
+        for title in ("COMPUTE", "AI SUBSCRIPTIONS", "ALERTS", "\u25e2mac"):
             self.assertIn(title, text)
         self.assertIn("ollama:11434", text)
         self.assertIn("qwen3:0.6b", text)
@@ -72,9 +72,9 @@ class Dashboard(unittest.TestCase):
     def test_compact_when_short(self):
         text = self.m.render_live(self.st, 100, height=18)
         self.assertIn("MACHINES", text)
-        self.assertNotIn("NODE mac", text)
+        self.assertNotIn("\u25e2mac", text)
         self.assertIn("mac", text)
-        self.assertIn("NODE mac", self.m.render_live(self.st, 100, height=200))
+        self.assertIn("\u25e2mac", self.m.render_live(self.st, 100, height=200))
 
     def test_prometheus(self):
         text = self.m.prometheus(self.st)
