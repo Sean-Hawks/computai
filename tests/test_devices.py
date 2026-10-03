@@ -87,3 +87,23 @@ class SharedFolder(unittest.TestCase):
         self.b.run("--sync")
         self.assertEqual(db.execute("SELECT COUNT(*) FROM usage WHERE device != ''").fetchone()[0], a_rows)
         self.assertIn("not JSON", db.execute("SELECT error FROM devices").fetchone()[0])
+
+
+class ExportCommand(unittest.TestCase):
+    def test_export_usage_round_trip(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        env = dict(CLAUDE_CONFIG_DIR=helpers.fixture("claude"), CODEX_HOME=helpers.fixture("codex"))
+        r = sb.run("--export-usage", **env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        m = helpers.load()
+        head, rows = m.parse_export(r.stdout)
+        self.assertTrue(rows)
+        self.assertNotIn("FAKE", r.stdout)
+        late = max(x["ts"] for x in rows)
+        r = sb.run("--export-usage", str(late), **env)
+        self.assertEqual([x["ts"] for x in m.parse_export(r.stdout)[1]], [x["ts"] for x in rows if x["ts"] >= late])
+        for bad in ('{"computai_export": 1, "device": "x"}', '{"computai_export": 2}',
+                    r.stdout.replace('"claude"', '"local"', 1).replace('"cols"', '"cols"')):
+            with self.assertRaises(ValueError):
+                m.parse_export(bad)

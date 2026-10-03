@@ -10109,6 +10109,9 @@ def parse_args(argv=None):
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--export-usage", nargs="?", const="0", metavar="SINCE",
+                   help="print this computer's Claude and Codex usage (usage numbers only) as JSONL for another "
+                        "computer to merge; SINCE is an epoch second (used by [machine.X] usage = pull)")
     p.add_argument("--claude-limits", action="store_true",
                    help="read your Claude account's limits now through the claude CLI (`claude -p /usage`; no model call)")
     p.add_argument("--codex-limits", action="store_true",
@@ -10233,7 +10236,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -10292,6 +10295,16 @@ def run(args, db):
     if args.bench:
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
+        return 0
+    if args.export_usage is not None:
+        if not args.no_sync:
+            sync(db, only=[n for n in EXPORT_SOURCES], quiet=True)
+        try:
+            since = int(float(args.export_usage))
+        except ValueError:
+            raise SystemExit("computai: --export-usage takes an epoch second, got %r" % args.export_usage)
+        text, _n = export_usage(db, since=since)
+        sys.stdout.write(text)
         return 0
     if args.claude_limits:
         rows = claude_account_limits()
