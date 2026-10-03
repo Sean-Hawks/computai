@@ -39,7 +39,8 @@ class Sandbox:
         e.update(COMPUTAI_CONFIG_DIR=self.config, COMPUTAI_DATA_DIR=self.data, TZ="UTC", LANG="en_US.UTF-8", COMPUTAI_LANG="en",
                  PYTHONIOENCODING="utf-8", HOME=self.root, USERPROFILE=self.root,
                  CLAUDE_CONFIG_DIR=os.path.join(self.root, "no-claude"),
-                 CODEX_HOME=os.path.join(self.root, "no-codex"))
+                 CODEX_HOME=os.path.join(self.root, "no-codex"),
+                 COMPUTAI_TAILSCALE="none")   # 測試絕不碰這台真的 tailscale
         e.update({k: str(v) for k, v in extra.items()})
         return e
 
