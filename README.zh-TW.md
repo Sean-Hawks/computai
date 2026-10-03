@@ -5,6 +5,9 @@
 
 [English](README.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Manual](docs/MANUAL.md) · [ComputAI 出現在哪裡](docs/SURFACES.md)
 
+> **只想要 GitHub 個人頁的 AI 作戰卡？**
+> `curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh && computai --card --setup` · [卡片上有什麼](#github-個人頁的-ai-作戰卡)
+
 ![終端機 live 畫面：開機檢查，接著是 HUD](docs/images/live.svg)
 
 `computai --web` 在瀏覽器看同樣的內容（也有手機排版），加上 `--lang zh` 就是中文介面：
@@ -99,34 +102,125 @@ computai --card --publish ~/Documents/me   # 把卡片 commit 進你的個人頁
 狀態列：tmux、SwiftBar 用 `computai --line`；Claude Code 的 statusLine 設成 `computai --statusline`
 （Claude 的額度百分比只能從這裡取得）。見 [docs/one-line.md](docs/one-line.md)。
 
-## 把 AI 用量放上 GitHub 個人頁
+## GitHub 個人頁的 AI 作戰卡
 
-這是一張給個人頁 README（`github.com/<帳號>/<帳號>`）用的卡片，由你自己電腦上的帳本產生，不經過任何網路服務。內容有：
+一張放在個人頁 README（`github.com/<帳號>/<帳號>`）的 cyberpunk 卡片，展示 AI agent 怎麼替你工作：用了多少 token、工作了幾小時、同時跑幾個、用哪些模型。
 
-- token 數，以及照 API 價格算的價值；
-- agent 怎麼替你工作：工作時數、最多同時幾個、最長連續執行、快取命中率、請求數、子代理數，以及 Claude Code／Codex／本地的佔比；
-- 13 週活動熱力圖；
-- 用累計 token 換算的等級和稱號；
-- 最常用的模型、連續天數、高峰時段、快取省下的錢；
-- 依真實資料解鎖的成就徽章。
+卡片在你自己的電腦上，用你自己的 Claude Code 和 Codex log 產生，每天更新一次。不經過任何網路服務，也不上傳任何東西。
 
 ![ComputAI 個人頁卡片](docs/images/card-netrunner.svg)
 
+### 快速開始
+
 ```sh
-computai --setup      # 「GitHub 個人頁卡片」這一步會找到你的個人頁 repo，並印出要貼進 README 的那段
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh
+computai --card --setup
 ```
 
-設定好之後，`computai`（以及 `computai --install-watch` 之後的背景程式）每天重寫並 commit 一次卡片；你同意的話也會推上去，推之前會先接上機器人推的 commit。卡片只有總數和模型名稱，沒有專案名稱、路徑或對話內容。
+`--card --setup` 會問幾個問題，其他都自動處理：
+
+1. 在本機找你的個人頁 repo。
+   - 還沒 clone：用 `gh` 幫你 clone。
+   - GitHub 上還沒有：提議幫你建立，你說好才會建。
+2. 選主題。
+3. 產生第一張卡片並 commit。
+4. 把卡片加進 README。
+5. 要的話直接推上去。
+6. 問要不要每天在背景自動更新（`computai --install-watch`）。
+
+Claude Code 和 Codex 不用任何設定，只要在這台電腦上用過，卡片就有資料。
+
+### 卡片上有什麼
+
+| 區塊 | 意思 |
+|---|---|
+| **Token** | 近 30 天流過 agent 的所有 token（輸入、快取、輸出）。 |
+| **照 API 價格／方案回本** | 這些 token 照 API 定價（`prices.ini`）值多少，以及訂閱回本了幾倍。 |
+| **Agent 工時** | agent 真正在工作的時間。同一個 session 裡間隔 5 分鐘以內的算進去，停更久的不算。 |
+| **最多同時** | 同一時間最多有幾個 agent session 在工作。 |
+| **最長連續** | 單一 session 中間沒有停超過 5 分鐘的最長一段。 |
+| **快取命中** | 輸入裡有多少比例由 prompt 快取提供。越高越省錢、越快。 |
+| **活動 // 13 週** | 13 週每天一格，最亮的是你最忙的日子。 |
+| **艦隊** | Claude Code、Codex、本地模型各佔多少。 |
+| **等級** | 用累計 token 算的等級（百萬為單位開根號，越後面越難升）。稱號依序是 INITIATE、PROMPT RUNNER、CONTEXT HACKER、CACHE WEAVER、TOKEN ALCHEMIST、NETRUNNER、GHOST IN THE SHELL、AI OVERLORD。 |
+| **請求／子代理** | 送出的請求數，以及有派出子代理的 session 數。 |
+| **裝備** | 最常用的三個模型和佔比。 |
+| **事實列** | 作息（夜貓子、早起的鳥、朝九晚五、夜晚駭客）、高峰時段、目前連續天數、快取省下的錢。 |
+| **徽章** | 依真實資料解鎖，見下方。 |
+| **脈搏線** | 數據下方那條線是近 30 天每天的用量。 |
+
+徽章的解鎖條件：
+
+- **100M／1B／10B CLUB**：累計 token 達到門檻。
+- **STREAK xN**：連續 7 天以上。
+- **作息徽章**：顯示你的作息類型。
+- **CACHE LORD**：快取省下 $1,000 以上。
+- **HOMELAB**：用過本地模型。
+- **POLYGLOT**：3 個以上的模型各佔 5% 以上。
+- **MAXED OUT**：有額度用到 100%。
+
+### 主題
 
 | `arasaka` | `militech` |
 |---|---|
 | ![arasaka](docs/images/card-arasaka.svg) | ![militech](docs/images/card-militech.svg) |
 | `synthwave` | `matrix` |
 | ![synthwave](docs/images/card-synthwave.svg) | ![matrix](docs/images/card-matrix.svg) |
-| `amber` | light mode |
+| `amber` | 淺色模式 |
 | ![amber](docs/images/card-amber.svg) | ![netrunner light](docs/images/card-netrunner-light.svg) |
 
-換主題：`computai --set card.style=arasaka`；自訂漸層：`computai --set 'card.colors=#ff6b6b, #ffd93d'`。每個主題都有給淺色模式訪客看的淺色版（`computai-card-light.svg`）。標題預設顯示 `SYS.<你的 GitHub 帳號>`，可以用 `card.handle` 改。
+```sh
+computai --set card.style=arasaka                 # netrunner（預設）、arasaka、militech、amber、matrix、synthwave
+computai --set 'card.colors=#ff6b6b, #ffd93d'     # 自訂兩個霓虹色
+computai --set card.handle=NEO                    # SYS. 後面的名字（預設是你的 GitHub 帳號）
+computai --set card.lang=zh                       # 卡片語言（en、zh）
+computai --set card.credit=no                     # 拿掉右下角的 GEN BY COMPUTAI
+```
+
+每個主題都有淺色版（`computai-card-light.svg`）。README 的程式碼片段會讓用淺色模式的訪客看到淺色版。
+
+### 自動更新、手動產生、寫進腳本
+
+`computai`、`computai --web` 或背景程式每天會重寫兩張卡片並 commit。`push = yes` 時，會先接上機器人推的 commit 再推上去。設定在 `config.ini`：
+
+```ini
+[card]
+repo = ~/Documents/you/assets   ; 個人頁 repo 裡放卡片的資料夾
+period = 30d                    ; 30d、month、year、all
+push = yes
+style = netrunner
+```
+
+```sh
+computai --card --svg card.svg                       # 只產生卡片（--card-theme light、--period year）
+computai --card --publish ~/Documents/you/assets     # 寫入兩張卡片並 commit（不推）
+computai --card --publish ~/Documents/you/assets --push
+```
+
+`--card --setup` 加進 README 的程式碼片段：
+
+```html
+<a href="https://github.com/Sean-Hawks/computai">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="assets/computai-card-light.svg" />
+    <img src="assets/computai-card.svg" alt="AI ops: tokens, agent hours, parallel agents, activity, rank and models" width="100%" />
+  </picture>
+</a>
+```
+
+### 卡片上有什麼、沒有什麼
+
+- **有**：總數、模型名稱、你的 GitHub 帳號、最後更新時間。
+- **絕對沒有**：專案名稱、資料夾路徑、session ID、機器名稱、對話內容。
+- **會執行的東西**：只有對你自己的個人頁 repo 下 `git` 指令，不會傳到任何其他地方。
+- **SVG 本身**：沒有腳本、沒有外部資源。動畫（故障抖動、掃描、游標）只是裝飾，沒有它們卡片也完整；訪客設了「減少動態效果」就會停。
+
+### 疑難排解
+
+- **卡片顯示 NO SIGNAL**：這台電腦上找不到 Claude Code 或 Codex 的用量。`computai --doctor` 會告訴你它去哪裡找。
+- **卡片不再更新**：再執行一次 `computai --install-watch`。macOS 的紀錄在 `~/.local/share/computai/watch.log`。
+- **推不上去**：git 要能推到你的個人頁 repo（`gh auth login` 或 SSH 金鑰）。修好之後執行一次 `computai --card --publish <資料夾> --push`。
+- **GitHub 上字型看起來不一樣**：卡片指定 JetBrains Mono，訪客沒有這個字型時會用他自己的等寬字型。
 
 ## 隱私與安全
 

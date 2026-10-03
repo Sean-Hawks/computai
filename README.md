@@ -6,6 +6,9 @@ GPUs you rent: tokens, GPU hours, kWh and money, side by side.
 
 [繁體中文說明](README.zh-TW.md) · [Manual](docs/MANUAL.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Where ComputAI shows up](docs/SURFACES.md)
 
+> **Just want the AI ops card for your GitHub profile?**
+> `curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh && computai --card --setup` · [what it shows](#your-ai-ops-card-for-your-github-profile)
+
 ```
 $ computai --summary --month 2026-09
 ComputAI  2026-09  (2026-09-01 - 2026-09-30)
@@ -115,24 +118,50 @@ Status bars: `computai --line` for tmux and SwiftBar, `computai --statusline` as
 status line (that is also how ComputAI learns Claude's limit percentages). See
 [docs/one-line.md](docs/one-line.md).
 
-## Your AI usage on your GitHub profile
+## Your AI ops card for your GitHub profile
 
-A card for your profile README (`github.com/<you>/<you>`). It is rendered from your own ledger on your own machine, not by a web service:
-
-- the token count and its value at API prices;
-- how agents work for you: agent hours, peak parallel agents, longest run, cache hit rate, prompts, subagents and the Claude Code / Codex / local split;
-- a 13-week activity heatmap;
-- a level and rank earned from all-time tokens;
-- your top models, streak, peak hour and cache savings;
-- badges unlocked from real data.
+A cyberpunk card for your profile README (`github.com/<you>/<you>`) that shows how AI agents work for you: how many tokens, for how many hours, how many at once, with which models. It is rendered on your own machine from your own Claude Code and Codex logs, and updated once a day. There is no web service and no upload.
 
 ![ComputAI profile card](docs/images/card-netrunner.svg)
 
+### Quick start
+
 ```sh
-computai --setup      # the "GitHub profile card" step finds your profile repo and prints the README snippet
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh
+computai --card --setup
 ```
 
-Once it is set up, `computai` (and `--watch` after `computai --install-watch`) rewrites the card once a day and commits it. It pushes too if you said so; before pushing it rebases onto anything a bot pushed meanwhile. The card contains only totals and model names: no project names, paths or prompts.
+`--card --setup` asks a few questions and does the rest:
+
+1. It finds your profile repo on disk. If it isn't cloned, it offers to clone it with `gh`. If it doesn't exist on GitHub yet, it offers to create it, and only does so when you say yes.
+2. You pick a style.
+3. It writes the first card and commits it.
+4. It adds the card to your README.
+5. It pushes, if you want.
+6. It offers to keep the card fresh every day in the background (`computai --install-watch`).
+
+Claude Code and Codex need no setup. If you have used them on this computer, the card already has data.
+
+### What the card shows
+
+| Part | What it means |
+|---|---|
+| **Tokens** | Every token that went through your agents in the last 30 days (input, cache, output). |
+| **At API prices / plan value** | What those tokens would cost at API list prices (`prices.ini`), and how many times over your subscriptions paid for themselves. |
+| **Agent hours** | Time your agents were actually working: gaps under 5 minutes inside a session count, longer pauses don't. |
+| **Peak parallel** | The most agent sessions working at the same moment. |
+| **Longest run** | The longest stretch one session worked without a 5-minute pause. |
+| **Cache hit** | Share of input served from the prompt cache. Higher means cheaper, faster agents. |
+| **Activity // 13W** | One square per day for 13 weeks; the brightest squares are your busiest days. |
+| **Fleet** | Split between Claude Code, Codex and local models. |
+| **Rank** | A level from all-time tokens (the square root of millions, so it gets harder), with a title: INITIATE, PROMPT RUNNER, CONTEXT HACKER, CACHE WEAVER, TOKEN ALCHEMIST, NETRUNNER, GHOST IN THE SHELL, AI OVERLORD. |
+| **Prompts / subagents** | Requests sent, and sessions where agents spawned subagents. |
+| **Loadout** | Your top three models and their share. |
+| **Facts** | Work rhythm (night owl, early bird, nine to five, evening hacker), peak hour, current streak, money the cache saved. |
+| **Badges** | 100M / 1B / 10B CLUB (all-time tokens), STREAK xN (7+ days in a row), your rhythm, CACHE LORD ($1,000+ saved by the cache), HOMELAB (local models used), POLYGLOT (3+ models with 5%+ share), MAXED OUT (a limit hit 100%). |
+| **Pulse** | The line under the stats is your daily usage over 30 days. |
+
+### Styles
 
 | `arasaka` | `militech` |
 |---|---|
@@ -142,7 +171,58 @@ Once it is set up, `computai` (and `--watch` after `computai --install-watch`) r
 | `amber` | light mode |
 | ![amber](docs/images/card-amber.svg) | ![netrunner light](docs/images/card-netrunner-light.svg) |
 
-Pick a style with `computai --set card.style=arasaka`, or your own gradient with `computai --set 'card.colors=#ff6b6b, #ffd93d'`. Every style has a light version for light-mode visitors (`computai-card-light.svg`). The title shows `SYS.<your GitHub account>` unless you set `card.handle`.
+```sh
+computai --set card.style=arasaka                 # netrunner (default), arasaka, militech, amber, matrix, synthwave
+computai --set 'card.colors=#ff6b6b, #ffd93d'     # your own neon pair
+computai --set card.handle=NEO                    # the name after SYS. (default: your GitHub account)
+computai --set card.lang=zh                       # card language (en, zh)
+computai --set card.credit=no                     # drop the small GEN BY COMPUTAI
+```
+
+Every style has a light version (`computai-card-light.svg`). The README snippet shows it to visitors who use light mode.
+
+### Keeping it fresh, by hand or in scripts
+
+Once a day `computai`, `computai --web` or the background watcher rewrites both SVGs and commits them. If `push = yes`, it also rebases onto anything a bot pushed meanwhile and pushes. The settings live in `config.ini`:
+
+```ini
+[card]
+repo = ~/Documents/you/assets   ; folder inside your profile repo
+period = 30d                    ; 30d, month, year or all
+push = yes
+style = netrunner
+```
+
+```sh
+computai --card --svg card.svg                       # just write a card (--card-theme light, --period year)
+computai --card --publish ~/Documents/you/assets     # write both cards and commit them (no push)
+computai --card --publish ~/Documents/you/assets --push
+```
+
+The snippet `--card --setup` adds to your README:
+
+```html
+<a href="https://github.com/Sean-Hawks/computai">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="assets/computai-card-light.svg" />
+    <img src="assets/computai-card.svg" alt="AI ops: tokens, agent hours, parallel agents, activity, rank and models" width="100%" />
+  </picture>
+</a>
+```
+
+### What is on the card, and what is not
+
+- **On the card**: totals, model names, your GitHub handle, the time of the last update.
+- **Never on the card**: project names, folder paths, session ids, machine names, prompts or responses.
+- **What runs**: only `git` against your own profile repo. Nothing is sent anywhere else.
+- **The SVG itself**: no scripts or external resources. Its animations (glitch, scan, cursor) are decoration only. The card is complete without them, and they stop for visitors who prefer reduced motion.
+
+### Troubleshooting
+
+- **The card says NO SIGNAL**: no Claude Code or Codex usage was found on this computer. `computai --doctor` shows where it looked.
+- **The card stopped updating**: run `computai --install-watch` again. On macOS the log is `~/.local/share/computai/watch.log`.
+- **The push fails**: git needs to be able to push to your profile repo (`gh auth login`, or an SSH key). Fix that, then run `computai --card --publish <folder> --push` once.
+- **The font looks different on GitHub**: the card asks for JetBrains Mono and falls back to the visitor's monospace font.
 
 ## Privacy and security
 
