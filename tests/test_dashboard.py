@@ -37,6 +37,8 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(st["machines"][0]["loaded"][0]["name"], "qwen3:0.6b")
         self.assertTrue(any(a["kind"] == "idle_model" for a in st["alerts"]))
         self.assertIn("Codex 97% (1h00m)", st["line_text"])
+        self.assertEqual(st["verdict"]["level"], "warn")              # 97% 和閒置的模型：注意
+        self.assertEqual(st["verdict"]["items"][0][0], "warn")
 
     def test_history_and_daily(self):
         os.environ["COMPUTAI_FAKE_NOW"] = "1790000060"
@@ -134,6 +136,13 @@ class Web(unittest.TestCase):
         r, body = self.get("/metrics")
         self.assertIn("version=0.0.4", r.getheader("Content-Type"))
         self.assertEqual(self.get("/nope")[0].status, 404)
+
+    def test_calm_cyber_style(self):
+        # docs/DESIGN.md：沒有掃描線、glitch、切角、霓虹光暈；總結列在最上面
+        css, html = self.m.WEB_CSS, self.m.WEB_HTML
+        for banned in ("glitch", "clip-path", "repeating-linear-gradient", "text-shadow"):
+            self.assertNotIn(banned, css + html)
+        self.assertLess(html.index('id="verdict"'), html.index('id="tiles"'))
 
     def test_dns_rebinding_blocked(self):
         self.assertEqual(self.get("/api/state", host="evil.example:8765")[0].status, 403)

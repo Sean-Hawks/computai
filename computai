@@ -3767,7 +3767,7 @@ def dashboard_state(db):
     today = summary(db, ts, te, plan_table={})
     line = line_parts(db)
     energy = machine_report(db, start, end)
-    return {"version": __version__, "time": int(t), "month": label, "lang": _lang, "ui": UI[_lang], "theme": _theme,
+    st = {"version": __version__, "time": int(t), "month": label, "lang": _lang, "ui": UI[_lang], "theme": _theme,
             "line": line, "line_text": render_line(line, " | "),
             "header": re.sub(r"\033\[[0-9;]*m", "", " \u00b7 ".join(header_parts({"line": line}))),
             "today_usd": round(today["total_cost_usd"], 2),
@@ -3783,6 +3783,8 @@ def dashboard_state(db):
             "energy": energy, "cloud": latest_cloud(db), "daily": daily_costs(db, 14, t),
             "forecast": forecast(db, t, month_machines=energy),
             "alerts": machine_alerts() + idle_alerts(db, t) + cloud_alerts(db, t)}
+    st["verdict"] = verdict(st)
+    return st
 
 
 def _prom_label(v):
@@ -4615,11 +4617,12 @@ WEB_HTML = """<!doctype html>
 </head>
 <body>
 <header>
-  <div class="brand"><b class="glitch" data-text="COMPUTAI">COMPUTAI</b><span id="tagline">where your compute and AI money goes</span></div>
-  <div id="line"></div>
+  <div class="brand"><b>COMPUTAI</b><span id="tagline">where your compute and AI money goes</span></div>
   <div id="clock"></div>
 </header>
 <main>
+  <section id="verdict" class="verdict" aria-live="polite"></section>
+  <div id="line"></div>
   <div id="tiles" class="tiles"></div>
   <div id="alerts"></div>
   <section class="cols">
@@ -4703,59 +4706,60 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
 @media (max-width: 520px) {
   .gpu { grid-template-columns:28px minmax(0,1fr) 42px; } .gpu > :nth-child(4), .gpu > :nth-child(5) { display:none; }
   main { padding:8px; } header { padding:8px; } .tile .v { font-size:18px; }
-  .brand span { display:none; } #line { order:3; flex-basis:100%; } #clock { margin-left:auto; } }
+  .brand span { display:none; } #clock { margin-left:auto; } }
 
-/* ---- cyberpunk 主題（預設；[general] theme = classic 換回上面的樣式） ---- */
-html[data-theme="cyber"] { color-scheme: dark; --bg:#07040f; --panel:rgba(16,9,34,.88); --line:#2c1d52;
-  --text:#e4f9ff; --dim:#8f84bd; --accent:#00f0ff; --mag:#ff00aa; --warn:#fcee0a; --red:#ff2a6d; --ok:#39ff14; }
-html[data-theme="cyber"] body { background-color:var(--bg);
-  background-image:linear-gradient(rgba(0,240,255,.045) 1px, transparent 1px),
-                   linear-gradient(90deg, rgba(255,0,170,.035) 1px, transparent 1px),
-                   radial-gradient(ellipse at top, rgba(130,90,255,.18), transparent 60%);
-  background-size:32px 32px, 32px 32px, 100% 100%; }
-html[data-theme="cyber"] body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:50;
-  background:repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); }
-html[data-theme="cyber"] header { border-bottom:1px solid var(--mag);
-  box-shadow:0 1px 0 rgba(0,240,255,.35), 0 6px 24px -12px var(--mag); background:rgba(7,4,15,.7); }
-html[data-theme="cyber"] .brand { letter-spacing:.3em; }
-html[data-theme="cyber"] .brand b { color:var(--accent); text-shadow:0 0 6px var(--accent), 0 0 18px rgba(0,240,255,.6); }
-html[data-theme="cyber"] .brand span { color:var(--mag); letter-spacing:.08em; }
-html[data-theme="cyber"] #line { color:var(--warn); text-shadow:0 0 8px rgba(252,238,10,.35); }
-html[data-theme="cyber"] h2.sec { color:var(--mag); letter-spacing:.3em; text-shadow:0 0 8px rgba(255,0,170,.5); }
-html[data-theme="cyber"] h2.sec::before { content:"// "; color:var(--accent); }
-html[data-theme="cyber"] .card, html[data-theme="cyber"] .tile {
-  border:1px solid rgba(0,240,255,.4); border-radius:0;
-  clip-path:polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
-  box-shadow:inset 0 0 22px rgba(0,240,255,.08), inset 0 0 1px rgba(255,0,170,.6); }
-html[data-theme="cyber"] .tile .k { color:var(--mag); text-transform:uppercase; letter-spacing:.15em; }
-html[data-theme="cyber"] .tile .v { color:var(--accent); text-shadow:0 0 10px rgba(0,240,255,.55); }
-html[data-theme="cyber"] .card h3 { text-transform:uppercase; letter-spacing:.12em; }
-html[data-theme="cyber"] .led { border-radius:0; transform:rotate(45deg); box-shadow:0 0 8px currentColor; }
-html[data-theme="cyber"] .tag { border-radius:0; border-color:var(--mag); color:var(--mag); }
-html[data-theme="cyber"] .tag.ai { color:#05010d; background:var(--ok); box-shadow:0 0 10px var(--ok); }
-html[data-theme="cyber"] .bar { border-radius:0; height:9px; background:rgba(44,29,82,.7);
-  -webkit-mask-image:repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 9px);
-  mask-image:repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 9px); }
-html[data-theme="cyber"] .bar > i { border-radius:0; box-shadow:0 0 10px currentColor; }
-html[data-theme="cyber"] .alert { border-left-width:3px; border-radius:0; box-shadow:0 0 14px rgba(252,238,10,.15); }
-html[data-theme="cyber"] .alert.red { box-shadow:0 0 16px rgba(255,42,109,.25); }
-html[data-theme="cyber"] .svc .k { color:var(--mag); text-shadow:0 0 6px rgba(255,0,170,.45); }
-html[data-theme="cyber"] .src .cost { text-shadow:0 0 8px rgba(0,240,255,.5); }
-html[data-theme="cyber"] .gpu, html[data-theme="cyber"] .svc { border-top-color:rgba(255,0,170,.25); }
-html[data-theme="cyber"] footer { color:var(--dim); letter-spacing:.1em; }
-.glitch { position:relative; display:inline-block; }
-html[data-theme="cyber"] .glitch::before, html[data-theme="cyber"] .glitch::after {
-  content:attr(data-text); position:absolute; left:0; top:0; width:100%; overflow:hidden; }
-html[data-theme="cyber"] .glitch::before { color:var(--mag); text-shadow:none; animation:glitch-a 3.2s infinite steps(1); }
-html[data-theme="cyber"] .glitch::after { color:#7df9ff; text-shadow:none; animation:glitch-b 2.7s infinite steps(1); }
-@keyframes glitch-a { 0%, 92%, 100% { clip-path:inset(0 0 100% 0); transform:none; }
-  93% { clip-path:inset(10% 0 55% 0); transform:translate(-2px, -1px); }
-  96% { clip-path:inset(60% 0 8% 0); transform:translate(2px, 1px); } }
-@keyframes glitch-b { 0%, 88%, 100% { clip-path:inset(0 0 100% 0); transform:none; }
-  89% { clip-path:inset(40% 0 35% 0); transform:translate(2px, 0); }
-  94% { clip-path:inset(75% 0 2% 0); transform:translate(-2px, 1px); } }
-@media (prefers-reduced-motion: reduce) {
-  html[data-theme="cyber"] .glitch::before, html[data-theme="cyber"] .glitch::after { animation:none; display:none; } }
+/* 兩個主題共用：總結列、面板的標題列／來源列、依用途的顏色 class */
+.verdict { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; padding:12px 14px;
+  border:1px solid var(--line); border-left:4px solid var(--ok); border-radius:6px; background:var(--panel); }
+.verdict .word { font-weight:700; letter-spacing:.14em; color:var(--ok); }
+.verdict .head { font-size:16px; font-weight:700; overflow-wrap:anywhere; }
+.verdict .more { flex-basis:100%; display:grid; gap:2px; font-size:13px; }
+.verdict.warn { border-left-color:var(--warn); } .verdict.fail { border-left-color:var(--red); }
+.verdict.warn .word, .verdict.fail .word { color:#000; padding:1px 8px; border-radius:3px; }
+.verdict.warn .word { background:var(--warn); } .verdict.fail .word { background:var(--red); }
+.verdict.warn .head { color:var(--warn); } .verdict.fail .head { color:var(--red); }
+#line { color:var(--text); overflow-wrap:anywhere; }
+.lv-warn { color:var(--warn) !important; } .lv-fail { color:var(--red) !important; } .lv-ok { color:var(--ok) !important; }
+.bar.lv-warn > i { background:var(--warn) !important; } .bar.lv-fail > i { background:var(--red) !important; }
+.card .hd { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; margin:-10px -12px 8px; padding:8px 12px;
+  border-bottom:1px solid var(--line); }
+.card .hd .t { font-weight:700; } .card .hd .r { margin-left:auto; font-size:12px; color:var(--dim); }
+.card .ft { display:flex; flex-wrap:wrap; gap:4px 10px; margin:8px -12px -10px; padding:6px 12px;
+  border-top:1px solid var(--line); color:var(--dim); font-size:12px; }
+.card.fail { border-color:var(--red); }
+
+/* ---- cyber 主題（預設）：冷靜的儀器，不是霓虹招牌。規則見 docs/DESIGN.md ----
+   顏色依用途：--accent 品牌／互動、--ok 正常、--warn 注意、--red 故障或用完、--dim 次要資訊。
+   沒有掃描線、故障閃爍、切角、光暈、漸層長條；反白色塊只用在總結列。 */
+html[data-theme="cyber"] { color-scheme:dark; --bg:#0a0b0d; --panel:#0f1114; --line:#2a2f36;
+  --text:#e6e8eb; --dim:#9aa1ab; --accent:#67e8f9; --mag:#e6e8eb; --warn:#fbbf24; --red:#f87171; --ok:#4ade80; }
+html[data-theme="cyber"] body { font-size:13px; }
+html[data-theme="cyber"] header { background:var(--bg); }
+html[data-theme="cyber"] .brand { letter-spacing:.22em; }
+html[data-theme="cyber"] .brand span { letter-spacing:.02em; }
+html[data-theme="cyber"] h2.sec { color:var(--text); font-size:11px; letter-spacing:.16em; }
+html[data-theme="cyber"] .card, html[data-theme="cyber"] .tile { border-radius:6px; }
+html[data-theme="cyber"] .card .hd .t { font-size:11px; text-transform:uppercase; letter-spacing:.14em; }
+html[data-theme="cyber"] .card .hd .t .name { font-size:14px; text-transform:none; letter-spacing:0; }
+html[data-theme="cyber"] .tile .k { font-size:11px; text-transform:uppercase; letter-spacing:.14em; }
+.tile .s { color:var(--dim); font-size:12px; margin-top:2px; }
+html[data-theme="cyber"] .tile .v { font-size:26px; line-height:1.2; font-variant-numeric:tabular-nums; }
+html[data-theme="cyber"] .tile .bar { margin-top:6px; }
+html[data-theme="cyber"] .bar { height:8px; border-radius:2px; background:transparent; border:1px solid var(--line); padding:1px; }
+html[data-theme="cyber"] .bar > i { border-radius:1px; background:var(--accent); }
+html[data-theme="cyber"] .bar.lv-warn > i { background:var(--warn); }
+html[data-theme="cyber"] .bar.lv-fail > i { background:var(--red); }
+html[data-theme="cyber"] .verdict.warn, html[data-theme="cyber"] .verdict.fail { box-shadow:0 0 18px -6px currentColor; }
+html[data-theme="cyber"] .verdict.warn { color:var(--warn); } html[data-theme="cyber"] .verdict.fail { color:var(--red); }
+html[data-theme="cyber"] .verdict .more { color:var(--text); }
+html[data-theme="cyber"] .tag { border-radius:3px; }
+html[data-theme="cyber"] .tag.ai { color:var(--ok); background:transparent; border-color:var(--ok); }
+html[data-theme="cyber"] .alert { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--warn); }
+html[data-theme="cyber"] .alert.red { border-left-color:var(--red); }
+html[data-theme="cyber"] .alert .ic { color:var(--warn); } html[data-theme="cyber"] .alert.red .ic { color:var(--red); }
+html[data-theme="cyber"] .src .cost { color:var(--text); font-size:14px; }
+html[data-theme="cyber"] .svc .k { color:var(--text); }
+html[data-theme="cyber"] .gpu, html[data-theme="cyber"] .svc { border-top-style:solid; }
 """
 
 WEB_JS = r"""
@@ -4772,7 +4776,10 @@ function el(tag, attrs, ...kids) {
 }
 const STOPS = {classic: [[0, [46, 204, 113]], [60, [241, 196, 15]], [100, [231, 76, 60]]],
                cyber: [[0, [0, 240, 255]], [45, [130, 90, 255]], [75, [255, 0, 170]], [100, [255, 42, 109]]]};
+const FLAT = () => document.documentElement.dataset.theme === "cyber";
+const limitLevel = (p) => (p || 0) >= 99.5 ? "fail" : (p || 0) >= 80 ? "warn" : "";
 function heat(p) {
+  if (FLAT()) return "var(--accent)";     // cyber：沒有熱度漸層，一般用量一律品牌青
   p = Math.max(0, Math.min(100, p || 0));
   const stops = STOPS[document.documentElement.dataset.theme] || STOPS.classic;
   for (let i = 1; i < stops.length; i++) {
@@ -4799,11 +4806,9 @@ function dur(s) {
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
   return d ? `${d}d${h}h` : h ? `${h}h${String(m).padStart(2, "0")}m` : m ? `${m}m` : `${s}s`;
 }
-function bar(p) {
+function bar(p, level) {
   const w = Math.max(0, Math.min(100, p || 0));
-  const fill = document.documentElement.dataset.theme === "cyber"
-    ? `linear-gradient(90deg, ${heat(0)}, ${heat(w)})` : heat(p);
-  return el("div", {class: "bar"}, el("i", {style: `width:${w}%;background:${fill};color:${heat(p)}`}));
+  return el("div", {class: "bar" + (level ? " lv-" + level : "")}, el("i", {style: `width:${w}%;background:${heat(p)}`}));
 }
 function spark(vals, w, h, opts) {
   opts = opts || {};
@@ -4852,11 +4857,29 @@ function bars(vals, w, h, labels) {     // 14 天花費：每天一根，hover �
   });
   return svg;
 }
-function tile(k, v, sub, color) {
+function tile(k, v, sub, level, rail) {   // 讀數：標籤、大數字（依等級上色）、補充、可選的長條
   return el("div", {class: "tile"}, el("div", {class: "k"}, k),
-            el("div", {class: "v", style: color ? `color:${color}` : ""}, v), sub ? el("div", {class: "k"}, sub) : null);
+            el("div", {class: "v" + (level ? " lv-" + level : "")}, v),
+            rail !== undefined ? bar(rail, level) : null, sub ? el("div", {class: "s"}, sub) : null);
 }
-function rowBar(lab, p, num) { return el("div", {class: "row"}, el("span", {class: "lab"}, lab), bar(p), el("span", {class: "num"}, num)); }
+function rowBar(lab, p, num, level) {
+  return el("div", {class: "row"}, el("span", {class: "lab"}, lab), bar(p, level),
+            el("span", {class: "num" + (level ? " lv-" + level : "")}, num));
+}
+function hd(title, right, rightLevel) {    // 面板標題列：左邊是什麼、右邊現在怎樣
+  return el("div", {class: "hd"}, el("span", {class: "t"}, ...[].concat(title)),
+            right ? el("span", {class: "r" + (rightLevel ? " lv-" + rightLevel : "")}, ...[].concat(right)) : null);
+}
+const ft = (...kids) => el("div", {class: "ft"}, ...kids);   // 來源列：數字從哪來、多新
+function verdictBand(v) {
+  const box = $("#verdict");
+  box.className = "verdict " + v.level;
+  const kids = [el("span", {class: "word"}, v.level === "ok" ? "● " + v.word : v.word)];
+  if (v.items.length) kids.push(el("span", {class: "head"}, v.items[0][1]));
+  if (v.items.length > 1) kids.push(el("div", {class: "more"},
+    ...v.items.slice(1).map(([lv, txt]) => el("span", {class: "lv-" + lv}, "· " + txt))));
+  box.replaceChildren(...kids);
+}
 let t = {src: {}};
 const fmt = (s, ...a) => { let i = 0; return s.replace(/%(\.\d)?[sdf]/g, (m, p) => { const v = a[i++]; return p && typeof v === "number" ? v.toFixed(+p.slice(1)) : String(v); }); };
 
@@ -4866,8 +4889,11 @@ function machineCard(m, energy) {
   const sub = [m.gpus.length ? `${m.gpus.length}× ${m.gpus[0].model || m.gpus[0].vendor}` : t.no_gpu,
                m.power_w !== null ? Math.round(m.power_w) + " W" : null,
                temps.length ? Math.max(...temps).toFixed(0) + "°C" : null].filter(Boolean).join(" · ");
-  const card = el("div", {class: "card", style: `border-color:${heat(load)}55`},
-    el("h3", {}, el("span", {class: "led", style: `background:${heat(load)}`}), m.machine,
+  const card = el("div", {class: "card", style: FLAT() ? "" : `border-color:${heat(load)}55`},
+    FLAT() ? hd([t.node + " ", el("span", {class: "name"}, m.machine),
+                 m.ai_active ? el("span", {class: "lv-ok"}, "  ● " + t.busy) : null,
+                 m.age > 300 ? el("span", {class: "lv-warn"}, "  " + fmt(t.ago, dur(m.age))) : null], sub)
+    : el("h3", {}, el("span", {class: "led", style: `background:${heat(load)}`}), m.machine,
        el("span", {class: "tag"}, m.host === "local" ? t.local : t.ssh),
        m.ai_active ? el("span", {class: "tag ai"}, "AI") : null,
        m.age > 300 ? el("span", {class: "tag stale"}, fmt(t.ago, dur(m.age))) : null,
@@ -4882,14 +4908,15 @@ function machineCard(m, energy) {
     card.append(el("div", {class: "gpu"}, el("b", {}, "G" + g.idx),
       el("div", {}, bar(g.util), spark(g.history, 200, 16, {fill: false})),
       el("span", {class: "num"}, pct(g.util)), el("span", {class: "muted"}, mem),
-      el("span", {style: g.temp !== null && g.temp !== undefined ? `color:${heat((g.temp - 35) * 2)}` : ""},
+      el("span", {class: FLAT() && g.temp >= 90 ? "lv-fail" : FLAT() && g.temp >= 80 ? "lv-warn" : "",
+                  style: !FLAT() && g.temp !== null && g.temp !== undefined ? `color:${heat((g.temp - 35) * 2)}` : ""},
          dash(g.temp, (x) => x.toFixed(0) + "°C") + " " + dash(g.power, (x) => x.toFixed(0) + "W"))));
   }
   const ph = m.history.power.filter((x) => x !== null);
   if (ph.length) {
     card.append(el("div", {class: "row"}, el("span", {class: "lab"}, "PWR"),
-      spark(ph, 200, 18, {relative: true, color: "var(--mag)"}),
-      el("span", {class: "num", style: "color:var(--mag)"}, Math.round(m.power_w || 0) + " W")));
+      spark(ph, 200, 18, {relative: true, color: FLAT() ? "var(--accent)" : "var(--mag)"}),
+      el("span", {class: "num"}, Math.round(m.power_w || 0) + " W")));
     if (energy && energy.kwh) card.append(el("div", {class: "muted"},
       fmt(t.kwh_month, energy.kwh, energy.ai_share === null ? "-" : Math.round(energy.ai_share * 100) + "%") +
       (energy.j_per_token ? ` · ${energy.j_per_token.toFixed(2)} J/token` : "")));
@@ -4906,13 +4933,18 @@ function machineCard(m, energy) {
   if (!m.services.length) card.append(el("div", {class: "muted"}, t.no_server));
   if (m.fits) card.append(el("div", {class: "legend"}, (m.fits.params_b ? fmt(t.fits, m.fits.free_gb, m.fits.params_b + "B")
                                                        : fmt(t.fits_none, m.fits.free_gb)) + (m.fits.multi_gpu ? " " + t.fits_multi : "")));
+  if (FLAT()) card.append(ft(`${m.host === "local" ? t.local : t.ssh} · ${fmt(t.sampled, dur(m.age) || "0s")}`));
   return card;
 }
 
 const winLabel = (w) => (t.win || {})[w] || w;
 
 function usageCard(st) {
-  const card = el("div", {class: "card"});
+  const full = st.limits.filter((l) => l.used_percent >= 99.5).length;
+  const high = st.limits.filter((l) => l.used_percent >= 80 && l.used_percent < 99.5).length;
+  const card = el("div", {class: "card" + (FLAT() && full ? " fail" : "")});
+  if (FLAT()) card.append(hd(st.month,
+    full ? fmt(t.n_used_up, full) : high ? fmt(t.n_high, high) : null, full ? "fail" : high ? "warn" : null));
   const lim = {};
   for (const l of st.limits) (lim[l.source] = lim[l.source] || []).push(l);
   for (const s of st.sources) {
@@ -4924,7 +4956,8 @@ function usageCard(st) {
              `${fmt(t.plan_fee, usd(p.fee_in_range), p.name)} · ${fmt(t.value_x, p.value_ratio || 0)}`)
         : s.plan_missing ? el("span", {style: "color:var(--warn)"}, t.plan_unset) : null));
     for (const l of (lim[s.source] || []).sort((a, b) => (a.window_minutes || 0) - (b.window_minutes || 0)))
-      box.append(rowBar(winLabel(l.name), l.used_percent, l.used_percent >= 99.5 ? t.used_up : fmt(t.used_pct, Math.round(l.used_percent))),
+      box.append(rowBar(winLabel(l.name), l.used_percent, l.used_percent >= 99.5 ? t.used_up : fmt(t.used_pct, Math.round(l.used_percent)),
+                        limitLevel(l.used_percent)),
                  l.resets_in !== null ? el("div", {class: "legend"}, fmt(t.resets, dur(l.resets_in))) : null);
     delete lim[s.source];
     const series = (st.daily.sources || {})[s.source];
@@ -4935,9 +4968,10 @@ function usageCard(st) {
   }
   for (const [src, rows] of Object.entries(lim))
     for (const l of rows) card.append(el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, t.src[src] || src)),
-                                      rowBar(winLabel(l.name), l.used_percent, fmt(t.used_pct, Math.round(l.used_percent)))));
+                                      rowBar(winLabel(l.name), l.used_percent, fmt(t.used_pct, Math.round(l.used_percent)),
+                                             limitLevel(l.used_percent))));
   if (!st.sources.length && !st.limits.length) card.append(el("div", {class: "muted"}, t.w_no_usage));
-  else card.append(el("div", {class: "legend"}, t.api_equiv));
+  else card.append(FLAT() ? ft(t.api_equiv) : el("div", {class: "legend"}, t.api_equiv));
   return card;
 }
 
@@ -4958,22 +4992,26 @@ function render(st) {
   $("#h-compute").textContent = t.w_compute; $("#h-usage").textContent = t.w_usage;
   $("#tagline").textContent = t.w_tagline;
   $("#line").textContent = st.header || st.line_text;
+  if (st.verdict) verdictBand(st.verdict);
   $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString();
   const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
   const f = st.forecast;
   const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.w_at_api),
-                 tile(t.w_forecast, usd(f.projected_usd), fmt(t.w_days_left, Math.round(f.days_left)), f.over_budget ? "var(--red)" : null)];
-  for (const l of st.line.limits) tiles.push(tile(`${l.label} ${winLabel(l.window)}`, pct(l.used_percent),
-    l.resets_in !== null ? fmt(t.resets, dur(l.resets_in)) : "", heat(l.used_percent)));
+                 tile(t.w_forecast, usd(f.projected_usd), fmt(t.w_days_left, Math.round(f.days_left)), f.over_budget ? "fail" : null)];
+  for (const l of st.line.limits) tiles.push(tile(`${l.label} ${winLabel(l.window)}`,
+    l.used_percent >= 99.5 ? t.used_up : pct(l.used_percent),
+    l.resets_in !== null ? fmt(t.resets, dur(l.resets_in)) : "", limitLevel(l.used_percent), l.used_percent));
   if (st.machines.length) tiles.push(tile(t.w_power, Math.round(watts) + " W", st.machines.length === 1 ? t.machine_1 : fmt(t.machines_n, st.machines.length)));
   $("#tiles").replaceChildren(...tiles);
-  $("#alerts").replaceChildren(...st.alerts.map((a) => el("div", {class: "alert" + (a.kind.startsWith("cloud") || a.kind === "machine_unreachable" ? " red" : "")}, "⚠ " + a.message)));
+  const red = (a) => a.kind === "cloud_idle_billing" || a.kind === "machine_unreachable";
+  $("#alerts").replaceChildren(...[...st.alerts].sort((a, b) => red(b) - red(a)).map((a) =>   // 嚴重的在前
+    el("div", {class: "alert" + (red(a) ? " red" : "")}, el("span", {class: "ic"}, "⚠ "), a.message)));
   const energy = Object.fromEntries(st.energy.map((e) => [e.machine, e]));
   $("#machines").replaceChildren(...(st.machines.length ? st.machines.map((m) => machineCard(m, energy[m.machine]))
     : [el("div", {class: "card muted"}, t.w_no_machines)]));
   const cc = cloudCard(st);
   $("#cloud").replaceChildren(...(cc ? [cc] : []));
-  const adv = (st.insights || []).length ? el("div", {class: "card"}, el("h3", {}, t.w_advice),
+  const adv = (st.insights || []).length ? el("div", {class: "card"}, FLAT() ? hd(t.w_advice) : el("h3", {}, t.w_advice),
     ...st.insights.map((x) => el("div", {class: "advice"}, "→ " + x.text))) : null;
   $("#usage").replaceChildren(usageCard(st), ...(adv ? [adv] : []));
   $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
