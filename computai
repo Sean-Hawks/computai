@@ -1198,6 +1198,103 @@ def sync_gemini(db):
 SOURCES.append(("gemini", sync_gemini))
 
 
+# ---- OpenCode：~/.local/share/opencode/opencode*.db（舊版是 storage/message/<session>/<id>.json）
+#
+# 只讀 message 表裡 assistant 訊息的 data 欄（tokens、modelID、time、path.cwd、cost）。對話文字在 part 表，不讀。
+# OpenCode 存的 input、output、reasoning、cache.read、cache.write 互不重疊（session.ts 的 getUsage），
+# 所以 input 已經扣掉快取、output 不含 reasoning。
+
+def opencode_home():
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.environ.get("OPENCODE_DATA_DIR") or os.path.join(base, "opencode")
+
+
+def opencode_row(d, msg_id, session, subagent):
+    if not isinstance(d, dict) or d.get("role") != "assistant" or not isinstance(d.get("tokens"), dict):
+        return None
+    tk = d["tokens"]
+    cache = tk.get("cache") if isinstance(tk.get("cache"), dict) else {}
+    ts = ((d.get("time") or {}).get("created") or 0) / 1000.0
+    inp, out, rea = _int(tk.get("input")), _int(tk.get("output")), _int(tk.get("reasoning"))
+    cr, cw = _int(cache.get("read")), _int(cache.get("write"))
+    if not ts or not (inp or out or rea or cr or cw):
+        return None
+    cost = d.get("cost")
+    return {"source": "opencode", "uid": msg_id, "ts": int(ts), "model": normalize_model(d.get("modelID") or ""),
+            "project": ((d.get("path") or {}).get("cwd") or "")[:500], "session": session,
+            "input": inp, "cache_read": cr, "cache_write_5m": cw, "output": out + rea, "reasoning": rea,
+            "subagent": subagent, "cost_usd": float(cost) if isinstance(cost, (int, float)) and cost > 0 else None}
+
+
+def read_opencode_db(path):
+    """先把資料庫（和 -wal）複製到暫存資料夾再讀：OpenCode 開著也不會鎖到它，也不會動到原檔。"""
+    import sqlite3
+    tmp = tempfile.mkdtemp(prefix="computai-opencode-")
+    try:
+        for suffix in ("", "-wal", "-shm"):
+            if os.path.exists(path + suffix):
+                shutil.copyfile(path + suffix, os.path.join(tmp, "o.db" + suffix))
+        con = sqlite3.connect(os.path.join(tmp, "o.db"))
+        try:
+            parents = {r[0]: r[1] for r in con.execute("SELECT id, parent_id FROM session")}
+            rows = []
+            for mid, sid, data in con.execute("SELECT id, session_id, data FROM message"):
+                if '"assistant"' not in data:
+                    continue
+                try:
+                    d = json.loads(data)
+                except ValueError:
+                    continue
+                parent = parents.get(sid)   # subagent 是有 parent 的 session：算在主 session 上
+                r = opencode_row(d, mid, parent or sid, 1 if parent else 0)
+                if r:
+                    rows.append(r)
+            return rows
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        warn("cannot read %s: %s" % (path, e))
+        return []
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def parse_opencode_json(path, cursor=None):
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return []
+    r = opencode_row(d, d.get("id") or os.path.splitext(os.path.basename(path))[0],
+                     d.get("sessionID") or os.path.basename(os.path.dirname(path)), 0)
+    return [r] if r else []
+
+
+def sync_opencode(db):
+    home = opencode_home()
+    added = 0
+    if not os.path.isdir(home):
+        return 0
+    for name in sorted(os.listdir(home)):
+        if not (name.startswith("opencode") and name.endswith(".db")):
+            continue
+        path = os.path.join(home, name)
+        sigs = [(p, file_changed(db, p)) for p in (path, path + "-wal") if os.path.exists(p)]
+        if not any(sig for _p, sig in sigs):
+            continue
+        added += add_usage(db, read_opencode_db(path))
+        for p, sig in sigs:
+            if sig:
+                mark_file(db, p, sig)
+    legacy = os.path.join(home, "storage", "message")
+    if os.path.isdir(legacy):
+        added += import_files(db, "opencode", sorted(walk_files(legacy, ".json")), parse_opencode_json)
+    return added
+
+
+SOURCES.append(("opencode", sync_opencode))
+
+
 # ---- 多台電腦：交換只有用量欄位的匯出檔（共用資料夾或 SSH 拉取，docs/MULTI-DEVICE.md）
 
 EXPORT_SOURCES = ("claude", "codex")   # 本地模型和 API 用量在每台各自記，交換會重複計算
