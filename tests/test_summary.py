@@ -134,3 +134,26 @@ class TerminalSafety(unittest.TestCase):
         finally:
             os.environ.pop("COMPUTAI_DATA_DIR", None)
             sb.close()
+
+
+class Csv(unittest.TestCase):
+    def test_export(self):
+        import csv
+        m = helpers.load()
+        sb = helpers.Sandbox()
+        try:
+            os.makedirs(sb.root, exist_ok=True)
+            db = m.open_ledger(":memory:")
+            m.add_usage(db, [dict(source="claude", uid="1", ts=100, model="claude-opus-5-5", project="=cmd|x",
+                                  output=1000000),
+                             dict(source="claude", uid="2", ts=10 ** 9, model="claude-opus-5-5", output=1)])
+            path = os.path.join(sb.root, "u.csv")
+            self.assertEqual(m.export_csv(db, 0, 1000, path, PRICES), 1)
+            with open(path, newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["project"], "'=cmd|x")     # 不讓試算表當成公式
+            self.assertEqual(float(rows[0]["cost_usd"]), 20.0)
+            self.assertEqual(rows[0]["output"], "1000000")
+            db.close()
+        finally:
+            sb.close()

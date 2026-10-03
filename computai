@@ -4488,6 +4488,32 @@ def render_report_html(r):
     return "\n".join(h)
 
 
+# ---- CSV 匯出（--csv）
+
+CSV_COLS = ("time", "source", "model", "project", "session", "requests", "input", "cache_read",
+            "cache_write_5m", "cache_write_1h", "output", "reasoning", "cost_usd")
+
+
+def export_csv(db, start, end, path, prices=None):
+    """範圍內每一筆用量寫成 CSV（時間用本地時間，金額已經用價目表換算好）。回傳筆數。"""
+    import csv
+    prices = load_prices() if prices is None else prices
+    n = 0
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(CSV_COLS)
+        for r in db.execute("SELECT * FROM usage WHERE ts >= ? AND ts < ? ORDER BY ts", (start, end)):
+            r = dict(r)
+            cost = row_cost(r, price_for(r["model"], prices))
+            # 試算表會把 = + - @ 開頭的字串當公式，專案路徑、模型名稱前面加一個單引號
+            cells = [time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"]))] + [
+                ("'" + str(r[c]) if isinstance(r[c], str) and r[c][:1] in "=+-@" else r[c])
+                for c in CSV_COLS[1:-1]] + ["" if cost is None else round(cost, 6)]
+            w.writerow(cells)
+            n += 1
+    return n
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
@@ -4541,6 +4567,7 @@ def parse_args(argv=None):
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
     p.add_argument("--html", metavar="FILE", help="with --report: write the report as an HTML page")
+    p.add_argument("--csv", metavar="FILE", help="write every usage record in the range to a CSV file")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
@@ -4596,7 +4623,7 @@ def local_hostname():
 
 
 ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "report", "once", "discover")
+           "report", "once", "discover", "csv")
 
 
 def run(args, db):
@@ -4660,6 +4687,13 @@ def run(args, db):
         r = payback(db, args.payback, args.gpu_watts, args.hours_per_day, args.rent_per_hour)
         emit(r, render_payback(r), args.json)
         return 0 if not r.get("error") else 1
+    if args.csv:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        start, end, label = pick_range(args)
+        n = export_csv(db, start, end, args.csv)
+        print("computai: wrote %d rows to %s" % (n, args.csv))
+        return 0
     if args.report or args.html:
         if not args.no_sync:
             sync(db, quiet=True)
