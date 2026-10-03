@@ -88,22 +88,24 @@ class Golden(unittest.TestCase):
             self.assertTrue(all(self.m.vlen(ln) <= 160 for ln in text.splitlines()), v)
         ov = self.m.render_live(self.st, 120, theme_name="cyber", height=40, view="overview")
         self.assertLessEqual(len(ov.splitlines()), 40)                    # 總覽放得進一個畫面
-        self.assertIn("weekly limit LEFT", ov)                             # 額度看剩下多少
+        self.assertIn("CODEX\u00b7WK", ov)                                 # 額度是錶盤
+        self.assertIn("GAUGES", ov)
+        self.assertIn("NODES", ov)
         machines = self.m.render_live(self.st, 160, theme_name="cyber", height=40, view="machines")
         self.assertTrue(any("gpubox" in ln and "mac" in ln for ln in machines.splitlines()))   # 兩欄並排
 
     def test_cyber_color(self):
         # 有色碼的版本：cyber 的顏色依用途（docs/DESIGN.md）
         text = self.m.render_live(self.st, 100, color=True, theme_name="cyber")
-        self.assertIn("48;2;251;191;36m WATCH ", text)   # 總結列：琥珀底的「注意」是唯一的反白色塊
+        self.assertIn("48;2;252;238;10m WATCH ", text)   # 總結列：琥珀底的「注意」是唯一的反白色塊
         self.assertEqual(text.count("38;2;0;0;0;48;2;"), 1)         # 黑字色底的字塊只有總結列
         self.assertIn("\u2503", text)                                 # 額度量表上的時間標記
-        self.assertIn("38;2;103;232;249m", text)         # 品牌青
+        self.assertIn("38;2;0;240;255m", text)           # 霓虹青
         self.assertNotIn("\033[2m", text)                # 次要資訊用 meta 灰，不用 SGR 2
-        self.assertNotIn("38;2;255;0;170m", text)        # 沒有洋紅霓虹
+        self.assertIn("38;2;255;0;170m", text)           # netrunner 霓虹：洋紅
         st = dict(self.st, limits=[dict(r, used_percent=100.0) for r in self.st["limits"]])
         full = self.m.render_live(st, 100, color=True, theme_name="cyber")
-        self.assertIn("48;2;248;113;113m ALERT ", full)   # 額度用完：紅底「警告」
+        self.assertIn("48;2;255;42;109m ALERT ", full)   # 額度用完：紅底「警告」
         self.m.set_style(theme="classic")
 
     def test_zh(self):
