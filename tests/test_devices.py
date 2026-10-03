@@ -80,6 +80,15 @@ class SharedFolder(unittest.TestCase):
                 dump += f.read()
         for secret in ("FAKE PROMPT", "FAKE ASSISTANT", "/home/demo", "sess-1"):
             self.assertNotIn(secret, dump)
+        # 總覽照機器分組；超過 10 分鐘沒回報就標成 stale
+        r = self.b.run("--summary", "--month", "2026-09", "--no-sync")
+        self.assertIn("alpha-mac", r.stdout)
+        self.assertIn("beta-pc", r.stdout)
+        self.assertNotIn("(stale)", r.stdout)
+        late = str(int(__import__("time").time()) + 3600)
+        self.assertIn("(stale)", self.b.run("--summary", "--no-sync", COMPUTAI_FAKE_NOW=late).stdout)
+        r = self.b.run("--summary", "--month", "2026-09", "--by", "device", "--no-sync")
+        self.assertIn("alpha-mac", r.stdout)
         # A 的檔案壞掉：B 保留上一份好的結果，記下原因
         data = [n for n in files if n.endswith(".jsonl")][0]
         with open(os.path.join(self.share, data), "a", encoding="utf-8") as f:

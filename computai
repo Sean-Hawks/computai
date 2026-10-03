@@ -1766,6 +1766,7 @@ def render_limits(limits):
 
 
 BREAKDOWNS = {
+    "device": "device",
     "project": "project",
     "session": "session",
     "day": "date(ts, 'unixepoch', 'localtime')",
@@ -1796,6 +1797,10 @@ def breakdown(db, start, end, by, prices=None):
         g["cost_usd"] += cost or 0.0
         g["models"].append(r["model"])
     out = list(groups.values())
+    if by == "device":   # 代號換成名字；'' 是這台
+        names = device_names(db)
+        for g in out:
+            g["device"] = names.get(g["device"], g["device"])
     if by == "day":
         out.sort(key=lambda g: (g["day"], g["source"]))
     else:
@@ -1953,6 +1958,55 @@ def log_places():
     claude = [p.strip() for p in env.split(",") if p.strip()] if env else [os.path.join(home, ".claude")]
     paths = [os.path.join(c, "projects") for c in claude] + [os.path.join(codex_home(), "sessions")]
     return ", ".join(("~" + p[len(home):]) if p.startswith(home) else p for p in paths)
+
+
+def device_names(db):
+    """裝置代號 -> 名字；'' 是這台電腦。"""
+    out = {r["id"]: r["name"] or r["id"] for r in db.execute("SELECT id, name FROM devices")}
+    out[""] = device_settings()["name"]
+    return out
+
+
+def devices_report(db, start, end, t=None):
+    """每台電腦這段期間的用量和最後回報時間。只有這台時回傳 []（不用特別顯示）。
+    超過 10 分鐘沒回報的標成 stale；匯出檔壞掉的帶著 error。"""
+    t = now() if t is None else t
+    known = [dict(r) for r in db.execute("SELECT * FROM devices ORDER BY name")]
+    if not known:
+        return []
+    prices = load_prices()
+    cost, tokens, reqs = {}, {}, {}
+    q = ("SELECT device, model, %s, SUM(requests) AS requests, SUM(cost_usd) AS cost_usd, COUNT(cost_usd) AS n_cost, "
+         "COUNT(*) AS n FROM usage WHERE ts >= ? AND ts < ? AND source IN (%s) GROUP BY device, model"
+         % (", ".join("SUM(%s) AS %s" % (c, c) for c in TOKEN_COLS), ",".join("?" * len(EXPORT_SOURCES))))
+    for row in db.execute(q, (start, end) + EXPORT_SOURCES):
+        r = dict(row)
+        if r["n_cost"] != r["n"]:
+            r["cost_usd"] = None
+        d = r["device"]
+        cost[d] = cost.get(d, 0.0) + (row_cost(r, price_for(r["model"], prices)) or 0.0)
+        tokens[d] = tokens.get(d, 0) + sum(r[c] or 0 for c in TOKEN_COLS if c != "reasoning")
+        reqs[d] = reqs.get(d, 0) + (r["requests"] or 0)
+    out = [{"id": local_device(db)[0], "name": device_settings()["name"], "local": True, "via": "",
+            "seen": int(t), "age": 0, "stale": False, "error": "", "tokens": tokens.get("", 0),
+            "requests": reqs.get("", 0), "cost_usd": round(cost.get("", 0.0), 4)}]
+    for d in known:
+        age = int(t - d["seen"]) if d["seen"] else None
+        out.append({"id": d["id"], "name": d["name"] or d["id"], "local": False, "via": d["via"], "seen": d["seen"],
+                    "age": age, "stale": age is None or age > DEVICE_STALE, "error": d["error"],
+                    "tokens": tokens.get(d["id"], 0), "requests": reqs.get(d["id"], 0),
+                    "cost_usd": round(cost.get(d["id"], 0.0), 4)})
+    return out
+
+
+def render_devices(devs):
+    lines = ["Devices            requests     tokens  API equiv  last report"]
+    for d in devs:
+        when = "this computer" if d["local"] else ("never" if d["age"] is None else fmt_dur(d["age"]) + " ago")
+        flag = "  (error: %s)" % d["error"] if d["error"] else ("  (stale)" if d["stale"] else "")
+        lines.append("  %s %8s %10s %10s  %s%s" % (cell(d["name"], 16), fmt_tok(d["requests"]), fmt_tok(d["tokens"]),
+                                                  fmt_usd(d["cost_usd"]), when, flag))
+    return "\n".join(lines)
 
 
 def render_summary(s, ledger_empty=False):
@@ -10610,6 +10664,9 @@ def run(args, db):
     s = summary(db, start, end, label=label)
     s["limits"] = current_limits(db)
     text = render_summary(s, ledger_empty=ledger_empty(db))
+    s["devices"] = devices_report(db, start, end)
+    if s["devices"]:
+        text += "\n\n" + render_devices(s["devices"])
     if s["limits"]:
         text += "\n\n" + render_limits(s["limits"])
     s["machines"] = machine_report(db, start, end)
