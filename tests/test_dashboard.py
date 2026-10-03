@@ -222,3 +222,29 @@ class Fits(unittest.TestCase):
         self.assertEqual((mac["free_gb"], mac["params_b"]), (9.0, 8))
         self.assertIsNone(m.fits({"gpus": []}))
         self.assertIsNone(m.fits({"gpus": [{"vendor": "nvidia", "mem_total": 16000, "mem_used": 15500}]})["params_b"])
+
+
+class PerService(unittest.TestCase):
+    def test_only_the_busy_service_shows_busy(self):
+        sb = helpers.Sandbox()
+        old = dict(os.environ)
+        try:
+            os.environ.update(COMPUTAI_CONFIG_DIR=sb.config, COMPUTAI_DATA_DIR=sb.data, COMPUTAI_FAKE_NOW="1000")
+            m = helpers.load()
+            db = m.open_ledger()
+            svc = lambda kind, port, model, p, g, run: {"kind": kind, "port": port, "running": run,
+                                                       "models": [{"name": model, "vram_mb": None}],
+                                                       "counters": {model: {"prompt": p, "generation": g}}}
+            d = lambda a, b: {"cpu": None, "gpus": [], "services": [svc("llamacpp", 8080, "q8", 10, 10, 0),
+                                                                     svc("vllm", 8000, "qwen", a, b, 0)]}
+            m.record_sample(db, {"name": "box"}, d(0, 0), 900)
+            m.record_sample(db, {"name": "box"}, d(100, 600), 990)
+            box = m.latest_samples(db, t=1000)[0]
+            by = {x["kind"]: x for x in box["services"]}
+            self.assertEqual((by["vllm"]["busy"], by["vllm"]["tok_s"]), (True, 10.0))
+            self.assertEqual((by["llamacpp"]["busy"], by["llamacpp"]["tok_s"]), (False, 0.0))
+            db.close()
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            sb.close()
