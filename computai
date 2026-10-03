@@ -7253,22 +7253,24 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="comp
     o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="%s">'
          % (W, H, W, H, e("%s · %s · %s tokens" % (label, period, fmt_tok(c["tokens"])))),
          '<style>text{font-family:%s}.sc{animation:sc 5s linear infinite}@keyframes sc{0%%{transform:translateX(0)}'
-         '100%%{transform:translateX(250px)}}.rg{animation:rg 1.6s ease-out .3s both}@keyframes rg{from{stroke-dashoffset:%.1f}}'
+         '100%%{transform:translateX(250px)}}.rg{animation:rg 3s ease-in-out infinite}@keyframes rg{50%%{opacity:.15}}'
          '.pl{stroke-dasharray:6 4;animation:pl 2s linear infinite}@keyframes pl{to{stroke-dashoffset:-20}}'
          '.on{animation:on 1.6s steps(2) infinite}@keyframes on{50%%{opacity:.25}}'
-         '.ty{animation:ty 1.4s steps(24) .2s both}@keyframes ty{from{width:0}}'
-         '@media (prefers-reduced-motion:reduce){.sc,.rg,.pl,.on,.ty{animation:none}}</style>' % (CARD_FONT, 2 * math.pi * 44),
+         '.cu{animation:cu 1s steps(2) infinite}@keyframes cu{50%%{opacity:0}}'
+         '@media (prefers-reduced-motion:reduce){.sc,.rg,.pl,.on,.cu{animation:none}}</style>' % CARD_FONT,
          '<defs><linearGradient id="ac" x1="0" x2="1"><stop offset="0" stop-color="%(violet)s"/><stop offset="1" stop-color="%(to)s"/></linearGradient>'
          '<linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="%(amber)s" stop-opacity="0"/><stop offset=".5" stop-color="%(amber)s" stop-opacity=".35"/>'
          '<stop offset="1" stop-color="%(amber)s" stop-opacity="0"/></linearGradient>'
          '<pattern id="gd" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="%(grid)s" stroke-opacity="%(grid_op)s"/></pattern>'
          '<clipPath id="hm"><rect x="338" y="84" width="236" height="128"/></clipPath>'
-         '<clipPath id="ty"><rect class="ty" x="40" y="26" width="420" height="22"/></clipPath></defs>' % p,
+         '</defs>' % p,
          '<rect x=".5" y=".5" width="%d" height="%d" rx="14" fill="%s" stroke="%s"/>' % (W - 1, H - 1, p["bg"], p["frame"]),
          '<rect x="1" y="1" width="%d" height="%d" rx="14" fill="url(#gd)"/>' % (W - 2, H - 2)]
     for x, y, dx, dy in ((18, 18, 1, 1), (W - 18, 18, -1, 1), (18, H - 18, 1, -1), (W - 18, H - 18, -1, -1)):
         o.append('<path d="M%d %dV%dH%d" fill="none" stroke="%s" stroke-width="2"/>' % (x, y + 22 * dy, y, x + 22 * dx, p["amber"]))
-    o.append('<g clip-path="url(#ty)">' + text(40, 42, label, 12, p["amber"], weight="700", spacing=3) + '</g>')
+    # 動畫只是裝飾：標題、等級弧都是靜態畫好的，動畫停住（有些 README 檢視器會）也什麼都不缺
+    o.append(text(40, 42, label, 12, p["amber"], weight="700", spacing=3))
+    o.append('<rect class="cu" x="%.1f" y="32" width="7" height="12" fill="%s"/>' % (44 + 10.2 * vlen(label), p["amber"]))
     on = "● " + tx["online"]
     o.append('<g class="on">' + text(W - 40, 42, on, 11, p["green"], anchor="end", spacing=1.5) + '</g>')
     o.append(text(W - 40 - 8.2 * vlen(on) - 10, 42, "%s · %s ·" % (period, tx["sync"] % sync), 11, p["gray"],
@@ -7307,9 +7309,10 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="comp
     cx, cy, rr = 668, 148, 44
     circ = 2 * math.pi * rr
     o.append('<circle cx="%d" cy="%d" r="%d" fill="none" stroke="%s" stroke-width="7"/>' % (cx, cy, rr, p["track"]))
-    o.append('<circle class="rg" cx="%d" cy="%d" r="%d" fill="none" stroke="url(#ac)" stroke-width="7" stroke-linecap="round" '
-             'stroke-dasharray="%.1f" stroke-dashoffset="%.1f" transform="rotate(-90 %d %d)"/>'
-             % (cx, cy, rr, circ, circ * (1 - c["xp_pct"] / 100.0), cx, cy))
+    arc = ('cx="%d" cy="%d" r="%d" fill="none" stroke="url(#ac)" stroke-linecap="round" stroke-dasharray="%.1f" '
+           'stroke-dashoffset="%.1f" transform="rotate(-90 %d %d)"' % (cx, cy, rr, circ, circ * (1 - max(3, c["xp_pct"]) / 100.0), cx, cy))
+    o.append('<circle %s stroke-width="7"/>' % arc)
+    o.append('<circle class="rg" %s stroke-width="13" opacity=".35"/>' % arc)   # 呼吸的光暈
     o.append(text(cx, cy - 12, "LV", 10, p["gray"], anchor="middle", spacing=2))
     o.append(text(cx, cy + 16, str(c["level"]), 30, p["text"], anchor="middle", weight="800"))
     o.append(text(730, 108, tx["rank"], 10, p["gray"], spacing=2))
