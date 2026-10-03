@@ -3866,9 +3866,14 @@ function spark(vals, w, h, opts) {
   svg.style.height = h + "px";
   const v = (vals || []).map((x) => x === null || x === undefined ? 0 : x);
   if (v.length < 2) return svg;
-  const top = opts.top || 100;
+  let lo = 0, top = opts.top || 100;
+  if (opts.relative) {           // 功耗這類沒有固定上限的量：照這段資料的範圍縮放，平的時候畫在中間
+    lo = Math.min(...v); top = Math.max(...v);
+    if (top - lo < 1e-9) { lo -= 1; top += 1; }
+    lo = Math.max(0, lo - (top - lo) * 0.15);
+  }
   const step = w / (v.length - 1);
-  const y = (x) => (h - Math.max(0, Math.min(1, x / top)) * (h - 2) - 1).toFixed(1);
+  const y = (x) => (h - Math.max(0, Math.min(1, (x - lo) / (top - lo))) * (h - 2) - 1).toFixed(1);
   const pts = v.map((x, i) => `${(i * step).toFixed(1)},${y(x)}`);
   const color = opts.color || heat(100 * v[v.length - 1] / top);
   if (opts.fill !== false) {
@@ -3936,7 +3941,7 @@ function machineCard(m, energy) {
   const ph = m.history.power.filter((x) => x !== null);
   if (ph.length) {
     card.append(el("div", {class: "row"}, el("span", {class: "lab"}, "PWR"),
-      spark(ph, 200, 18, {top: Math.max(...ph, 1), color: "var(--mag)"}),
+      spark(ph, 200, 18, {relative: true, color: "var(--mag)"}),
       el("span", {class: "num", style: "color:var(--mag)"}, Math.round(m.power_w || 0) + " W")));
     if (energy && energy.kwh) card.append(el("div", {class: "muted"},
       fmt(t.kwh_month, energy.kwh, energy.ai_share === null ? "-" : Math.round(energy.ai_share * 100) + "%") +
@@ -3972,7 +3977,7 @@ function usageCard(st) {
     const series = (st.daily.sources || {})[s.source];
     if (series && series.some((x) => x > 0))
       box.append(bars(series, 280, 34, st.daily.days), el("div", {class: "legend"}, `${t.w_last14} · ${fmt(t.today_x, usd(series[series.length - 1]))}`));
-    box.append(el("div", {class: "legend"}, fmt(t.tok_req, tok(s.tokens), tok(s.requests))));
+    box.append(el("div", {class: "legend"}, s.requests ? fmt(t.tok_req, tok(s.tokens), tok(s.requests)) : fmt(t.tok_only, tok(s.tokens))));
     card.append(box);
   }
   for (const [src, rows] of Object.entries(lim))
