@@ -213,7 +213,8 @@ class Wizard(unittest.TestCase):
         shutil.copytree(helpers.fixture("claude"), self.cc)
         os.environ.update(COMPUTAI_CONFIG_DIR=self.sb.config, COMPUTAI_DATA_DIR=self.sb.data,
                           COMPUTAI_FIXTURES=helpers.fixture("machines"), CLAUDE_CONFIG_DIR=self.cc,
-                          CODEX_HOME=os.path.join(self.sb.root, "none"), COMPUTAI_FAKE_NOW="1790000000")
+                          CODEX_HOME=os.path.join(self.sb.root, "none"), COMPUTAI_FAKE_NOW="1790000000",
+                          HOME=self.sb.root, USERPROFILE=self.sb.root)   # 找個人頁 repo 時不掃真的家目錄
         for k in ("RUNPOD_API_KEY",):
             os.environ.pop(k, None)
         self.m = helpers.load()

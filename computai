@@ -9262,10 +9262,14 @@ SECRET_KEYS = (("RUNPOD_API_KEY", "RunPod"), ("VAST_API_KEY", "Vast.ai"), ("LAMB
 def detect_profile_repo():
     """找本機的 GitHub 個人頁 repo（github.com/<帳號>/<帳號>）：只看幾個常見資料夾往下兩層，不連網路。
     有 assets/ 資料夾就回傳它，不然回傳 repo 本身。"""
+    skip = {"Library", "Applications", "Movies", "Music", "Pictures", "Public", "OrbStack", "AppData"}
+
     def subdirs(path):
+        # 掛載點（OrbStack、網路磁碟、雲端資料夾）列目錄可能卡很久，系統資料夾也不會放 repo，都跳過
         try:
             return [os.path.join(path, n) for n in sorted(os.listdir(path))
-                    if not n.startswith(".") and os.path.isdir(os.path.join(path, n))]
+                    if not n.startswith(".") and n not in skip and os.path.isdir(os.path.join(path, n))
+                    and not os.path.ismount(os.path.join(path, n))]
         except OSError:   # 沒權限、不存在
             return []
     home = os.path.expanduser("~")
