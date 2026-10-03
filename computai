@@ -567,6 +567,7 @@ def warn(msg):
 #   output      計費的輸出，包含 reasoning
 #   reasoning   output 裡屬於思考的部分（只是細項，不另外計費）
 #   cost_usd    來源自己給的實際金額（雲端帳單等）；NULL 表示用價目表換算
+#   device      哪台電腦的用量：'' 是這台，其他是別台的裝置代號（共用資料夾或 SSH 拉回來的，見 devices 表）
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS usage (
     source TEXT NOT NULL,
@@ -584,6 +585,7 @@ CREATE TABLE IF NOT EXISTS usage (
     requests INTEGER NOT NULL DEFAULT 1,
     subagent INTEGER NOT NULL DEFAULT 0,
     cost_usd REAL,
+    device TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (source, uid)
 );
 CREATE INDEX IF NOT EXISTS usage_ts ON usage (ts);
@@ -637,11 +639,19 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    seen INTEGER,
+    via TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    rows INTEGER NOT NULL DEFAULT 0
+);
 """
 
 USAGE_COLS = ("source", "uid", "ts", "model", "project", "session", "input", "cache_read",
               "cache_write_5m", "cache_write_1h", "output", "reasoning", "requests",
-              "subagent", "cost_usd")
+              "subagent", "cost_usd", "device")
 TOKEN_COLS = ("input", "cache_read", "cache_write_5m", "cache_write_1h", "output", "reasoning")
 
 
@@ -661,6 +671,7 @@ def open_ledger(path=None, shared=False):
     # 舊版帳本：補上後來加的欄位
     add_columns(db, "files", {"offset": "INTEGER NOT NULL DEFAULT 0", "state": "TEXT"})
     add_columns(db, "samples", {"detail": "TEXT"})
+    add_columns(db, "usage", {"device": "TEXT NOT NULL DEFAULT ''"})
     return db
 
 
@@ -683,7 +694,7 @@ def add_usage(db, rows):
         ", ".join("%s = excluded.%s" % (c, c) for c in TOKEN_COLS + ("requests",)), grown)
     before = db.total_changes
     defaults = {"model": "", "project": "", "session": "", "requests": 1, "subagent": 0,
-                "cost_usd": None}
+                "cost_usd": None, "device": ""}
     batch = []
     for r in rows:
         batch.append(tuple(r.get(c, defaults.get(c, 0)) for c in USAGE_COLS))
