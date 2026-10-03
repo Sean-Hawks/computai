@@ -66,6 +66,13 @@ class Dashboard(unittest.TestCase):
         self.assertNotIn("\033", text)                       # 沒開顏色就沒有控制碼
         self.assertIn("\033[1m", self.m.render_live(self.st, 90, color=True))
 
+    def test_compact_when_short(self):
+        text = self.m.render_live(self.st, 100, height=18)
+        self.assertIn("MACHINES", text)
+        self.assertNotIn("NODE mac", text)
+        self.assertIn("mac", text)
+        self.assertIn("NODE mac", self.m.render_live(self.st, 100, height=200))
+
     def test_prometheus(self):
         text = self.m.prometheus(self.st)
         self.assertIn('computai_month_cost_usd{source="claude"} 20.0', text)

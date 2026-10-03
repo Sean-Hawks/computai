@@ -3337,6 +3337,24 @@ SOURCE_NAMES = {"claude": "Claude Code", "codex": "Codex", "local": "Local model
                 "anthropic-api": "Anthropic API", "openai-api": "OpenAI API"}
 
 
+def machine_compact(m, width):
+    """精簡版：一台機器一列（終端機高度不夠放完整面板時用）。"""
+    gpus = m.get("gpus") or []
+    load = (m["gpu_util"] if m["gpu_util"] is not None else m["cpu_pct"]) or 0.0
+    led = rgb(heat(load), sym("\u25c9", "o"))
+    gu = m["gpu_util"]
+    svc = ""
+    if m.get("loaded"):
+        svc = (rgb(GREEN, sym("\u25cf ", "* ")) if m["ai_active"] else dim(sym("\u25cb ", "o "))) + \
+            ", ".join(x["name"] for x in m["loaded"])
+    line = " %s %s %s %s %s %s %s %s" % (
+        led, bold(cell(m["machine"], 14)), dim("CPU"), gradbar(m["cpu_pct"] or 0, 8),
+        _num(m["cpu_pct"], "%3.0f%%", "  -"), dim("GPU"),
+        gradbar(gu or 0, 8) + _num(gu, "%4.0f%%", "   -") if gpus else dim(cell("no GPU", 15)),
+        rgb(MAG, _num(m["power_w"], "%4.0fW", "     ")))
+    return clip(line + " " + svc, width)
+
+
 def machine_panel(m, width, energy=None, error=None):
     """一台機器的面板（版面照 slurmtop 的 node_panel）：標題列有負載燈號和摘要，
     內容是 CPU、記憶體、每張 GPU（長條、走勢、VRAM、溫度、功耗）、功耗走勢、推論服務。"""
@@ -3468,7 +3486,7 @@ def alerts_panel(st, width):
                  100 if st["alerts"] else 0)
 
 
-def render_live(st, width=100, color=False, ascii_=False):
+def render_live(st, width=100, color=False, ascii_=False, height=None):
     """整個畫面：上面一行總覽，下面是算力（每台機器、雲端）、AI 用量、警示。
     寬度夠（>= 150）就兩欄：左邊算力，右邊 AI 用量和警示；不夠就上下排。"""
     set_style(color, ascii_)
@@ -3488,6 +3506,17 @@ def render_live(st, width=100, color=False, ascii_=False):
             left += machine_panel(None, col, error=e)
     if st["cloud"]:
         left += cloud_panel(st, col)
+    right = usage_panel(st, col) + alerts_panel(st, col)
+    used = 3 + (max(len(left), len(right)) if two else len(left) + len(right)) + 1
+    if height and used > height and st["machines"]:
+        # 放不下：機器改成一台一列的精簡版（照 slurmtop 的 dense 模式）
+        rows = [machine_compact(m, col - 2) for m in st["machines"]]
+        rows += [" %s %s" % (rgb(RED, sym("\u25c9", "o")), e["message"]) for n, e in errors.items()
+                 if n not in {m["machine"] for m in st["machines"]}]
+        left = panel(bold("MACHINES"), dim("compact: enlarge the window for details"), rows, col,
+                     max([m["gpu_util"] or 0 for m in st["machines"]] or [0]))
+        if st["cloud"]:
+            left += cloud_panel(st, col)
     if not left:
         left = panel(bold("COMPUTE"), "", [dim(" no machines yet: add them under [machines] in config.ini")], col)
     else:
@@ -3499,7 +3528,6 @@ def render_live(st, width=100, color=False, ascii_=False):
         if st["cloud"]:
             bits.append("cloud " + rgb(MAG, fmt_usd(billing) + "/h"))
         left = [" " + bold("COMPUTE") + "  " + dim(sym(" \u00b7 ", " | ")).join(bits)] + left
-    right = usage_panel(st, col) + alerts_panel(st, col)
     body = side_by_side(left, right) if two else left + right
     foot = dim(sym(" \u00b7 ", " | ").join(["q quit", "-n SEC refresh", "computai --web for the browser",
                                             "--analyze for advice"]))
@@ -3551,7 +3579,7 @@ def run_live(interval, sample_every):
             with lock:
                 st = box["st"]
             cols, rows = shutil.get_terminal_size((100, 40))
-            text = (render_live(clean_strings(st), cols, color, ascii_=not can_draw_blocks()) if st
+            text = (render_live(clean_strings(st), cols, color, ascii_=not can_draw_blocks(), height=rows) if st
                     else "ComputAI: reading logs and machines...")
             lines = text.splitlines()[:rows - 1]
             sys.stdout.write("\033[H\033[2J" + "\n".join(lines) + "\n")
