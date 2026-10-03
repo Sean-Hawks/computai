@@ -65,6 +65,25 @@ class Pick(unittest.TestCase):
         self.assertEqual(p["command"], "ssh m1m ollama run qwen3:8b")
 
 
+class PickInsight(unittest.TestCase):
+    def test_home_suggests_using_a_limit_that_resets_soon(self):
+        import os
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        old = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
+        os.environ.update(sb.env(COMPUTAI_FAKE_NOW="1790000000"))
+        m = helpers.load()
+        m.set_lang("en")
+        db = m.open_ledger()
+        self.addCleanup(db.close)
+        t = 1790000000
+        m.add_limits(db, [{"source": "claude", "name": "5h", "ts": t - 60, "used_percent": 40.0, "window_minutes": 300,
+                           "resets_at": t + 40 * 60}])
+        texts = [x["text"] for x in m.insights(db, t) if x["kind"] == "pick"]
+        self.assertEqual(texts, ["Claude Code 5-hour limit resets in 40m with 60% left - use it now or lose it"])
+
+
 class PickCommand(unittest.TestCase):
     def test_shell_output_is_just_the_command(self):
         sb = helpers.Sandbox()
