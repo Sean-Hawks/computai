@@ -155,3 +155,20 @@ class SshPull(unittest.TestCase):
     def test_no_python_on_the_other_side(self):
         self.m.run_script = lambda host, script, timeout=25: "NOPY\n"
         self.assertEqual(self.m.pull_device(self.db, {"name": "box", "host": "box"}), (0, "python3 not found there"))
+
+
+class Card(unittest.TestCase):
+    def test_card_counts_devices_without_naming_them(self):
+        m = helpers.load()
+        db = m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        t = 1790000000
+        m.add_usage(db, [{"source": "claude", "uid": "a", "ts": t - 3600, "model": "claude-opus-5-5", "output": 100},
+                         {"source": "claude", "uid": "b", "ts": t - 3600, "model": "claude-opus-5-5", "output": 100,
+                          "device": "dev-secret-box"}])
+        m.note_device(db, "dev-secret-box", name="secret-box", seen=t)
+        c = m.card_data(db, "30d", prices={}, plan_table={}, t=t)
+        self.assertEqual(c["devices"], 2)
+        svg = m.render_card_svg(c, t=t)
+        self.assertIn("2 RIGS", svg)
+        self.assertNotIn("secret", svg)

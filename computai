@@ -8775,6 +8775,8 @@ def card_data(db, period="30d", prices=None, plan_table=None, t=None):
          "active_days": w["active_days"], "longest_streak": w["longest_streak"],
          "bars": bars, "bars_key": bars_key}
     c.update(card_extras(db, w, today, start, end))
+    c["devices"] = db.execute("SELECT COUNT(DISTINCT device) FROM usage WHERE ts >= ? AND ts < ? AND source IN (%s)"
+                              % ",".join("?" * len(EXPORT_SOURCES)), (start, end) + EXPORT_SOURCES).fetchone()[0]
     return c
 
 
@@ -8922,7 +8924,7 @@ CARD_TXT = {
            "value": "PLAN VALUE", "hours": "AGENT HOURS", "parallel": "PEAK PARALLEL", "run": "LONGEST RUN",
            "cache_hit": "CACHE HIT", "activity": "ACTIVITY // 13W", "less": "LESS", "more": "MORE", "fleet": "FLEET",
            "rank": "RANK", "xp": "XP %d%% > LV.%d", "all": "ALL-TIME %s TOK", "prompts": "PROMPTS", "subagents": "SUBAGENTS",
-           "loadout": "LOADOUT", "streak": "STREAK %dD", "peak": "PEAK %02d:00", "cache": "CACHE SAVED %s",
+           "loadout": "LOADOUT", "streak": "STREAK %dD", "rigs": "%d RIGS", "peak": "PEAK %02d:00", "cache": "CACHE SAVED %s",
            "sync": "SYNC %s", "online": "ONLINE", "none": "NO SIGNAL // NO USAGE YET",
            "30d": "30D", "month": "MONTH", "year": "YEAR", "all_p": "ALL TIME",
            "src": {"claude": "CLAUDE", "codex": "CODEX", "local": "LOCAL", "anthropic": "ANTHROPIC API", "openai": "OPENAI API"}},
@@ -8930,7 +8932,7 @@ CARD_TXT = {
            "value": "方案回本", "hours": "AGENT 工時", "parallel": "最多同時", "run": "最長連續",
            "cache_hit": "快取命中", "activity": "活動 // 13 週", "less": "少", "more": "多", "fleet": "艦隊",
            "rank": "等級", "xp": "XP %d%% > LV.%d", "all": "累計 %s TOK", "prompts": "請求", "subagents": "子代理",
-           "loadout": "裝備", "streak": "連續 %d 天", "peak": "高峰 %02d:00", "cache": "快取省下 %s",
+           "loadout": "裝備", "streak": "連續 %d 天", "rigs": "%d 台裝置", "peak": "高峰 %02d:00", "cache": "快取省下 %s",
            "sync": "同步 %s", "online": "在線", "none": "沒有訊號 // 還沒有用量",
            "30d": "近 30 天", "month": "本月", "year": "今年", "all_p": "全部",
            "src": {"claude": "CLAUDE", "codex": "CODEX", "local": "本地", "anthropic": "ANTHROPIC API", "openai": "OPENAI API"}},
@@ -9114,6 +9116,8 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netr
         facts.append(tx["peak"] % c["peak_hour"])
     if c["streak"]:
         facts.append(tx["streak"] % c["streak"])
+    if (c.get("devices") or 0) > 1:   # 多台電腦合併：只寫台數，機器名不上卡片
+        facts.append(tx["rigs"] % c["devices"])
     if c["cache_savings_usd"] >= 1:
         facts.append(tx["cache"] % fmt_usd(c["cache_savings_usd"]))
     room = W - 68 - (130 if credit else 0)
