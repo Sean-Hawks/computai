@@ -45,7 +45,7 @@ class Sandbox:
         return e
 
     def run(self, *args, timeout=60, **extra):
-        return subprocess.run([sys.executable, SCRIPT, *args], env=self.env(**extra),
+        return subprocess.run([sys.executable, SCRIPT, *args], env=self.env(**extra), stdin=subprocess.DEVNULL,
                               capture_output=True, text=True, encoding="utf-8", timeout=timeout)
 
     def close(self):
