@@ -166,3 +166,97 @@ class DiscoverAdd(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old)
             sb.close()
+
+
+class Wizard(unittest.TestCase):
+    def setUp(self):
+        import shutil
+        self.sb = helpers.Sandbox()
+        self.old = dict(os.environ)
+        os.makedirs(self.sb.config)
+        with open(os.path.join(self.sb.config, "config.ini"), "w") as f:
+            f.write("# keep me\n[machines]\nmac = mac\n\n[machine.mac]\nservices = ollama:11434\n")
+        self.cc = os.path.join(self.sb.root, "claude")
+        shutil.copytree(helpers.fixture("claude"), self.cc)
+        os.environ.update(COMPUTAI_CONFIG_DIR=self.sb.config, COMPUTAI_DATA_DIR=self.sb.data,
+                          COMPUTAI_FIXTURES=helpers.fixture("machines"), CLAUDE_CONFIG_DIR=self.cc,
+                          CODEX_HOME=os.path.join(self.sb.root, "none"), COMPUTAI_FAKE_NOW="1790000000")
+        for k in ("RUNPOD_API_KEY",):
+            os.environ.pop(k, None)
+        self.m = helpers.load()
+        self.m.discover = lambda: [{"name": "gpubox", "host": "gpubox", "ok": True, "configured": False,
+                                    "info": "Linux x86_64 + NVIDIA"},
+                                   {"name": "dead", "host": "dead", "ok": False, "configured": False,
+                                    "info": "timed out"}]
+        self.db = self.m.open_ledger()
+        self.m.sync(self.db, quiet=True)
+
+    def tearDown(self):
+        self.db.close()
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def run_wizard(self, answers, secrets=()):
+        answers, secrets, out = list(answers), list(secrets), []
+        w = self.m.Setup(self.db, ask=lambda p: answers.pop(0), secret_ask=lambda p: secrets.pop(0) if secrets else "",
+                         out=out.append)
+        code = w.run()
+        self.assertEqual(answers, [], "unused answers")
+        return code, "\n".join(map(str, out))
+
+    def test_full_run(self):
+        import json
+        import stat
+        code, text = self.run_wizard(
+            ["", "2", "c", "My Plus", "20", "", "y", "all", "y", "100,50", "2", "31.5", "300", "y", ""],
+            secrets=["rp_SECRET"])
+        self.assertEqual(code, 0)
+        cfg = open(os.path.join(self.sb.config, "config.ini"), encoding="utf-8").read()
+        self.assertIn("# keep me", cfg)
+        self.assertIn("claude = Claude Max 5x, 100, 2026-09-21", cfg)
+        self.assertIn("codex = My Plus, 20, 2026-09-21", cfg)
+        self.assertIn("gpubox = gpubox", cfg)
+        self.assertIn("[machine.mac]\nservices = ollama:11434\nidle_watts = 5\nmax_watts = 30", cfg)
+        self.assertIn("[machine.gpubox]\nbase_watts = 100\ncpu_watts = 50", cfg)
+        self.assertIn("tariff = tou", cfg)
+        self.assertIn("usd_to_local = 31.5", cfg)
+        self.assertIn("monthly_usd = 300", cfg)
+        sec = os.path.join(self.sb.config, "secrets.ini")
+        self.assertEqual(stat.S_IMODE(os.stat(sec).st_mode), 0o600)
+        self.assertIn("RUNPOD_API_KEY = rp_SECRET", open(sec).read())
+        self.assertNotIn("rp_SECRET", text)                       # 確認畫面上不會出現金鑰
+        settings = json.load(open(os.path.join(self.cc, "settings.json")))
+        self.assertTrue(settings["statusLine"]["command"].endswith("--statusline"))
+
+    def test_wraps_existing_statusline_and_keeps_settings(self):
+        import json
+        with open(os.path.join(self.cc, "settings.json"), "w") as f:
+            json.dump({"statusLine": {"type": "command", "command": "~/bin/my-line"}, "theme": "dark"}, f)
+        code, _ = self.run_wizard(["", "s", "s", "y", "n", "", "s", "", "", ""])
+        self.assertEqual(code, 0)
+        settings = json.load(open(os.path.join(self.cc, "settings.json")))
+        self.assertEqual(settings["theme"], "dark")
+        script = settings["statusLine"]["command"]
+        body = open(script).read()
+        self.assertIn("~/bin/my-line", body)
+        self.assertIn("--statusline", body)
+        self.assertTrue(os.path.exists(os.path.join(self.cc, "settings.json.computai.bak")))
+
+    def test_skip_everything_changes_nothing(self):
+        before = open(os.path.join(self.sb.config, "config.ini")).read()
+        code, text = self.run_wizard(["", "s", "s", "n", "n", "s", "", "", "n"])
+        self.assertEqual(code, 0)
+        self.assertIn("Nothing changed", text)
+        self.assertEqual(open(os.path.join(self.sb.config, "config.ini")).read(), before)
+
+    def test_cancel_saves_nothing(self):
+        before = open(os.path.join(self.sb.config, "config.ini")).read()
+        code, _ = self.run_wizard(["", "1", "s", "n", "n", "s", "", "", "n", "n"])
+        self.assertEqual(code, 1)
+        self.assertEqual(open(os.path.join(self.sb.config, "config.ini")).read(), before)
+
+    def test_needs_terminal(self):
+        r = self.sb.run("--setup")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("needs a terminal", r.stderr)

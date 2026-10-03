@@ -3832,6 +3832,30 @@ UI = {
         "dr_power": "electricity: %s", "dr_unpriced": "no price for %s",
         "dr_perm": "secrets.ini can be read by other users and is ignored", "dr_keys": "keys found: %s",
         "dr_all_ok": "Everything is set up.", "dr_todo": "%d thing(s) to set up: run computai --setup, or the commands above.",
+        "su_searching": "searching (SSH to each candidate, up to 15 s)...", "su_per_month": "%s/month",
+        "su_intro": "ComputAI setup", "su_keys": "Enter accepts the value in [brackets], s skips a step, Ctrl-C quits without saving.",
+        "su_lang": "Language / 語言 (en, zh)", "su_plans": "Subscriptions", "su_detected": "the logs say %r",
+        "su_none": "I don't pay for this", "su_custom": "other (type name and price)", "su_current": "now: %s",
+        "su_pick": "Choice", "su_plan_name": "Plan name", "su_plan_usd": "USD per month", "su_bad": "not understood, skipped",
+        "su_sl": "Claude limit percentages",
+        "su_sl_ask": "Connect computai to Claude Code's status line so it records Claude's limits? (settings.json is backed up)",
+        "su_sl_other": "Claude Code already runs this status line: %s",
+        "su_sl_wrap": "Keep it and add computai's line next to it (a small wrapper script)?",
+        "su_sl_change": "status line set to computai", "su_machines": "Machines",
+        "su_disc": "Look for more machines in ~/.ssh/config and Tailscale?", "su_nonew": "no new reachable machines",
+        "su_which": "Add which (all, none, or numbers like 1 3)", "su_power": "Power",
+        "su_power_help": "Power is needed for kWh and electricity cost. y = use the suggestion, p = smart plug, "
+                         "two numbers like 8,60 = your own values, s = skip.",
+        "su_keep": "k = keep, c = change", "su_power_pick": "y / p / numbers / s", "su_plug": "Plug (shelly:IP, shelly1:IP, tasmota:IP, ha:sensor.x)",
+        "su_tariff": "Electricity price", "su_flat": "one price per kWh", "su_tou": "Taipower time-of-use (Taiwan)",
+        "su_keepit": "keep", "su_price": "Price per kWh", "su_currency": "Currency",
+        "su_tou_note": "Taipower two-tier rates are preset; compare them with your bill (tou_* in config.ini).",
+        "su_rate": "How many %s is one USD", "su_budget": "Budget", "su_budget_q": "Monthly budget in USD (0 = none)",
+        "su_secrets": "Keys (optional)", "su_secrets_q": "Add keys for cloud GPUs, admin APIs or weekly messages?",
+        "su_secrets_help": "Typing is hidden. Enter skips. Saved to secrets.ini with chmod 600.", "su_set": "set",
+        "su_review": "Review", "su_nothing": "Nothing changed.", "su_removed": "removed", "su_save": "Save these changes?",
+        "su_cancel": "Nothing was saved.", "su_saved": "Saved to %s (the old file is config.ini.bak).",
+        "su_next": "Next: computai --doctor checks everything; computai opens the dashboard.",
         "advice": "ADVICE", "w_advice": "Advice",
         "wk_title": "ComputAI weekly report (%s - %s)", "wk_src": "%s: %s (%s tokens out%s)",
         "wk_none": "no AI usage recorded", "wk_peaks": "limit peaks: ", "wk_machines": "machines: ",
@@ -3882,6 +3906,30 @@ UI = {
         "dr_power": "電價：%s", "dr_unpriced": "%s 沒有價格",
         "dr_perm": "secrets.ini 其他使用者讀得到，所以被忽略", "dr_keys": "找到的金鑰：%s",
         "dr_all_ok": "全部設定好了。", "dr_todo": "還有 %d 件事要設定：跑 computai --setup，或照上面的指令做。",
+        "su_searching": "搜尋中（逐台試 SSH，最多 15 秒）…", "su_per_month": "每月 %s",
+        "su_intro": "ComputAI 設定", "su_keys": "Enter 接受 [方括號] 裡的值，s 跳過這一步，Ctrl-C 離開且不存檔。",
+        "su_lang": "Language / 語言 (en, zh)", "su_plans": "訂閱方案", "su_detected": "log 裡記錄的是 %r",
+        "su_none": "沒有付這個", "su_custom": "其他（自己輸入名稱和價格）", "su_current": "目前：%s",
+        "su_pick": "選擇", "su_plan_name": "方案名稱", "su_plan_usd": "每月美元", "su_bad": "看不懂，先跳過",
+        "su_sl": "Claude 額度百分比",
+        "su_sl_ask": "把 computai 接到 Claude Code 的 statusline，記錄 Claude 的額度？（會先備份 settings.json）",
+        "su_sl_other": "Claude Code 已經在用這個 statusline：%s",
+        "su_sl_wrap": "保留它，並在旁邊加上 computai 的那一行（用一個小腳本包起來）？",
+        "su_sl_change": "statusline 設成 computai", "su_machines": "機器",
+        "su_disc": "從 ~/.ssh/config 和 Tailscale 找其他機器？", "su_nonew": "沒有新的、連得上的機器",
+        "su_which": "要加哪些（all 全部、none 不要，或輸入編號例如 1 3）", "su_power": "功耗",
+        "su_power_help": "有功耗才算得出度數和電費。y = 用建議值，p = 智慧插座，"
+                         "兩個數字例如 8,60 = 自己的值，s = 跳過。",
+        "su_keep": "k = 保留，c = 修改", "su_power_pick": "y / p / 數字 / s", "su_plug": "插座（shelly:IP、shelly1:IP、tasmota:IP、ha:sensor.x）",
+        "su_tariff": "電價", "su_flat": "每度一個價格", "su_tou": "台電時間電價",
+        "su_keepit": "保留", "su_price": "每度價格", "su_currency": "幣別",
+        "su_tou_note": "台電二段式電價已經預設好；請對照你的電費單（config.ini 的 tou_*）。",
+        "su_rate": "一美元等於多少 %s", "su_budget": "預算", "su_budget_q": "每月預算（美元，0 = 不設）",
+        "su_secrets": "金鑰（可略過）", "su_secrets_q": "要輸入雲端 GPU、admin API 或週報的金鑰嗎？",
+        "su_secrets_help": "輸入時不會顯示，Enter 跳過。存在權限 600 的 secrets.ini。", "su_set": "已設定",
+        "su_review": "確認", "su_nothing": "沒有任何變更。", "su_removed": "刪除", "su_save": "要存檔嗎？",
+        "su_cancel": "沒有存任何東西。", "su_saved": "已存到 %s（舊的檔案是 config.ini.bak）。",
+        "su_next": "接下來：computai --doctor 檢查全部；直接打 computai 開總帳畫面。",
         "advice": "建議", "w_advice": "建議",
         "wk_title": "ComputAI 週報（%s ～ %s）", "wk_src": "%s：%s（輸出 %s token%s）",
         "wk_none": "這週沒有 AI 用量", "wk_peaks": "額度最高：", "wk_machines": "機器耗電：",
@@ -5292,6 +5340,353 @@ def render_doctor(items):
     return "\n".join(lines)
 
 
+# ---- 互動設定（--setup）
+#
+# 每一步顯示目前的值或建議值，Enter 接受、s 跳過；所有變更最後列出來，確認後才寫入（先備份）。
+# 會動到 Claude Code 設定檔的步驟一定先問；已經有別的 statusline 就包一層讓兩個並存。
+
+PLAN_LABELS = {"claude": "Claude", "codex": "ChatGPT"}
+SECRET_KEYS = (("RUNPOD_API_KEY", "RunPod"), ("VAST_API_KEY", "Vast.ai"), ("LAMBDA_API_KEY", "Lambda"),
+               ("ANTHROPIC_ADMIN_KEY", "Anthropic admin"), ("OPENAI_ADMIN_KEY", "OpenAI admin"),
+               ("DISCORD_WEBHOOK_URL", "Discord webhook"), ("TELEGRAM_BOT_TOKEN", "Telegram bot"),
+               ("TELEGRAM_CHAT_ID", "Telegram chat id"), ("HA_URL", "Home Assistant URL"),
+               ("HA_TOKEN", "Home Assistant token"))
+
+
+def computai_command():
+    """寫進別的設定檔（statusline、cron）時用的指令：有裝在 PATH 上就用名字，否則用這個檔案的完整路徑。"""
+    here = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else "computai"
+    found = shutil.which("computai")
+    return "computai" if found and os.path.realpath(found) == os.path.realpath(here) else here
+
+
+class Setup:
+    def __init__(self, db, ask=None, secret_ask=None, out=None, sample=True):
+        self.db = db
+        self.ask = ask or (lambda prompt: input(prompt))
+        self.secret_ask = secret_ask or self._getpass
+        self.out = out or (lambda s="": print(s))
+        self.sample = sample
+        self.changes = []        # 寫進 config.ini 的 (section, key, value)
+        self.secrets = []        # 寫進 secrets.ini 的 (key, value)
+        self.statusline = None   # 要寫進 Claude Code 設定的指令
+        self.notes = []
+
+    @staticmethod
+    def _getpass(prompt):
+        import getpass
+        return getpass.getpass(prompt)
+
+    def q(self, prompt, default=""):
+        hint = (" [%s]" % default) if default != "" else ""
+        a = self.ask("%s%s: " % (prompt, hint)).strip()
+        return default if a == "" else a
+
+    def yes(self, prompt, default=True):
+        a = self.q(prompt + (" (Y/n)" if default else " (y/N)"), "").lower()
+        return default if a == "" else a.startswith("y") or a.startswith("是")
+
+    def title(self, s):
+        self.out("")
+        self.out(bold(rgb(CYAN, "== " + s)))
+
+    def run(self):
+        self.out(bold(T("su_intro")))
+        self.out(dim(T("su_keys")))
+        self.step_lang()
+        self.step_plans()
+        self.step_statusline()
+        self.step_machines()
+        self.step_power()
+        self.step_budget()
+        self.step_secrets()
+        return self.finish()
+
+    # 語言
+    def step_lang(self):
+        cur = config_lang()
+        a = self.q(T("su_lang"), cur).lower()
+        if a in UI and a != cur:
+            self.changes.append(("general", "lang", a))
+            set_lang(a)
+
+    # 月費
+    def step_plans(self):
+        self.title(T("su_plans"))
+        current = plans()
+        opts = plan_options()
+        today = time.strftime("%Y-%m-%d", time.localtime(now()))
+        for src in SUBSCRIPTION_SOURCES:
+            label = PLAN_LABELS.get(src, src)
+            det = detected_plan(self.db, src)
+            cur = current.get(src)
+            choices = opts.get(src, [])
+            self.out("%s%s" % (bold(T("src").get(src, src)),
+                               dim("  " + T("su_detected") % det) if det else ""))
+            for i, o in enumerate(choices, 1):
+                self.out("  %d) %s %s  %s" % (i, label, o["name"], T("su_per_month") % fmt_usd(o["usd"])))
+            self.out("  n) %s    c) %s" % (T("su_none"), T("su_custom")))
+            default = ""
+            if cur:
+                default = next((str(i) for i, o in enumerate(choices, 1)
+                                if abs(o["usd"] - cur["usd"]) < 0.01 and o["name"].lower() in cur["name"].lower()), "k")
+                self.out(dim("  " + T("su_current") % ("%s, %s" % (cur["name"], fmt_usd(cur["usd"])))))
+            elif det:
+                default = next((str(i) for i, o in enumerate(choices, 1)
+                                if o["name"].lower().replace(" ", "") == det.lower().replace(" ", "")), "")
+            a = self.q(T("su_pick"), default or "s").lower()
+            if a in ("s", "k", ""):
+                continue
+            if a == "n":
+                if cur:
+                    self.changes.append(("plans", src, None))
+            elif a == "c":
+                name = self.q(T("su_plan_name"), (cur or {}).get("name", label))
+                usd = self.q(T("su_plan_usd"), "%g" % (cur or {}).get("usd", 20))
+                try:
+                    self.changes.append(("plans", src, "%s, %g, %s" % (name, float(usd), today)))
+                except ValueError:
+                    self.out(rgb(AMBER, T("su_bad")))
+            elif a.isdigit() and 1 <= int(a) <= len(choices):
+                o = choices[int(a) - 1]
+                self.changes.append(("plans", src, "%s %s, %g, %s" % (label, o["name"], o["usd"], today)))
+
+    # Claude Code 的 statusline
+    def step_statusline(self):
+        if not claude_roots():
+            return
+        self.title(T("su_sl"))
+        cur = claude_statusline()
+        me = computai_command()
+        if cur and "computai" in cur:
+            self.out(rgb(GREEN, T("dr_sl_ok")))
+            return
+        if not cur:
+            if self.yes(T("su_sl_ask")):
+                self.statusline = me + " --statusline"
+            return
+        self.out(T("su_sl_other") % cur)
+        if self.yes(T("su_sl_wrap"), default=False):
+            self.statusline = ("wrap", cur, me)
+
+    # 機器
+    def step_machines(self):
+        self.title(T("su_machines"))
+        ms = machines()
+        for m in ms:
+            self.out("  - %s = %s" % (m["name"], m["host"]))
+        if not ms:
+            self.out(dim("  " + T("dr_nomachines")))
+        if not self.yes(T("su_disc")):
+            return
+        self.out(dim("  " + T("su_searching")))
+        found = discover()
+        new = [r for r in found if r["ok"] and not r["configured"]]
+        for r in found:
+            if not r["ok"] and not r["configured"]:
+                self.out(dim("  x %s (%s): %s" % (r["name"], r["host"], r["info"])))
+        if not new:
+            self.out(dim("  " + T("su_nonew")))
+            return
+        for i, r in enumerate(new, 1):
+            self.out("  %d) %s = %s  %s" % (i, r["name"], r["host"], dim(r["info"])))
+        a = self.q(T("su_which"), "all").lower()
+        picks = new if a in ("all", "a", "全部") else [new[int(x) - 1] for x in a.replace(",", " ").split()
+                                                      if x.isdigit() and 1 <= int(x) <= len(new)]
+        have = {m["name"] for m in ms}
+        for r in picks:
+            name = r["name"]
+            while name in have:
+                name += "-2"
+            have.add(name)
+            self.changes.append(("machines", name, r["host"]))
+
+    def planned_machines(self):
+        ms = {m["name"]: m for m in machines()}
+        for sec, key, val in self.changes:
+            if sec == "machines" and val and key not in ms:
+                ms[key] = {"name": key, "host": val, "services": service_list(DEFAULT_SERVICES), "base_watts": 0.0}
+        return list(ms.values())
+
+    # 功耗
+    def step_power(self):
+        ms = self.planned_machines()
+        if not ms:
+            return
+        self.title(T("su_power"))
+        self.out(dim(T("su_power_help")))
+        for m in ms:
+            d = snapshot(m["host"], m.get("services") or []) if self.sample else None
+            sec = "machine." + m["name"]
+            if m.get("plug") or m.get("max_watts") or m.get("idle_watts") or m.get("base_watts"):
+                cur = ", ".join("%s=%s" % (k, m[k]) for k in ("plug", "idle_watts", "max_watts", "base_watts",
+                                                                 "cpu_watts") if m.get(k))
+                self.out("  %s: %s" % (bold(m["name"]), T("su_current") % cur))
+                if self.q(T("su_keep"), "k").lower() in ("k", "s"):
+                    continue
+            if not d:
+                self.out("  %s: %s" % (bold(m["name"]), dim(T("dr_unreach") % m["name"])))
+                continue
+            sug, why = suggest_power(d)
+            text = ", ".join("%s=%g" % kv for kv in sorted(sug.items()))
+            self.out("  %s (%s): %s" % (bold(m["name"]), why, text))
+            a = self.q(T("su_power_pick"), "y").lower()
+            if a in ("y", "yes", ""):
+                for k, v in sorted(sug.items()):
+                    self.changes.append((sec, k, "%g" % v))
+            elif a == "p":
+                spec = self.q(T("su_plug"), "shelly:192.168.1.50")
+                if plug_url(spec)[1]:
+                    self.changes.append((sec, "plug", spec))
+                else:
+                    self.out(rgb(AMBER, T("su_bad")))
+            elif "," in a:
+                keys = sorted(sug)
+                vals = [x.strip() for x in a.split(",")]
+                try:
+                    for k, v in zip(keys if len(keys) == 2 else ("idle_watts", "max_watts"), vals):
+                        self.changes.append((sec, k, "%g" % float(v)))
+                except ValueError:
+                    self.out(rgb(AMBER, T("su_bad")))
+        self.step_tariff()
+
+    def step_tariff(self):
+        ps = power_settings()
+        cur = "time-of-use (%s)" % ps["currency"] if ps["tou"] else "%g %s/kWh" % (ps["price_per_kwh"], ps["currency"])
+        self.out("")
+        self.out("%s: %s" % (bold(T("su_tariff")), cur))
+        self.out("  1) %s   2) %s   Enter) %s" % (T("su_flat"), T("su_tou"), T("su_keepit")))
+        a = self.q(T("su_pick"), "").lower()
+        if a == "1":
+            price = self.q(T("su_price"), "%g" % ps["price_per_kwh"])
+            cur_ = self.q(T("su_currency"), ps["currency"]).upper()
+            try:
+                self.changes += [("power", "tariff", "flat"), ("power", "price_per_kwh", "%g" % float(price)),
+                                 ("power", "currency", cur_)]
+            except ValueError:
+                self.out(rgb(AMBER, T("su_bad")))
+                return
+            if cur_ != "USD":
+                self.ask_rate(cur_, ps)
+        elif a == "2":
+            self.changes += [("power", "tariff", "tou"), ("power", "currency", "TWD")]
+            self.out(dim(T("su_tou_note")))
+            self.ask_rate("TWD", ps)
+
+    def ask_rate(self, currency, ps):
+        rate = self.q(T("su_rate") % currency, "%g" % (ps["usd_to_local"] or (32 if currency == "TWD" else 1)))
+        try:
+            self.changes += [("general", "usd_to_local", "%g" % float(rate)), ("general", "local_currency", currency)]
+        except ValueError:
+            self.out(rgb(AMBER, T("su_bad")))
+
+    # 預算
+    def step_budget(self):
+        self.title(T("su_budget"))
+        cur = _float(load_config().get("budget", "monthly_usd", fallback="0"), 0.0)
+        a = self.q(T("su_budget_q"), "%g" % cur)
+        try:
+            v = float(a)
+        except ValueError:
+            return
+        if v != cur:
+            self.changes.append(("budget", "monthly_usd", "%g" % v))
+
+    # 金鑰
+    def step_secrets(self):
+        self.title(T("su_secrets"))
+        if not self.yes(T("su_secrets_q"), default=False):
+            return
+        self.out(dim(T("su_secrets_help")))
+        for key, label in SECRET_KEYS:
+            have = " (%s)" % T("su_set") if secret(key) else ""
+            v = self.secret_ask("  %s%s: " % (label, have)).strip()
+            if v:
+                self.secrets.append((key, v))
+
+    def finish(self):
+        self.title(T("su_review"))
+        if not (self.changes or self.secrets or self.statusline):
+            self.out(T("su_nothing"))
+            return 0
+        for sec, key, val in self.changes:
+            self.out("  %s.%s = %s" % (sec, key, val if val is not None else dim("(" + T("su_removed") + ")")))
+        for key, _ in self.secrets:
+            self.out("  secrets.ini: %s = ******" % key)
+        if self.statusline:
+            self.out("  %s: %s" % (claude_settings_path(), T("su_sl_change")))
+        if not self.yes(T("su_save")):
+            self.out(T("su_cancel"))
+            return 1
+        write_config(self.changes)
+        if self.secrets:
+            write_secrets(self.secrets)
+        if self.statusline:
+            install_statusline(self.statusline)
+        self.out(rgb(GREEN, T("su_saved") % os.path.join(config_dir(), "config.ini")))
+        self.out(dim(T("su_next")))
+        return 0
+
+
+def write_secrets(pairs):
+    """金鑰寫進 secrets.ini；檔案先用 600 建立，不會有一瞬間是別人讀得到的。"""
+    path = os.path.join(config_dir(), "secrets.ini")
+    os.makedirs(config_dir(), exist_ok=True)
+    if not os.path.exists(path):
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.write(fd, b"[secrets]\n")
+        os.close(fd)
+    if os.name != "nt":
+        os.chmod(path, 0o600)
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    for k, v in pairs:
+        text = edit_ini(text, "secrets", k, v.replace("\n", ""))
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+WRAPPER_SCRIPT = r"""#!/bin/sh
+# 原本的 statusline 加上 computai（computai --setup 產生）。
+input=$(cat)
+mine=$(printf '%%s' "$input" | %s)
+ours=$(printf '%%s' "$input" | %s --statusline)
+printf '%%s  %%s\n' "$mine" "$ours"
+"""
+
+
+def install_statusline(spec):
+    """把 computai 接到 Claude Code 的 statusLine（先備份 settings.json，其他欄位原樣保留）。
+    spec 是指令字串，或 ("wrap", 原本的指令, computai)：寫一個小腳本讓兩個並存。"""
+    path = claude_settings_path()
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        shutil.copyfile(path, path + ".computai.bak")
+    except (OSError, ValueError):
+        d = {}
+    if not isinstance(d, dict):
+        d = {}
+    cmd = spec
+    if isinstance(spec, tuple):
+        _, old, me = spec
+        script = os.path.join(config_dir(), "statusline.sh")
+        with open(script, "w", encoding="utf-8") as f:
+            f.write(WRAPPER_SCRIPT % (old, shlex_quote(me)))
+        os.chmod(script, 0o755)
+        cmd = script
+    d["statusLine"] = {"type": "command", "command": cmd}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(d, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def shlex_quote(s):
+    import shlex
+    return shlex.quote(s)
+
+
 # ---------------------------------------------------------------- 指令
 
 HELP_GROUPS = (
@@ -5301,7 +5696,7 @@ HELP_GROUPS = (
     ("machines and cloud", ("sample", "discover", "add", "wake", "cloud", "proxy", "listen", "upstream", "machine",
                             "sample_every", "no_usage_injection")),
     ("integrations", ("mcp",)),
-    ("setup", ("doctor", "set", "unset")),
+    ("setup", ("setup", "doctor", "set", "unset")),
 )
 
 
@@ -5336,6 +5731,8 @@ def parse_args(argv=None):
                    help="break the summary down by model (default), project, session or day")
     p.add_argument("--sample", action="store_true",
                    help="read every machine in [machines] once (CPU, GPU, power, loaded models)")
+    p.add_argument("--setup", action="store_true",
+                   help="step-by-step setup: plans, Claude status line, machines, power, electricity, keys")
     p.add_argument("--doctor", action="store_true",
                    help="check every source and machine and say what is missing and how to fix it")
     p.add_argument("--discover", action="store_true",
@@ -5447,7 +5844,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
 
 
@@ -5499,6 +5896,18 @@ def run(args, db):
         return 0
     if args.mcp:
         return serve_mcp(db)
+    if args.setup:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            raise SystemExit("computai: --setup asks questions, so it needs a terminal; "
+                             "use --doctor and --set in scripts")
+        if not args.no_sync:
+            sync(db, quiet=True)
+        set_style(use_color(), not can_draw_blocks())
+        try:
+            return Setup(db).run()
+        except (KeyboardInterrupt, EOFError):
+            print("\n" + T("su_cancel"))
+            return 1
     if args.doctor:
         if not args.no_sync:
             sync(db, quiet=True)
