@@ -88,7 +88,7 @@ class Golden(unittest.TestCase):
             self.assertTrue(all(self.m.vlen(ln) <= 160 for ln in text.splitlines()), v)
         ov = self.m.render_live(self.st, 120, theme_name="cyber", height=40, view="overview")
         self.assertLessEqual(len(ov.splitlines()), 40)                    # 總覽放得進一個畫面
-        for name in ("MISSION CONTROL", "LIMITS", "THROUGHPUT", "ATTENTION REQUIRED", "NODES"):   # Minerva 的總控版面
+        for name in ("LIMITS", "TODAY", "THIS MONTH", "LOCAL INFERENCE", "MACHINES", "NEEDS ATTENTION"):   # 總覽的區塊
             self.assertIn(name, ov)
         machines = self.m.render_live(self.st, 160, theme_name="cyber", height=40, view="machines")
         self.assertTrue(any("gpubox" in ln and "mac" in ln for ln in machines.splitlines()))   # 兩欄並排
