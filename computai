@@ -5975,6 +5975,167 @@ h1 { margin:0; font-size:15px; color:#56d3f0; letter-spacing:.12em; }
         "</style>", RECAP_CYBER_CSS + "</style>")
 
 
+# ---- 年度／月度回顧（--wrapped）
+#
+# 像 Spotify Wrapped 的回顧：一個月或一年的用量變成一組大數字和一句話。要拿去分享，
+# 所以只有彙總數字和模型名稱，不放專案、路徑、session id、機器名稱，也不碰 prompt 和回應。
+
+# 換算用的小常數（字數以 0.75 字/token 估，是英文的粗略值）。
+WORDS_PER_TOKEN = 0.75
+EQUIVALENTS = (
+    # (鍵, 一份有幾個字)
+    ("lotr", 480000),       # 魔戒三部曲，約 48 萬字
+    ("novel", 80000),       # 一本一般長度的小說
+)
+READING_WPM = 250           # 一般成人閱讀速度，字/分鐘
+
+# 一天裡最忙的那個小時 -> 人格標籤
+PERSONAS = (
+    (0, 4, "night_owl"),
+    (5, 8, "early_bird"),
+    (9, 17, "nine_to_five"),
+    (18, 23, "evening_hacker"),
+)
+
+
+def persona_for(hour):
+    for lo, hi, key in PERSONAS:
+        if lo <= hour <= hi:
+            return key
+    return "nine_to_five"
+
+
+def _ordinal(day):
+    return datetime.date(*(int(x) for x in day.split("-"))).toordinal()
+
+
+def longest_streak(days):
+    """連續有用量的最長天數；days 是 `YYYY-MM-DD` 字串的集合。"""
+    best = streak = 0
+    prev = None
+    for d in sorted(days):
+        o = _ordinal(d)
+        streak = streak + 1 if prev is not None and o == prev + 1 else 1
+        best = max(best, streak)
+        prev = o
+    return best
+
+
+def equivalents(output_tokens):
+    """輸出 token 換成有感的單位：字數、幾套魔戒、幾小時的閱讀量。"""
+    words = int(output_tokens * WORDS_PER_TOKEN)
+    out = {"words": words, "reading_hours": round(words / float(READING_WPM) / 60.0, 1)}
+    for key, size in EQUIVALENTS:
+        out[key] = round(words / float(size), 2)
+    return out
+
+
+def wrapped_period(arg=None):
+    """`YYYY-MM`、`YYYY`，沒給就是這個月到現在。回傳 (開始, 結束, 標籤, 種類)。"""
+    arg = (arg or "").strip()
+    if re.match(r"^\d{4}$", arg):
+        y = int(arg)
+        return local_ts(y, 1, 1), local_ts(y + 1, 1, 1), arg, "year"
+    if arg and not re.match(r"^\d{4}-\d{1,2}$", arg):
+        raise SystemExit("computai: bad period %r, expected YYYY-MM or YYYY" % arg)
+    start, end, label = month_range(arg or None)
+    return start, end, label, "month"
+
+
+def _previous_period(start, end, kind, t):
+    """上一個同樣長的期間；這一期還沒結束時，上一期也只取到同樣走過的長度。"""
+    lt = time.localtime(start)
+    if kind == "year":
+        ps = local_ts(lt.tm_year - 1, 1, 1)
+    else:
+        y, mo = (lt.tm_year - 1, 12) if lt.tm_mon == 1 else (lt.tm_year, lt.tm_mon - 1)
+        ps = local_ts(y, mo, 1)
+    elapsed = min(end, int(t) + 1) - start
+    return ps, min(start, ps + elapsed)
+
+
+def _pct_change(cur, prev):
+    return None if not prev else round(100.0 * (cur - prev) / prev)
+
+
+def wrapped(db, start, end, label, kind="month", prices=None, plan_table=None, compare=True, t=None):
+    """一段期間的回顧。回傳的字典也是 --json 的輸出。"""
+    prices = load_prices() if prices is None else prices
+    plan_table = plans() if plan_table is None else plan_table
+    t = now() if t is None else t
+    s = summary(db, start, end, prices, plan_table={})
+    real = [src for src in s["sources"] if src["source"] != "cloud"]
+    cols = ("input", "cache_read", "cache_write_5m", "cache_write_1h", "output")
+    tokens = sum(src["totals"][c] for src in real for c in cols)
+    output = sum(src["totals"]["output"] for src in real)
+    value = sum(src["cost_usd"] for src in real)
+    # 每天的金額、星期幾、最忙的一天
+    days, used = {}, set()
+    for g in breakdown(db, start, end, "day", prices):
+        if g["source"] != "cloud":
+            days[g["day"]] = days.get(g["day"], 0.0) + g["cost_usd"]
+            if sum(g[c] for c in cols):
+                used.add(g["day"])      # 只用本地模型、沒有金額的日子也算有用
+    active = sorted(used)
+    busiest = max(((d, days[d]) for d in active), key=lambda kv: kv[1]) if active else None
+    wd = [0.0] * 7
+    for d in active:
+        wd[datetime.date(*(int(x) for x in d.split("-"))).weekday()] += days[d]
+    # 一天裡的哪個小時（本地時間），以請求數計
+    hours = [0] * 24
+    for r in db.execute("SELECT CAST(strftime('%H', ts, 'unixepoch', 'localtime') AS INTEGER) AS h, "
+                        "SUM(requests) AS n FROM usage WHERE ts >= ? AND ts < ? AND source != 'cloud' GROUP BY h",
+                        (start, end)):
+        hours[r["h"]] += r["n"] or 0
+    peak = max(range(24), key=lambda h: (hours[h], -h)) if any(hours) else None
+    # 模型排行（以 token 計）
+    models = {}
+    for src in real:
+        for m in src["models"]:
+            models[m["model"]] = models.get(m["model"], 0) + sum(m[c] for c in cols)
+    mtotal = sum(models.values()) or 1
+    top = [{"model": k, "tokens": v, "share_pct": round(100.0 * v / mtotal)}
+           for k, v in sorted(models.items(), key=lambda kv: (-kv[1], kv[0]))[:3] if v > 0]
+    # session：只有數量、最大那個的 token 數和時間長度，沒有名稱
+    tok_sql = "SUM(input + cache_read + cache_write_5m + cache_write_1h + output)"
+    sessions = db.execute(
+        "SELECT %s AS tok, MAX(ts) - MIN(ts) AS dur FROM usage WHERE ts >= ? AND ts < ? AND source != 'cloud' "
+        "AND session != '' GROUP BY source, session ORDER BY tok DESC" % tok_sql, (start, end)).fetchall()
+    biggest = {"tokens": sessions[0]["tok"] or 0, "duration_s": sessions[0]["dur"] or 0} if sessions else None
+    # 快取省下的錢：命中快取的輸入照快取價算，而不是照輸入價算
+    saved = 0.0
+    for src in real:
+        for m in src["models"]:
+            p = price_for(m["model"], prices)
+            if p and m["cache_read"]:
+                saved += m["cache_read"] * max(p["input"] - p["cache_read"], 0.0) / 1e6
+    # 訂閱：用量價值 vs 月費（有用量的月份數 × 目前 [plans] 的價格）
+    months = max(1, len({d[:7] for d in active}))
+    fees = sum(p["usd"] for p in plan_table.values()) * months
+    subs = sum(src["cost_usd"] for src in real if src["source"] in SUBSCRIPTION_SOURCES)
+    local = sum(src["totals"]["input"] + src["totals"]["output"] for src in real if src["source"] == "local")
+    kwh = sum(r["kwh"] for r in machine_report(db, start, end))
+    out = {"label": label, "kind": kind, "tokens": tokens, "output_tokens": output,
+           "api_equivalent_usd": round(value, 2), "subscription_usage_usd": round(subs, 2),
+           "subscription_fees_usd": round(fees, 2), "value_ratio": round(subs / fees, 1) if fees else None,
+           "active_days": len(active), "longest_streak": longest_streak(active),
+           "busiest_day": busiest[0] if busiest else None, "busiest_day_usd": round(busiest[1], 2) if busiest else None,
+           "busiest_weekday": max(range(7), key=lambda i: wd[i]) if any(wd) else None,
+           "peak_hour": peak, "persona": persona_for(peak) if peak is not None else None,
+           "top_models": top, "sessions": len(sessions), "biggest_session": biggest,
+           "cache_savings_usd": round(saved, 2), "local_tokens": local, "kwh": round(kwh, 2),
+           "equivalents": equivalents(output),
+           "daily": [[d, round(days[d], 2)] for d in sorted(days)], "previous": None}
+    if compare:
+        ps, pe = _previous_period(start, end, kind, t)
+        if pe > ps:
+            p = wrapped(db, ps, pe, "", kind, prices, plan_table, compare=False, t=t)
+            out["previous"] = {"tokens": p["tokens"], "api_equivalent_usd": p["api_equivalent_usd"],
+                               "tokens_change_pct": _pct_change(tokens, p["tokens"]),
+                               "value_change_pct": _pct_change(value, p["api_equivalent_usd"])}
+    return out
+
+
 # ---- 實驗室彙總（--totals 匯出、--lab 合併）
 #
 # 每個人匯出自己的月總額（只有來源、模型的金額和 token，沒有專案、session、機器以外的名稱），
