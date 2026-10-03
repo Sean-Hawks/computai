@@ -28,7 +28,7 @@
 
 另外還有：`--discover` 從 `~/.ssh/config` 和 Tailscale 找機器；每台機器顯示還放得下多大的模型；
 智慧插座（Shelly、Tasmota、Home Assistant）的實測功耗；`--wake` 遠端開機；`--mcp` 讓 agent 自己查預算；
-`--weekly --send` 把週報送到 Discord 或 Telegram；`--recap` 年度回顧卡；`--csv` 匯出明細；
+`--weekly --send` 把週報送到 Discord 或 Telegram；`--wrapped` 像 Spotify Wrapped 的故事頁和分享卡、`--card` GitHub 個人頁卡片（`--recap` 是較早的年度回顧卡）；`--csv` 匯出明細；
 `--totals`／`--lab` 實驗室彙總；`--lang zh` 中文介面。
 
 ## 安裝
