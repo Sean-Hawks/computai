@@ -218,7 +218,9 @@ class WrappedHtml(unittest.TestCase):
         self.assertEqual(page.count("<style>"), 1)
         self.assertEqual(page.count("<script"), 2)                  # 資料 + 程式，各一個
         self.assertNotRegex(page, r"(src|href)\s*=")                # 沒有外部資源
-        self.assertNotRegex(page, r"https?://")
+        self.assertEqual(re.findall(r'setAttribute\("(?:src|href)", "([a-z]+:)', page), ["data:"])   # 唯一的圖是內嵌的
+        self.assertIn('"svg": "\\u003csvg', page)                       # 最忙那天的時間軸（SVG 當圖片放）
+        self.assertNotRegex(page.replace("http://www.w3.org/2000/svg", ""), r"https?://")   # SVG 的命名空間只是名字，不會連網
         self.assertNotIn("@import", page)
         self.assertNotRegex(page, r"\son[a-z]+\s*=")                # 沒有行內事件
         self.assertIn("prefers-reduced-motion", page)

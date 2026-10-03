@@ -5112,11 +5112,11 @@ def timeline_labels(rows):
     return out
 
 
-def timeline_summary(st):
-    """「今天 agent 替你工作 6.2 小時，最多 4 個同時，花最多的是 14:00 那一段」。"""
+def timeline_summary(st, today=True):
+    """「今天 agent 替你工作 6.2 小時，最多 4 個同時，花最多的是 14:00 那一段」。today=False 時說「那天」。"""
     if not st["agent_seconds"]:
         return T("tl_none")
-    txt = T("tl_sum") % (st["agent_seconds"] / 3600.0, st["peak"])
+    txt = T("tl_sum" if today else "tl_sum_day") % (st["agent_seconds"] / 3600.0, st["peak"])
     if st["top_hour"]:
         txt += T("tl_top") % (time.strftime("%H:00", time.localtime(st["top_hour"]["start"])), fmt_usd(st["top_hour"]["cost_usd"]))
     return txt
@@ -5201,7 +5201,7 @@ def render_timeline(tl, width, height=None, t=None):
     return lines
 
 
-def render_timeline_svg(tl, t=None, width=800, dark=True):
+def render_timeline_svg(tl, t=None, width=800, dark=True, today=True):
     """時間軸的 SVG（給 Wrapped、個人頁卡片或自己存）。跟卡片一樣不放專案名和機器名：
     列名只有「Claude 1」「Codex 2」「subagent」和本地模型的名字。"""
     from xml.sax.saxutils import escape
@@ -5216,7 +5216,7 @@ def render_timeline_svg(tl, t=None, width=800, dark=True):
     o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" '
          'font-family="ui-monospace, SFMono-Regular, Menlo, monospace">' % (width, h, width, h),
          '<rect width="100%%" height="100%%" fill="%s" rx="8"/>' % bg,
-         '<text x="16" y="26" fill="%s" font-size="13" font-weight="700">%s</text>' % (fg, escape(timeline_summary(tl["stats"])))]
+         '<text x="16" y="26" fill="%s" font-size="13" font-weight="700">%s</text>' % (fg, escape(timeline_summary(tl["stats"], today)))]
     counts = {}
     peak = max([tok for r in rows for _ts, tok in r["events"]] + [1])
     for i, r in enumerate(rows):
@@ -5686,7 +5686,8 @@ UI = {
         "gd_limit": "%s: %d%% left, resets in %s", "gd_budget": "this month is heading for $%d, over the $%d budget",
         "gd_hint": "Prefer fewer, smaller subagents and finish what is open.",
         "gd_strict": "Strict mode: no new subagents until it resets. Finish in this session or check with the user.",
-        "tl_sum": "Today your agents worked %.1f hours, up to %d at once", "tl_top": "; the priciest hour was %s (%s)",
+        "tl_sum": "Today your agents worked %.1f hours, up to %d at once",
+        "tl_sum_day": "That day your agents worked %.1f hours, up to %d at once", "tl_top": "; the priciest hour was %s (%s)",
         "tl_none": "No agent activity today yet.", "tl_sub": "subagents", "tl_more": "+%d more sessions",
         "tl_peak": "most at once: %d at %s", "tl_long": "longest stretch: %s (%s)", "tl_idle": "longest wait: %s from %s",
         "tab_timeline": "TIMELINE",
@@ -5915,7 +5916,8 @@ UI = {
         "gd_limit": "%s 剩 %d%%，%s 後重置", "gd_budget": "這個月預估 $%d，超過預算 $%d",
         "gd_hint": "少派、派小一點的 subagent，先把手上的做完。",
         "gd_strict": "嚴格模式：重置前不再派新的 subagent。在這個 session 裡做完，或先問使用者。",
-        "tl_sum": "今天 agent 替你工作 %.1f 小時，最多 %d 個同時", "tl_top": "，花最多的是 %s 那一段（%s）",
+        "tl_sum": "今天 agent 替你工作 %.1f 小時，最多 %d 個同時",
+        "tl_sum_day": "那天 agent 替你工作 %.1f 小時，最多 %d 個同時", "tl_top": "，花最多的是 %s 那一段（%s）",
         "tl_none": "今天還沒有 agent 在工作。", "tl_sub": "subagent", "tl_more": "還有 %d 個 session",
         "tl_peak": "最多同時 %d 個（%s）", "tl_long": "最長連續 %s（%s）", "tl_idle": "最久空等 %s（%s 起）",
         "tab_timeline": "時間軸",
@@ -9079,7 +9081,16 @@ def wrapped(db, start, end, label, kind="month", prices=None, plan_table=None, c
            "top_models": top, "sessions": len(sessions), "biggest_session": biggest,
            "cache_savings_usd": round(saved, 2), "local_tokens": local, "kwh": round(kwh, 2),
            "equivalents": equivalents(output),
-           "daily": [[d, round(days[d], 2)] for d in sorted(days)], "previous": None}
+           "daily": [[d, round(days[d], 2)] for d in sorted(days)], "previous": None, "busiest_timeline_svg": None}
+    if busiest:   # 最忙那天的 agent 時間軸（跟卡片一樣，沒有專案名和機器名）
+        try:
+            y_, m_, d_ = (int(x) for x in busiest[0].split("-"))
+            ds = local_ts(y_, m_, d_)
+            tl = timeline_data(db, ds, ds + 86400, t=ds + 86400, prices=prices)
+            if tl["rows"]:
+                out["busiest_timeline_svg"] = render_timeline_svg(tl, t=ds + 86400, width=640, today=False)
+        except (ValueError, TypeError):
+            pass
     if compare:
         ps, pe = _previous_period(start, end, kind, t)
         if pe > ps:
@@ -9124,6 +9135,8 @@ def wrapped_slides(w):
     add("days", T("wr_days_k"), T("wr_days_big") % w["active_days"], T("wr_days_p") % w["longest_streak"])
     if w["busiest_day"]:
         add("busiest", T("wr_busy_k"), w["busiest_day"], T("wr_busy_p") % fmt_usd(w["busiest_day_usd"]))
+        if w.get("busiest_timeline_svg"):
+            sl[-1]["svg"] = w["busiest_timeline_svg"]
     if w["busiest_weekday"] is not None:
         add("weekday", T("wr_weekday_k"), T("wr_wd")[w["busiest_weekday"]], T("wr_weekday_p"))
     if w["peak_hour"] is not None:
@@ -9196,6 +9209,7 @@ WRAPPED_CSS = """
 :root { --bg:#07080b; --fg:#e8f1f5; --dim:#8a97a3; --accent:#67e8f9; --line:#2a323b; }
 * { box-sizing:border-box; }
 html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); }
+img.tl { display:block; width:100%; max-width:640px; height:auto; margin:14px 0; border-radius:8px; }
 body { font:16px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,"Noto Sans Mono CJK TC","PingFang TC",monospace; overflow:hidden; }
 #app { position:fixed; inset:0; display:flex; flex-direction:column; outline:none; user-select:none; -webkit-user-select:none;
   touch-action:pan-y; cursor:pointer;
@@ -9299,6 +9313,12 @@ WRAPPED_JS = r"""
         row.appendChild(u); rows.appendChild(row);
       });
       stage.appendChild(rows);
+    }
+    if (s.svg) {   // 最忙那天的時間軸：當成圖片放，SVG 裡的東西不會被當成網頁執行
+      var img = document.createElement("img");
+      img.className = "tl"; img.alt = "";
+      img.setAttribute("src", "data:image/svg+xml;charset=utf-8," + encodeURIComponent(s.svg));   // 只會是內嵌的 data:
+      stage.appendChild(img);
     }
     stage.appendChild(el("div", "punch", s.punch));
   }
