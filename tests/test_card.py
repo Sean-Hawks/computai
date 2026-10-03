@@ -100,6 +100,7 @@ class Card(unittest.TestCase):
         self.assertEqual(self.m.card_colors("#123456, #abcdef"), ("#123456", "#abcdef"))
         self.assertIsNone(self.m.card_colors("red, blue"))                # 格式不對就當沒設
 
+    @unittest.skipUnless(shutil.which("git"), "needs git")
     def test_handle_from_profile_repo(self):
         self.assertIsNone(self.m.github_owner(""))
         repo = os.path.join(self.sb.root, "profile") if hasattr(self, "sb") else None
@@ -283,6 +284,7 @@ class CardSetup(unittest.TestCase):
         self.assertEqual(answers, [], "unused answers")
         return code, "\n".join(map(str, out))
 
+    @unittest.skipUnless(shutil.which("git"), "needs git")
     def test_finds_repo_commits_card_and_readme_without_pushing(self):
         repo = os.path.join(self.home, "Documents", "octocat")
         os.makedirs(os.path.join(repo, "assets"))

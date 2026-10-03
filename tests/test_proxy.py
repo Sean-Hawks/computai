@@ -154,9 +154,10 @@ class EndToEnd(unittest.TestCase):
         db = self.m.open_ledger()
         rows = db.execute("SELECT model, input, output, project, cost_usd FROM usage ORDER BY rowid").fetchall()
         db.close()
-        self.assertEqual([tuple(r) for r in rows], [("qwen3:0.6b", 11, 10, "box", 0.0),
-                                                    ("qwen3:0.6b", 12, 20, "box", 0.0),
-                                                    ("qwen3:0.6b", 11, 10, "box", 0.0)])
+        # 用量在回應送出之後才寫進帳本，三筆寫入的先後不一定，比內容就好
+        self.assertEqual(sorted(tuple(r) for r in rows), [("qwen3:0.6b", 11, 10, "box", 0.0),
+                                                          ("qwen3:0.6b", 11, 10, "box", 0.0),
+                                                          ("qwen3:0.6b", 12, 20, "box", 0.0)])
         path, sent, auth, enc = FakeUpstream.seen[2]
         self.assertEqual(enc, "identity")                          # 不讓上游壓縮回應
         self.assertEqual(sent["stream_options"], {"include_usage": True})
