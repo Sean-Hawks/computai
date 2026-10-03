@@ -3207,7 +3207,9 @@ def latest_samples(db, t=None, n=HISTORY):
                     gpus_hist.setdefault(str(g.get("idx")), []).append(g.get("util"))
             except ValueError:
                 pass
-        rec = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(output), 0) AS o, "
+        # 請求數只有 proxy 知道；從計數器算出來的列是一段時間的加總，不是一個請求
+        rec = db.execute("SELECT COALESCE(SUM(CASE WHEN session = 'proxy' THEN 1 ELSE 0 END), 0) AS n, "
+                         "COALESCE(SUM(output), 0) AS o, "
                          "COALESCE(SUM(CASE WHEN ts > ? THEN output ELSE 0 END), 0) AS o1 FROM usage "
                          "WHERE source = 'local' AND project = ? AND ts > ?", (t - 60, name, t - 300)).fetchone()
         out.append({"machine": name, "host": hosts.get(name, ""), "age": int(t - r["ts"]),
@@ -3353,7 +3355,7 @@ UI = {
     "en": {
         "node": "NODE", "local": "LOCAL", "ssh": "SSH", "ago": "%s ago", "load": "load %.1f",
         "kwh_month": "%.2f kWh this month, AI %s", "busy": "busy", "idle": "idle",
-        "no_model": "no model loaded", "rate": "%d req in 5 min, %s tok/s over the last minute",
+        "no_model": "no model loaded", "rate": "%d req/5m, %s tok/s", "rate_tok": "%s tok/s",
         "no_server": "no inference server found", "usage": "AI USAGE", "api_equiv": "API-equivalent",
         "resets": "resets in %s", "d14": "14d", "today_x": "today %s", "tok_req": "%s tokens, %s requests",
         "no_usage": "no usage yet - run computai --sync", "today": "today", "month": "month",
@@ -3375,7 +3377,7 @@ UI = {
     "zh": {
         "node": "節點", "local": "本機", "ssh": "SSH", "ago": "%s 前", "load": "負載 %.1f",
         "kwh_month": "本月 %.2f 度，AI 佔 %s", "busy": "推論中", "idle": "閒置",
-        "no_model": "沒有載入模型", "rate": "5 分鐘內 %d 個請求，最近一分鐘 %s tok/s",
+        "no_model": "沒有載入模型", "rate": "5 分鐘 %d 個請求，%s tok/s", "rate_tok": "%s tok/s",
         "no_server": "沒有找到推論服務", "usage": "AI 用量", "api_equiv": "等值 API 花費",
         "resets": "%s 後重置", "d14": "14天", "today_x": "今天 %s", "tok_req": "%s token、%s 個請求",
         "no_usage": "還沒有用量，先跑 computai --sync", "today": "今天", "month": "本月",
@@ -3504,6 +3506,8 @@ def machine_panel(m, width, energy=None, error=None):
         rate = ""
         if m["recent"]["requests"]:
             rate = dim("  " + T("rate") % (m["recent"]["requests"], m["recent"]["tok_s"]))
+        elif m["recent"]["tok_s"]:
+            rate = dim("  " + T("rate_tok") % m["recent"]["tok_s"])
         lines.append(" %s %s %s%s" % (rgb(MAG, "%s:%s" % key), state, names, rate))
     if not m.get("services"):
         lines.append(dim(" " + T("no_server")))
@@ -3933,7 +3937,8 @@ function machineCard(m, energy) {
     card.append(el("div", {class: "svc"}, el("span", {class: "k"}, `${s.kind}:${s.port}`),
       el("span", {class: m.ai_active ? "ok" : "muted"}, m.ai_active ? "● " + t.busy : "○ " + t.idle),
       el("span", {class: "m"}, models || t.no_model),
-      m.recent.requests ? el("span", {class: "muted"}, fmt(t.rate, m.recent.requests, m.recent.tok_s)) : null));
+      m.recent.requests ? el("span", {class: "muted"}, fmt(t.rate, m.recent.requests, m.recent.tok_s))
+        : m.recent.tok_s ? el("span", {class: "muted"}, fmt(t.rate_tok, m.recent.tok_s)) : null));
   }
   if (!m.services.length) card.append(el("div", {class: "muted"}, t.no_server));
   return card;
