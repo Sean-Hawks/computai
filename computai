@@ -68,7 +68,7 @@ DEFAULT_CONFIG = """\
 usd_to_local = 0
 # Language of the dashboards: auto (follow the system), en, or zh (Traditional Chinese).
 lang = auto
-# Look of the terminal and web dashboards: cyber (neon) or classic.
+# Look of the terminal and web dashboards: cyber (calm dark instrument, docs/DESIGN.md) or classic.
 theme = cyber
 local_currency = TWD
 
@@ -3412,7 +3412,7 @@ _theme = "cyber"
 SPARK = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"
 SPARK_ASCII = "._-~=+*#"
 
-# 主題：classic 是 slurmtop 的配色；cyber 是霓虹的 cyberpunk 風格（預設）。
+# 主題：classic 是 slurmtop 的配色；cyber 是依 docs/DESIGN.md 的冷靜儀器風格（預設）。
 # heat 是 0-100 的漸層停靠點；box 是 (TL, TR, BL, BR, H, V)；title 包住面板標題。
 THEMES = {
     "classic": {
@@ -3501,7 +3501,7 @@ def badge(level, s):
 
 
 def heat(pct):
-    """0-100 的熱度顏色，照主題的漸層停靠點內插（classic：綠 -> 黃 -> 紅；cyber：青 -> 紫 -> 洋紅 -> 紅）。"""
+    """0-100 的熱度顏色，照主題的漸層停靠點內插（classic：綠 -> 黃 -> 紅；cyber 沒有漸層，一律品牌青）。"""
     pct = max(0.0, min(100.0, pct or 0.0))
     stops = theme()["heat"]
     for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
@@ -3641,7 +3641,7 @@ def led():
 
 
 def edge_title(s, load=0.0):
-    """面板標題兩側的括號（cyber 的 ┫ ┣）跟框線同色。"""
+    """面板標題兩側的字元跟框線同色（目前兩個主題都是空白）。"""
     return rgb(heat(load), s) if s.strip() else s
 
 
@@ -3959,7 +3959,7 @@ UI = {
         "dr_all_ok": "Everything is set up.", "dr_todo": "%d thing(s) to set up: run computai --setup, or the commands above.",
         "su_searching": "searching (SSH to each candidate, up to 15 s)...", "su_per_month": "%s/month",
         "su_intro": "ComputAI setup", "su_keys": "Enter accepts the value in [brackets], s skips a step, Ctrl-C quits without saving.",
-        "su_lang": "Language / 語言 (en, zh)", "su_theme": "Look: cyber (neon) or classic", "su_plans": "Subscriptions", "su_detected": "the logs say %r",
+        "su_lang": "Language / 語言 (en, zh)", "su_theme": "Look: cyber (dark, calm) or classic (slurmtop)", "su_plans": "Subscriptions", "su_detected": "the logs say %r",
         "su_none": "I don't pay for this", "su_custom": "other (type name and price)", "su_current": "now: %s",
         "su_pick": "Choice", "su_plan_name": "Plan name", "su_plan_usd": "USD per month", "su_bad": "not understood, skipped",
         "su_sl": "Claude limit percentages",
@@ -4053,7 +4053,7 @@ UI = {
         "dr_all_ok": "全部設定好了。", "dr_todo": "還有 %d 件事要設定：跑 computai --setup，或照上面的指令做。",
         "su_searching": "搜尋中（逐台試 SSH，最多 15 秒）…", "su_per_month": "每月 %s",
         "su_intro": "ComputAI 設定", "su_keys": "Enter 接受 [方括號] 裡的值，s 跳過這一步，Ctrl-C 離開且不存檔。",
-        "su_lang": "Language / 語言 (en, zh)", "su_theme": "外觀：cyber（霓虹）或 classic", "su_plans": "訂閱方案", "su_detected": "log 裡記錄的是 %r",
+        "su_lang": "Language / 語言 (en, zh)", "su_theme": "外觀：cyber（深色、安靜）或 classic（slurmtop 樣式）", "su_plans": "訂閱方案", "su_detected": "log 裡記錄的是 %r",
         "su_none": "沒有付這個", "su_custom": "其他（自己輸入名稱和價格）", "su_current": "目前：%s",
         "su_pick": "選擇", "su_plan_name": "方案名稱", "su_plan_usd": "每月美元", "su_bad": "看不懂，先跳過",
         "su_sl": "Claude 額度百分比",
@@ -4783,7 +4783,7 @@ function el(tag, attrs, ...kids) {
   return e;
 }
 const STOPS = {classic: [[0, [46, 204, 113]], [60, [241, 196, 15]], [100, [231, 76, 60]]],
-               cyber: [[0, [0, 240, 255]], [45, [130, 90, 255]], [75, [255, 0, 170]], [100, [255, 42, 109]]]};
+               cyber: [[0, [103, 232, 249]], [100, [103, 232, 249]]]};
 const FLAT = () => document.documentElement.dataset.theme === "cyber";
 const limitLevel = (p) => (p || 0) >= 99.5 ? "fail" : (p || 0) >= 80 ? "warn" : "";
 function heat(p) {
@@ -5241,19 +5241,14 @@ pre { white-space:pre-wrap; font-size:13px; background:transparent; border:1px s
       border-radius:8px; padding:10px; overflow-x:auto; }
 details summary { cursor:pointer; color:var(--muted); font-size:14px; }
 
-/* cyberpunk 主題。圖表的四個顏色用 dataviz 的 validate_palette.js 對 #07040f 驗證過（亮度、彩度、色盲、對比都通過）。 */
-body.cyber { --bg:#07040f; --ink:#e4f9ff; --muted:#8f84bd; --line:#2c1d52;
-  --s1:#00a3bf; --s2:#8a63ff; --s3:#ff1aa8; --s4:#a89100; color-scheme:dark;
-  background-image:linear-gradient(rgba(0,240,255,.04) 1px, transparent 1px),
-                   linear-gradient(90deg, rgba(255,0,170,.03) 1px, transparent 1px);
-  background-size:32px 32px; }
-body.cyber h1 { color:#00f0ff; letter-spacing:.12em; text-transform:uppercase; text-shadow:0 0 10px rgba(0,240,255,.5); }
-body.cyber h2 { color:#ff00aa; letter-spacing:.2em; text-transform:uppercase; }
-body.cyber h2::before { content:"// "; color:#00f0ff; }
-body.cyber .tile { border-color:rgba(0,240,255,.4); border-radius:0;
-  clip-path:polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px)); }
-body.cyber .tile b { color:#00f0ff; text-shadow:0 0 8px rgba(0,240,255,.45); }
-body.cyber pre { border-color:rgba(255,0,170,.35); }
+/* cyber 主題：冷靜的儀器（docs/DESIGN.md）。圖表需要分辨四個資料系列，所以是唯一保留類別色的地方；
+   這四個顏色用 dataviz 的 validate_palette.js 對近黑底驗證過（亮度、彩度、色盲、對比都通過）。 */
+body.cyber { --bg:#0a0b0d; --ink:#e6e8eb; --muted:#9aa1ab; --line:#2a2f36;
+  --s1:#00a3bf; --s2:#8a63ff; --s3:#ff1aa8; --s4:#a89100; color-scheme:dark; }
+body.cyber h1 { color:#67e8f9; letter-spacing:.16em; text-transform:uppercase; }
+body.cyber h2 { color:var(--ink); font-size:12px; letter-spacing:.16em; text-transform:uppercase; }
+body.cyber .tile { border-color:var(--line); border-radius:6px; }
+body.cyber .tile b { color:var(--ink); }
 """
 
 
@@ -5459,17 +5454,13 @@ def render_recap(r):
 
 
 RECAP_CYBER_CSS = """
-body.cyber { background:#07040f; background-image:linear-gradient(rgba(0,240,255,.05) 1px, transparent 1px),
-  linear-gradient(90deg, rgba(255,0,170,.04) 1px, transparent 1px); background-size:28px 28px; }
-body.cyber .card { border-radius:0; background:linear-gradient(145deg, rgba(20,8,44,.95), rgba(8,4,20,.95));
-  border:1px solid #00f0ff; box-shadow:0 0 0 1px rgba(255,0,170,.5), 0 0 40px rgba(0,240,255,.18),
-  inset 0 0 40px rgba(255,0,170,.08);
-  clip-path:polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px)); }
-body.cyber h1 { color:#ff00aa; letter-spacing:.35em; text-shadow:0 0 10px rgba(255,0,170,.6); }
-body.cyber .y { color:#00f0ff; text-shadow:0 0 14px rgba(0,240,255,.7), 3px 0 0 rgba(255,0,170,.55); }
-body.cyber .t b { color:#00f0ff; text-shadow:0 0 8px rgba(0,240,255,.45); }
-body.cyber .t span { color:#ff00aa; text-transform:uppercase; letter-spacing:.12em; }
-body.cyber .m { color:#fcee0a; } body.cyber .f { letter-spacing:.2em; text-transform:uppercase; }
+body.cyber { background:#0a0b0d; }
+body.cyber .card { border-radius:8px; background:#0f1114; border:1px solid #2a2f36; box-shadow:0 0 40px -18px #67e8f9; }
+body.cyber h1 { color:#67e8f9; letter-spacing:.3em; }
+body.cyber .y { color:#e6e8eb; }
+body.cyber .t b { color:#e6e8eb; }
+body.cyber .t span { color:#9aa1ab; text-transform:uppercase; letter-spacing:.12em; }
+body.cyber .m { color:#e6e8eb; } body.cyber .f { color:#9aa1ab; letter-spacing:.2em; text-transform:uppercase; }
 """
 
 
