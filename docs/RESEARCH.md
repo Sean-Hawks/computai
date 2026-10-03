@@ -33,6 +33,18 @@
   需要的話可以用 brew 裝 llama.cpp。
 - **使用者的方案**：Claude Max 5x、ChatGPT Pro（20x）。目前沒有在跑的 homelab，也沒有雲端 GPU 帳號。
 
+- **Gemini CLI**（2026-10-04 在這台 Mac 核對）：`~/.gemini/tmp/<專案>/chats/*.jsonl`，`.project_root` 是專案路徑。
+  `type: "gemini"` 的行有 `tokens: {input, output, cached, thoughts, tool, total}`，同一個 id 會重寫好幾次。
+  273 筆全部 total = input + output + thoughts + tool → input 含 cached、output 不含 thoughts。subagent 在 `chats/<主 session id>/`。
+- **OpenCode**（2026-10-04）：`~/.local/share/opencode/opencode.db`（sqlite，WAL）。`message.data` 的 assistant 訊息有
+  `tokens: {input, output, reasoning, cache: {read, write}}`、`modelID`、`time.created`（毫秒）、`path.cwd`、`cost`；
+  依 anomalyco/opencode `session.ts` 的 getUsage，這五個數字互不重疊。對話文字在 `part` 表。
+- **Cursor**：沒有本機 log。帳號頁的用量 CSV 標題（第三方 lukedeaves/cursor-ai-usage-dashboard）：
+  `Date,Kind,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost`，未用真檔核對。
+- **Codex hooks**（learn.chatgpt.com/docs/hooks）：`~/.codex/hooks.json` 或 config.toml 的 `[[hooks.PreToolUse]]`，格式跟 Claude Code 相容；
+  新 hook 要在 codex 裡 `/hooks` 信任一次；派 subagent 的工具是 `spawn_agent`。
+- **台灣電力排碳係數**：113 年度 0.474 kg CO2e/度（經濟部能源署 2025-04-14 公布）。
+
 還沒查證、實作前要先看官方文件的項目：
 - Claude Code 額度百分比的官方來源（statusline 的輸入 JSON？`/usage`？）
 - 各平台現在的 API 價格

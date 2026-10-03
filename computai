@@ -178,6 +178,11 @@ warn_left = 10
 # strict = yes also refuses to launch new subagents while that is the case (the agent is told why).
 strict = no
 
+[cursor]
+# Cursor keeps no usage log on your computer; export it from cursor.com/dashboard (Usage, Export CSV) and either
+# run computai --import-cursor FILE, or point this at where the exports land, e.g. ~/Downloads/usage-events*.csv.
+exports =
+
 [team]
 # A leaderboard with friends, totals only (computai --team). repo: a local clone of a git repo you all can push
 # to (a private repo or a GitHub Gist). handle: your name on the board. Nothing is published until you run
@@ -339,6 +344,22 @@ cache_write_1h = 2
 cache_read = 0.1
 checked = 2026-10-03
 source = https://platform.claude.com/docs/en/about-claude/pricing
+
+# Gemini (Gemini CLI): paid tier; context caching storage per hour is not counted.
+[gemini-3.1-pro-preview]
+# Prices for prompts up to 200K tokens; longer prompts cost more.
+input = 2
+output = 12
+cache_read = 0.2
+checked = 2026-10-04
+source = https://ai.google.dev/gemini-api/docs/pricing
+
+[gemini-3-flash-preview]
+input = 0.5
+output = 3
+cache_read = 0.05
+checked = 2026-10-04
+source = https://ai.google.dev/gemini-api/docs/pricing
 
 [gpt-5.4-mini]
 # Used as a "small cloud model" to compare local models against.
@@ -1130,6 +1151,238 @@ def sync_codex(db):
 
 
 SOURCES.append(("codex", sync_codex))
+
+
+# ---- Gemini CLI：~/.gemini/tmp/<專案>/chats/*.jsonl（subagent 在 chats/<主 session id>/ 底下）
+#
+# 每則 Gemini 回應一行 type = gemini，tokens 有 input、output、cached、thoughts、tool；同一則（同一個 id）
+# 會被重寫好幾次，取最後（最大）的那筆。只讀 tokens、model、timestamp、id；content、thoughts、toolCalls 一律不看。
+
+def gemini_home():
+    return os.environ.get("GEMINI_CLI_HOME") or os.path.join(os.path.expanduser("~"), ".gemini")
+
+
+def gemini_project(path):
+    """tmp/<專案>/.project_root 裡寫的是專案資料夾；讀不到就用 tmp 底下那層的名字。"""
+    parts = path.split(os.sep)
+    if "chats" in parts:
+        root = os.sep.join(parts[:parts.index("chats")])
+        try:
+            with open(os.path.join(root, ".project_root"), encoding="utf-8") as f:
+                return f.read().strip()[:500]
+        except OSError:
+            return os.path.basename(root)
+    return ""
+
+
+def parse_gemini_file(path, cursor=None):
+    st = (cursor or {}).get("state") or {}
+    session, kind = st.get("session", ""), st.get("kind", "main")
+    project = gemini_project(path)
+    rows = {}
+    for line in read_jsonl(path, cursor):
+        if '"sessionId"' not in line and '"tokens"' not in line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict):
+            continue
+        if "sessionId" in d and "kind" in d:
+            kind = d.get("kind") or "main"
+            # subagent 的檔案放在 chats/<主 session id>/ 底下：算在主 session 上，時間軸才掛得起來
+            session = os.path.basename(os.path.dirname(path)) if kind == "subagent" else (d.get("sessionId") or "")
+            continue
+        tk = d.get("tokens")
+        if d.get("type") != "gemini" or not isinstance(tk, dict) or not d.get("id"):
+            continue
+        ts = iso_ts(d.get("timestamp"))
+        if ts is None:
+            continue
+        inp, cached, out, th = _int(tk.get("input")), _int(tk.get("cached")), _int(tk.get("output")), _int(tk.get("thoughts"))
+        rows[d["id"]] = {"source": "gemini", "uid": "%s:%s" % (session, d["id"]), "ts": int(ts),
+                         "model": normalize_model(d.get("model") or ""), "project": project, "session": session,
+                         "input": max(inp - cached, 0) + _int(tk.get("tool")), "cache_read": cached,
+                         "output": out + th, "reasoning": th, "subagent": 1 if kind == "subagent" else 0}
+    if cursor is not None:
+        cursor["state"] = {"session": session, "kind": kind}
+    return list(rows.values())
+
+
+def sync_gemini(db):
+    root = os.path.join(gemini_home(), "tmp")
+    paths = [p for p in sorted(walk_files(root)) if os.sep + "chats" + os.sep in p] if os.path.isdir(root) else []
+    return import_files(db, "gemini", paths, parse_gemini_file)
+
+
+SOURCES.append(("gemini", sync_gemini))
+
+
+# ---- OpenCode：~/.local/share/opencode/opencode*.db（舊版是 storage/message/<session>/<id>.json）
+#
+# 只讀 message 表裡 assistant 訊息的 data 欄（tokens、modelID、time、path.cwd、cost）。對話文字在 part 表，不讀。
+# OpenCode 存的 input、output、reasoning、cache.read、cache.write 互不重疊（session.ts 的 getUsage），
+# 所以 input 已經扣掉快取、output 不含 reasoning。
+
+def opencode_home():
+    base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.environ.get("OPENCODE_DATA_DIR") or os.path.join(base, "opencode")
+
+
+def opencode_row(d, msg_id, session, subagent):
+    if not isinstance(d, dict) or d.get("role") != "assistant" or not isinstance(d.get("tokens"), dict):
+        return None
+    tk = d["tokens"]
+    cache = tk.get("cache") if isinstance(tk.get("cache"), dict) else {}
+    ts = ((d.get("time") or {}).get("created") or 0) / 1000.0
+    inp, out, rea = _int(tk.get("input")), _int(tk.get("output")), _int(tk.get("reasoning"))
+    cr, cw = _int(cache.get("read")), _int(cache.get("write"))
+    if not ts or not (inp or out or rea or cr or cw):
+        return None
+    cost = d.get("cost")
+    return {"source": "opencode", "uid": msg_id, "ts": int(ts), "model": normalize_model(d.get("modelID") or ""),
+            "project": ((d.get("path") or {}).get("cwd") or "")[:500], "session": session,
+            "input": inp, "cache_read": cr, "cache_write_5m": cw, "output": out + rea, "reasoning": rea,
+            "subagent": subagent, "cost_usd": float(cost) if isinstance(cost, (int, float)) and cost > 0 else None}
+
+
+def read_opencode_db(path):
+    """先把資料庫（和 -wal）複製到暫存資料夾再讀：OpenCode 開著也不會鎖到它，也不會動到原檔。"""
+    import sqlite3
+    tmp = tempfile.mkdtemp(prefix="computai-opencode-")
+    try:
+        for suffix in ("", "-wal", "-shm"):
+            if os.path.exists(path + suffix):
+                shutil.copyfile(path + suffix, os.path.join(tmp, "o.db" + suffix))
+        con = sqlite3.connect(os.path.join(tmp, "o.db"))
+        try:
+            parents = {r[0]: r[1] for r in con.execute("SELECT id, parent_id FROM session")}
+            rows = []
+            for mid, sid, data in con.execute("SELECT id, session_id, data FROM message"):
+                if '"assistant"' not in data:
+                    continue
+                try:
+                    d = json.loads(data)
+                except ValueError:
+                    continue
+                parent = parents.get(sid)   # subagent 是有 parent 的 session：算在主 session 上
+                r = opencode_row(d, mid, parent or sid, 1 if parent else 0)
+                if r:
+                    rows.append(r)
+            return rows
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        warn("cannot read %s: %s" % (path, e))
+        return []
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def parse_opencode_json(path, cursor=None):
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return []
+    r = opencode_row(d, d.get("id") or os.path.splitext(os.path.basename(path))[0],
+                     d.get("sessionID") or os.path.basename(os.path.dirname(path)), 0)
+    return [r] if r else []
+
+
+def sync_opencode(db):
+    home = opencode_home()
+    added = 0
+    if not os.path.isdir(home):
+        return 0
+    for name in sorted(os.listdir(home)):
+        if not (name.startswith("opencode") and name.endswith(".db")):
+            continue
+        path = os.path.join(home, name)
+        sigs = [(p, file_changed(db, p)) for p in (path, path + "-wal") if os.path.exists(p)]
+        if not any(sig for _p, sig in sigs):
+            continue
+        added += add_usage(db, read_opencode_db(path))
+        for p, sig in sigs:
+            if sig:
+                mark_file(db, p, sig)
+    legacy = os.path.join(home, "storage", "message")
+    if os.path.isdir(legacy):
+        added += import_files(db, "opencode", sorted(walk_files(legacy, ".json")), parse_opencode_json)
+    return added
+
+
+SOURCES.append(("opencode", sync_opencode))
+
+
+# ---- Cursor：沒有本機 log，只有帳號頁（cursor.com/dashboard → Usage → Export）匯出的 CSV
+#
+# 欄位照標題名稱找（不同版本的匯出欄位會變）：Date、Kind、Model、Input (w/ Cache Write)、Input (w/o Cache Write)、
+# Cache Read、Output Tokens、Cost。標題來自第三方的解析程式，還沒用真的匯出檔對過。同一份檔案重複匯入不會重複計算。
+
+def cursor_col(header, *names):
+    low = [h.strip().lower() for h in header]
+    for n in names:
+        if n in low:
+            return low.index(n)
+    return None
+
+
+def parse_cursor_csv(path, cursor=None):
+    import csv
+    import hashlib
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.reader(f))
+    except (OSError, UnicodeDecodeError) as e:
+        warn("cannot read %s: %s" % (path, e))
+        return []
+    if not rows:
+        return []
+    h = rows[0]
+    col = {"date": cursor_col(h, "date"), "kind": cursor_col(h, "kind"), "model": cursor_col(h, "model"),
+           "cw": cursor_col(h, "input (w/ cache write)"), "in": cursor_col(h, "input (w/o cache write)", "input"),
+           "cr": cursor_col(h, "cache read"), "out": cursor_col(h, "output tokens", "output"), "cost": cursor_col(h, "cost")}
+    if col["date"] is None or col["model"] is None:
+        warn("%s does not look like a Cursor usage export (no Date or Model column)" % path)
+        return []
+    get = lambda r, k: (r[col[k]].strip() if col[k] is not None and col[k] < len(r) else "")
+    num = lambda v: _int(v.replace(",", "")) if v else 0
+    out = []
+    for r in rows[1:]:
+        kind = get(r, "kind").lower()
+        if "errored" in kind or "no charge" in kind:
+            continue
+        ts = iso_ts(get(r, "date"))
+        if ts is None:
+            continue
+        row = {"source": "cursor", "ts": int(ts), "model": normalize_model(get(r, "model")),
+               "input": num(get(r, "in")), "cache_write_5m": num(get(r, "cw")), "cache_read": num(get(r, "cr")),
+               "output": num(get(r, "out"))}
+        try:
+            cost = float(get(r, "cost").replace("$", "").replace(",", ""))
+            row["cost_usd"] = cost if cost > 0 else None
+        except ValueError:
+            row["cost_usd"] = None   # 「Included」之類：用價目表換算
+        # 匯出檔沒有每筆的 id：用內容做一個，同一筆重複匯入（下一份匯出檔又包含它）只算一次
+        row["uid"] = hashlib.sha1(("|".join(r)).encode("utf-8")).hexdigest()[:20]
+        out.append(row)
+    return out
+
+
+def cursor_exports(cp=None):
+    import glob
+    cp = cp or load_config()
+    pat = (cp.get("cursor", "exports", fallback="") or "").strip()
+    return sorted(glob.glob(os.path.expanduser(pat))) if pat else []
+
+
+def sync_cursor(db):
+    return import_files(db, "cursor", cursor_exports(), lambda p, c=None: parse_cursor_csv(p))
+
+
+SOURCES.append(("cursor", sync_cursor))
 
 
 # ---- 多台電腦：交換只有用量欄位的匯出檔（共用資料夾或 SSH 拉取，docs/MULTI-DEVICE.md）
@@ -4986,6 +5239,9 @@ def local_compare(prices=None, cp=None):
     name = (cp.get("local", "compare_model", fallback="") or "").strip().lower()
     if name and price_for(name, prices):
         return name, price_for(name, prices)
+    for name in local_settings(cp)["compare"]:   # 跟 --local-cost 用同一個：compare_models 的第一個
+        if normalize_model(name) in prices:
+            return name, prices[normalize_model(name)]
     best = sorted((p["output"], n) for n, p in prices.items() if p.get("output"))
     return (best[0][1], prices[best[0][1]]) if best else (None, None)
 
@@ -5801,7 +6057,7 @@ UI = {
         "no_machines": "no machines yet: add them under [machines] in config.ini",
         "foot": ["q quit", "-n SEC refresh", "computai --web for the browser", "--analyze for advice"],
         "plan_unset": "monthly fee not set (computai --setup)", "gpus_n": "%d GPUs", "fits": "%.1f GB free: room for a ~%s model (4-bit)",
-        "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "local": "Local models",
+        "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "cursor": "Cursor", "local": "Local models",
                                      "cloud": "Cloud GPUs", "anthropic-api": "Anthropic API",
                                      "openai-api": "OpenAI API"},
         "w_today": "Today's usage worth", "w_month": "Usage worth this month", "w_forecast": "You'll pay this month", "w_days_left": "%d days left",
@@ -5981,6 +6237,7 @@ UI = {
         "h_mem": "MEM", "h_model": "MODEL", "h_down": "DOWN", "hm_online": "%d/%d ONLINE", "h_open": "%d OPEN",
         "m_ok": "OK", "h_yesterday": "yesterday", "h_early": "RUNS OUT EARLY", "h_load": "average load, recent",
         "m_empty": "empty in %s", "m_near": "nearly used up", "m_pace": "on pace", "m_resets": "resets %s",
+        "w_machine": "MACHINE", "w_stale": "stale", "n_open": "%d open",
         "m_unlinked": "not linked", "m_open": "open", "m_worst": "worst first", "m_month": "month",
         "m_nodes": "of %d nodes", "m_counts": "%d critical, %d warning", "m_plans": "plans + power",
         "m_timeleft": "= time left", "m_today": "today", "m_nopower": "no power meter", "m_pay": "pay",
@@ -6048,7 +6305,7 @@ UI = {
         "no_machines": "還沒有機器：在 config.ini 的 [machines] 加上去",
         "foot": ["q 離開", "-n 秒數 更新間隔", "computai --web 開網頁版", "--analyze 看建議"],
         "plan_unset": "還沒設月費（computai --setup）", "gpus_n": "%d 張 GPU", "fits": "還有 %.1f GB：放得下約 %s 的模型（4-bit）",
-        "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "local": "本地模型",
+        "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "cursor": "Cursor", "local": "本地模型",
                                       "cloud": "雲端 GPU", "anthropic-api": "Anthropic API",
                                       "openai-api": "OpenAI API"},
         "w_today": "今天用量價值", "w_month": "本月用量價值", "w_forecast": "本月實際約要付", "w_days_left": "還有 %d 天",
@@ -6226,6 +6483,7 @@ UI = {
         "h_mem": "記憶體", "h_model": "模型", "h_down": "斷線", "hm_online": "%d/%d 在線", "h_open": "%d 件",
         "m_ok": "正常", "h_yesterday": "昨天", "h_early": "會提早用完", "h_load": "最近的平均負載（GPU，沒有 GPU 的看 CPU）",
         "m_empty": "%s 後用完", "m_near": "快用完了", "m_pace": "速度正常", "m_resets": "%s 後重置",
+        "w_machine": "機器", "w_stale": "太久沒回報", "n_open": "%d 件",
         "m_unlinked": "沒接上", "m_open": "待處理", "m_worst": "最嚴重的在上面", "m_month": "本月",
         "m_nodes": "/ %d 台在線", "m_counts": "%d 個故障、%d 個注意", "m_plans": "方案＋電費",
         "m_timeleft": "＝週期剩下的時間", "m_today": "今天", "m_nopower": "沒有電表", "m_pay": "實付",
@@ -7770,7 +8028,14 @@ WEB_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0b0c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ComputAI">
 <title>ComputAI</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -7783,6 +8048,7 @@ WEB_HTML = """<!doctype html>
   <section id="quota" class="card quota"></section>
   <div id="line"></div>
   <div id="tiles" class="tiles"></div>
+  <section id="home" class="home"></section>
   <div id="alerts"></div>
   <section class="cols">
     <div>
@@ -7915,7 +8181,26 @@ html[data-theme="cyber"] .card, html[data-theme="cyber"] .tile { border-radius:6
 html[data-theme="cyber"] .card .hd .t { font-size:11px; text-transform:uppercase; letter-spacing:.14em; }
 html[data-theme="cyber"] .card .hd .t .name { font-size:14px; text-transform:none; letter-spacing:0; }
 html[data-theme="cyber"] .tile .k { font-size:11px; text-transform:uppercase; letter-spacing:.14em; }
-.tile .s { color:var(--dim); font-size:12px; margin-top:2px; }
+.tile .s { color:var(--dim); font-size:12px; margin-top:2px; overflow-wrap:anywhere; }
+.tile svg { margin-top:4px; }
+/* 首頁下半：機器表、用量組成、需要處理（跟 TUI 總覽一樣三塊；手機上疊起來） */
+.home { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
+@media (min-width: 1000px) { .home { grid-template-columns:minmax(0,5fr) minmax(0,3fr) minmax(0,4fr); } }
+.home .card { margin-bottom:0; }
+table.mt { width:100%; border-collapse:collapse; font-size:13px; }
+table.mt th { color:var(--dim); font-weight:400; text-transform:uppercase; text-align:right; font-size:11px; letter-spacing:.08em; padding:2px 6px; }
+table.mt th:nth-child(-n+2), table.mt td:nth-child(-n+2) { text-align:left; }
+table.mt td { text-align:right; padding:4px 6px; border-top:1px solid var(--line); white-space:nowrap; font-variant-numeric:tabular-nums; }
+table.mt td.model { text-align:left; white-space:normal; overflow-wrap:anywhere; color:var(--dim); }
+.mini { display:inline-block; width:34px; height:5px; background:var(--line); border-radius:3px; vertical-align:middle;
+  margin-right:6px; overflow:hidden; } .mini > i { display:block; height:100%; background:var(--text); }
+@media (max-width: 560px) { table.mt .opt { display:none; } }
+.donut { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+.donut svg { width:120px; height:120px; flex:none; }
+.donut ul { list-style:none; margin:0; padding:0; font-size:13px; min-width:0; }
+.donut li { display:flex; gap:8px; align-items:center; padding:2px 0; } .donut li b { margin-left:auto; padding-left:12px; }
+.att { padding:6px 0; border-top:1px solid var(--line); overflow-wrap:anywhere; } .att:first-of-type { border-top:0; }
+.att .w { font-size:11px; letter-spacing:.12em; text-transform:uppercase; margin-right:6px; }
 html[data-theme="cyber"] .tile .v { font-size:26px; line-height:1.2; font-variant-numeric:tabular-nums; }
 html[data-theme="cyber"] .tile .bar { margin-top:6px; }
 html[data-theme="cyber"] .bar { height:8px; border-radius:2px; background:transparent; border:1px solid var(--line); padding:1px; }
@@ -8196,6 +8481,89 @@ function cloudCard(st) {
        el("tbody", {}, ...rows))));
 }
 
+function donut(parts, size) {   // 用量組成：真的甜甜圈（SVG 圓弧），中間寫總額
+  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 120 120");
+  const total = parts.reduce((a, p) => a + p.v, 0) || 1, r = 46, c = 2 * Math.PI * r;
+  const ring = document.createElementNS(NS, "circle");
+  for (const [k, v] of Object.entries({cx: 60, cy: 60, r, fill: "none", stroke: "var(--line)", "stroke-width": 14})) ring.setAttribute(k, v);
+  svg.append(ring);
+  let off = 0;
+  for (const p of parts) {
+    const seg = document.createElementNS(NS, "circle"), len = c * p.v / total;
+    for (const [k, v] of Object.entries({cx: 60, cy: 60, r, fill: "none", stroke: p.color, "stroke-width": 14,
+      "stroke-dasharray": `${Math.max(0, len - 1.5)} ${c}`, "stroke-dashoffset": -off, transform: "rotate(-90 60 60)"})) seg.setAttribute(k, v);
+    const tt = document.createElementNS(NS, "title"); tt.textContent = `${p.label}: ${usd(p.v)}`; seg.append(tt);
+    svg.append(seg); off += len;
+  }
+  const tx = document.createElementNS(NS, "text");
+  for (const [k, v] of Object.entries({x: 60, y: 65, "text-anchor": "middle", fill: "var(--text)", "font-size": 15, "font-weight": 700})) tx.setAttribute(k, v);
+  tx.textContent = usd(total); svg.append(tx);
+  return svg;
+}
+function mini(p) { const b = el("span", {class: "mini"}), i = el("i"); i.style.width = Math.max(0, Math.min(100, p || 0)) + "%"; b.append(i); return b; }
+function homeTiles(st) {   // 跟 TUI 總覽一樣的四塊：今天、本月、本地推論、功耗
+  const days = st.daily && st.daily.sources ? Object.values(st.daily.sources) : [];
+  const series = days.length ? days[0].map((_, i) => days.reduce((a, d) => a + (d[i] || 0), 0)) : [];
+  const yday = series.length >= 2 ? `${t.h_yesterday} ${usd(series[series.length - 2])}` : t.h_api_value;
+  const plans = st.sources.filter((x) => x.plan).map((x) => `${(t.src[x.source] || x.source).split(" ")[0]} ${(x.plan.value_ratio || 0).toFixed(1)}x`);
+  const f = st.forecast, ms = st.machines;
+  const rate = ms.reduce((a, m) => a + ((m.recent && m.recent.tok_s) || 0), 0);
+  const gen = ms.filter((m) => m.ai_active || (m.recent && m.recent.tok_s > 0));
+  const who = gen.length ? `● ${gen[0].machine} · ${((gen[0].loaded || [])[0] || {}).name || ""}` : `○ ${t.idle}`;
+  const watts = ms.reduce((a, m) => a + (m.power_w || 0), 0);
+  const kwh = (st.energy || []).reduce((a, e) => a + (e.kwh || 0), 0);
+  const pw = tile(t.hm_power, Math.round(watts) + " W", `${kwh.toFixed(2)} kWh · ${t.m_month}`);
+  const hist = ms.length ? ms[0].history.power.map((_, i) => ms.reduce((a, m) => a + ((m.history.power || [])[i] || 0), 0)) : [];
+  if (hist.some((x) => x > 0)) pw.insertBefore(spark(hist, 200, 26, {}), pw.lastChild);
+  return [tile(t.hm_today, usd(st.today_usd), yday),
+          tile(t.hm_month, usd(st.total_cost_usd), [plans.join(" · "), `${t.m_pay} ${usd(f.projected_usd)}${t.h_per_mo}`].filter(Boolean).join(" · "),
+               f.over_budget ? "fail" : null),
+          tile(t.h_local, `${Math.round(rate)}`, `tok/s · ${who}`, gen.length ? "ok" : null), ...(ms.length ? [pw] : [])];
+}
+function machineTable(st) {   // 機器表：狀態字＋點、CPU／GPU／記憶體小量表、功耗、正在跑的模型
+  const card = el("div", {class: "card"}, hd(t.h_nodes, fmt(t.h_online, st.machines.filter((m) => m.age < 300).length, st.machines.length)));
+  if (!st.machines.length) { card.append(el("div", {class: "muted"}, t.w_no_machines)); return card; }
+  const tb = el("table", {class: "mt"}), head = el("tr");
+  for (const [h, opt] of [["", 0], [t.w_machine, 0], ["CPU", 0], ["GPU", 0], ["MEM", 1], ["W", 0], [t.lc_model || "MODEL", 1]])
+    head.append(el("th", opt ? {class: "opt"} : {}, h));
+  tb.append(head);
+  for (const m of st.machines) {
+    const mem = m.mem_total ? 100 * m.mem_used / m.mem_total : null, busy = m.ai_active, old = m.age > 300;
+    const tr = el("tr");
+    tr.append(el("td", {class: busy ? "lv-ok" : old ? "lv-warn" : ""}, busy ? "● " + t.busy : old ? "! " + t.w_stale : "○ " + t.idle),
+              el("td", {}, m.machine),
+              el("td", {}, mini(m.cpu_pct), m.cpu_pct == null ? "-" : Math.round(m.cpu_pct) + "%"),
+              el("td", {}, mini(m.gpu_util), m.gpu_util == null ? "-" : Math.round(m.gpu_util) + "%"),
+              el("td", {class: "opt"}, mem == null ? "-" : Math.round(mem) + "%"),
+              el("td", {}, m.power_w == null ? "-" : Math.round(m.power_w)),
+              el("td", {class: "model opt"}, ((m.loaded || [])[0] || {}).name || ""));
+    tb.append(tr);
+  }
+  card.append(tb);
+  return card;
+}
+const MIX_COLORS = ["var(--text)", "var(--dim)", "var(--ok)", "var(--warn)", "var(--mag)", "var(--accent)"];
+function mixCard(st) {
+  const parts = st.sources.filter((x) => x.cost_usd > 0).sort((a, b) => b.cost_usd - a.cost_usd)
+    .map((x, i) => ({label: t.src[x.source] || x.source, v: x.cost_usd, color: MIX_COLORS[i % MIX_COLORS.length]}));
+  const card = el("div", {class: "card"}, hd(t.h_mix, st.month));
+  if (!parts.length) { card.append(el("div", {class: "muted"}, t.w_no_usage)); return card; }
+  const total = parts.reduce((a, p) => a + p.v, 0);
+  const ul = el("ul", {}, ...parts.map((p) => { const dot = el("span", {class: "led"}); dot.style.background = p.color;
+    return el("li", {}, dot, p.label, el("b", {}, `${usd(p.v)} ${Math.round(100 * p.v / total)}%`)); }));
+  card.append(el("div", {class: "donut"}, donut(parts), ul));
+  return card;
+}
+function attentionCard(st) {   // 先放警示（嚴重的在前），剩下放建議
+  const red = (a) => a.kind === "cloud_idle_billing" || a.kind === "machine_unreachable";
+  const al = [...st.alerts].sort((a, b) => red(b) - red(a));
+  const card = el("div", {class: "card"}, hd(t.h_attention, al.length ? fmt(t.n_open, al.length) : t.m_ok, al.length ? (al.some(red) ? "fail" : "warn") : "ok"));
+  for (const a of al) card.append(el("div", {class: "att"}, el("span", {class: "w " + (red(a) ? "lv-fail" : "lv-warn")}, red(a) ? t.h_fail : t.h_warn), a.message));
+  for (const x of (st.insights || []).slice(0, 4)) card.append(el("div", {class: "att"}, el("span", {class: "w"}, t.h_tip), x.text));
+  if (!al.length && !(st.insights || []).length) card.append(el("div", {class: "muted"}, t.m_ok));
+  return card;
+}
 function render(st) {
   t = st.ui || t;
   document.documentElement.dataset.theme = st.theme || "classic";
@@ -8206,24 +8574,15 @@ function render(st) {
   if (st.verdict) verdictBand(st.verdict);
   $("#quota").replaceChildren(...quotaCard(st));
   $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString(st.lang === "zh" ? "zh-TW" : "en-US");
-  const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
-  const f = st.forecast;
-  const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.w_at_api),
-                 tile(t.w_forecast, usd(f.projected_usd), fmt(t.w_days_left, Math.round(f.days_left)), f.over_budget ? "fail" : null)];
-  if (st.machines.length) tiles.push(tile(t.w_power, Math.round(watts) + " W", st.machines.length === 1 ? t.machine_1 : fmt(t.machines_n, st.machines.length)));
-  $("#tiles").replaceChildren(...tiles);
-  const red = (a) => a.kind === "cloud_idle_billing" || a.kind === "machine_unreachable";
-  $("#alerts").replaceChildren(...[...st.alerts].sort((a, b) => red(b) - red(a)).map((a) =>   // 嚴重的在前
-    el("div", {class: "alert" + (red(a) ? " red" : "")}, el("span", {class: "ic"}, "⚠ "), a.message)));
+  $("#tiles").replaceChildren(...homeTiles(st));
+  $("#home").replaceChildren(machineTable(st), mixCard(st), attentionCard(st));   // 警示和建議都在「需要處理」裡
   const energy = Object.fromEntries(st.energy.map((e) => [e.machine, e]));
   $("#machines").replaceChildren(...(st.machines.length ? st.machines.map((m) => machineCard(m, energy[m.machine]))
     : [el("div", {class: "card muted"}, t.w_no_machines)]));
   const cc = cloudCard(st);
   $("#cloud").replaceChildren(...(cc ? [cc] : []));
-  const adv = (st.insights || []).length ? el("div", {class: "card"}, FLAT() ? hd(t.w_advice) : el("h3", {}, t.w_advice),
-    ...st.insights.map((x) => el("div", {class: "advice"}, "→ " + x.text))) : null;
   const lc = localCard(st);
-  $("#usage").replaceChildren(...(lc ? [lc] : []), usageCard(st), ...(adv ? [adv] : []));
+  $("#usage").replaceChildren(...(lc ? [lc] : []), usageCard(st));
   $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
   document.title = `${st.line_text} · ComputAI`;
 }
@@ -8238,6 +8597,44 @@ setInterval(tick, REFRESH_MS);
 """
 
 
+WEB_MANIFEST = json.dumps({
+    "name": "ComputAI", "short_name": "ComputAI", "description": "where your compute and AI money goes",
+    "start_url": "/", "scope": "/", "display": "standalone", "background_color": "#0b0b0c", "theme_color": "#0b0b0c",
+    "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"},
+              {"src": "/icon-180.png", "sizes": "180x180", "type": "image/png"},
+              {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}]})
+# 圖示：深色底上一個白色的環，右上缺一角是綠色（「還剩多少」的量表）
+WEB_ICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="#0b0b0c"/>'
+                '<circle cx="50" cy="50" r="28" fill="none" stroke="#3a3a3a" stroke-width="12"/>'
+                '<circle cx="50" cy="50" r="28" fill="none" stroke="#f5f5f5" stroke-width="12" stroke-dasharray="132 176" '
+                'transform="rotate(-90 50 50)"/><circle cx="50" cy="50" r="28" fill="none" stroke="#4ade80" stroke-width="12" '
+                'stroke-dasharray="20 176" stroke-dashoffset="-140" transform="rotate(-90 50 50)"/></svg>')
+
+
+def web_icon_png(size):
+    """同一個圖示的 PNG（iOS 的主畫面圖示不吃 SVG）。只用標準函式庫：逐點算顏色再用 zlib 壓。"""
+    import struct
+    import zlib
+    bg, track, white, green = (11, 11, 12), (58, 58, 58), (245, 245, 245), (74, 222, 128)
+    rows = []
+    c, r_out, r_in = size / 2.0, size * 0.34, size * 0.22
+    for y in range(size):
+        row = bytearray(b"\x00")
+        for x in range(size):
+            dx, dy = x + 0.5 - c, y + 0.5 - c
+            d = math.hypot(dx, dy)
+            col = bg
+            if r_in <= d <= r_out:
+                ang = (math.degrees(math.atan2(dx, -dy)) + 360) % 360   # 從 12 點鐘順時針
+                col = white if ang < 270 else green if ang < 310 else track
+            row += bytes(col)
+        rows.append(bytes(row))
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b""))
+
+
 def web_handler(state, bind, interval, extra_hosts=()):
     """移植自 slurmtop 84cd35d 的 web_handler：安全標頭、只聽本機時檢查 Host 擋 DNS rebinding。"""
     import http.server
@@ -8249,6 +8646,16 @@ def web_handler(state, bind, interval, extra_hosts=()):
 
         def log_message(self, *a):
             pass
+
+        def send_bytes(self, code, data, ctype):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
 
         def send(self, code, body, ctype):
             data = body.encode("utf-8")
@@ -8286,6 +8693,12 @@ def web_handler(state, bind, interval, extra_hosts=()):
                 return self.send(200, metrics, "text/plain; version=0.0.4; charset=utf-8")
             if path == "/healthz":
                 return self.send(200, "ok\n", "text/plain; charset=utf-8")
+            if path == "/manifest.webmanifest":   # 用 Tailscale 打開後可以「加到主畫面」當 App
+                return self.send(200, WEB_MANIFEST, "application/manifest+json; charset=utf-8")
+            if path == "/icon.svg":
+                return self.send(200, WEB_ICON_SVG, "image/svg+xml; charset=utf-8")
+            if path == "/icon-180.png" or path == "/icon-512.png":
+                return self.send_bytes(200, web_icon_png(512 if "512" in path else 180), "image/png")
             return self.send(404, "not found\n", "text/plain; charset=utf-8")
 
         do_HEAD = do_GET
@@ -11508,6 +11921,7 @@ def parse_args(argv=None):
                         "(HTTPS, your devices only); the server itself stays on 127.0.0.1")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--import-cursor", metavar="CSV", help="import a Cursor usage export (cursor.com/dashboard, Usage, Export)")
     p.add_argument("--team", nargs="?", const="show", choices=["show", "publish", "leave"],
                    help="leaderboard with friends, totals only: show (default), publish (shows the JSON first), leave")
     p.add_argument("--yes", action="store_true", help="with --team publish/leave: don't ask")
@@ -11651,7 +12065,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -11713,6 +12127,12 @@ def run(args, db):
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
         return 0
+    if args.import_cursor:
+        rows = parse_cursor_csv(args.import_cursor)
+        n = add_usage(db, rows)
+        db.commit()
+        print("computai: %d Cursor rows read, %d new" % (len(rows), n))
+        return 0 if rows else 1
     if args.team:
         if args.team == "publish":
             if not args.no_sync:

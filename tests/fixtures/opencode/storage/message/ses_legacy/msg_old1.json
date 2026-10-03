@@ -1,0 +1,1 @@
+{"id":"msg_old1","sessionID":"ses_legacy","role":"assistant","path":{"cwd":"/home/demo/epsilon"},"cost":0,"tokens":{"input":10,"output":7,"reasoning":3,"cache":{"read":100,"write":0}},"modelID":"claude-haiku-4","providerID":"anthropic","time":{"created":1788000000000}}

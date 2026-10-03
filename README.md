@@ -38,6 +38,7 @@ own tailnet over HTTPS while the server stays on 127.0.0.1:
 | | Source | What you get |
 |---|---|---|
 | **Subscriptions** | Claude Code and Codex session logs on this computer | tokens per model, cache and reasoning shown separately, cost at API prices versus your monthly fee, per-project breakdown, Codex and Claude limit windows with reset countdowns |
+| **More agents** | Gemini CLI chat recordings, OpenCode's database, Cursor's usage CSV export | tokens per model and project, cost at API prices, subagents |
 | **API** | Anthropic and OpenAI admin usage APIs (optional) | organisation usage per model and day |
 | **Local models** | Ollama, llama.cpp, vLLM, SGLang, LM Studio, OpenAI-compatible servers | which models are loaded, tokens (from `/metrics`, or from the optional `--proxy` for Ollama), "model loaded but idle" alerts |
 | **Machines** | SSH + `sh` (nothing to install), or this computer | CPU, GPU, power, kWh, electricity cost, AI share of the time, joules per token |

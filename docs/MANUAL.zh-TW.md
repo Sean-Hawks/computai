@@ -59,6 +59,20 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
   - Codex：問官方的 `codex` 程式（`codex app-server`）；log 裡的額度視窗也會讀。
   - 登入都由官方程式自己處理，ComputAI 只拿到百分比和重置時間。`[claude]`／`[codex] poll_minutes = 0` 關掉。
 
+### 其他 agent：Gemini CLI、OpenCode、Cursor
+
+一樣只取用量欄位：
+
+- **Gemini CLI**：`~/.gemini/tmp/<專案>/chats/*.jsonl`（可以用 `GEMINI_CLI_HOME` 改位置）。每則 Gemini 回應一列，用 id 去重；
+  `input` 含快取、`output` 不含 thinking，ComputAI 會扣掉、加回（用真實紀錄核對過：total = input + output + thoughts + tool）。
+  subagent（`kind: subagent`）算在主 session 底下。
+- **OpenCode**：`~/.local/share/opencode/opencode*.db`（和舊版的 `storage/message/*.json`）。只讀 assistant 訊息的中繼資料，
+  而且是讀暫存複本（讀完立刻刪），OpenCode 開著也不會被鎖住。OpenCode 的 input、output、reasoning、快取互不重疊，
+  子 session 算 subagent；OpenCode 有算出花費時就用它的。
+- **Cursor** 在你的電腦上沒有 log。到 cursor.com/dashboard（Usage → Export CSV）匯出，然後 `computai --import-cursor 檔案`，
+  或設 `[cursor] exports = ~/Downloads/usage-events*.csv` 讓每次同步自動匯入。欄位照標題名稱找；格式來自第三方的解析程式，
+  還沒用真的匯出檔核對過。「Errored, No Charge」的列不算；重疊的匯出檔重複匯入不會重複計算。
+
 ## 指令
 
 每個指令都可以加 `--json`。時間範圍：`--month [YYYY-MM]`、`--since YYYY-MM-DD`、
@@ -282,6 +296,9 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
   - *Cloudflare Tunnel（還沒內建，規劃成進階選項）*：公開的網址任何人都連得到，所以 ComputAI 只會在那個網址前面設好
     [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)（請求進來前先驗身分）時才開，
     否則拒絕並說明原因。自己手動設的話，先加 Access 政策，再把 tunnel 指到 `http://127.0.0.1:8765`。
+- 網頁版的版面跟終端機總覽一樣：總結列、額度、四塊數字卡（今天和昨天比、本月的各方案回本倍數和要付多少、本地推論速度、
+  功耗和趨勢線），接著是機器表、用量組成甜甜圈和「需要處理」（先警示、再建議），細節面板放在下面。全部用跟終端機同一份
+  `dashboard_state()`。附上 web manifest 和圖示，手機透過 `--tailscale` 打開後可以「加到主畫面」，打開就像一個 App。
 - `/metrics`：`computai_` 開頭的 gauge（每個來源的當月花費和 token、額度使用率、機器 CPU／GPU／功耗、
   雲端價格和 GPU 使用率、預測、各類警示數量）。
 - `--report --html 檔名`：一個可以保存或寄出的 HTML 檔。

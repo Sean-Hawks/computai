@@ -72,6 +72,22 @@ Nothing to set up. `computai --sync` (and every report, which syncs first unless
   - The official CLIs handle their own login; ComputAI only receives percentages and reset times.
     `[claude]` / `[codex] poll_minutes = 0` turns it off.
 
+### More agents: Gemini CLI, OpenCode, Cursor
+
+Read the same way, usage fields only:
+
+- **Gemini CLI**: `~/.gemini/tmp/<project>/chats/*.jsonl` (`GEMINI_CLI_HOME` moves it). One row per Gemini reply, deduplicated by
+  its id; `input` includes cached tokens and `output` excludes thinking, so ComputAI subtracts and adds them (checked on
+  real recordings: total = input + output + thoughts + tool). Subagents (`kind: subagent`) count under their session.
+- **OpenCode**: `~/.local/share/opencode/opencode*.db` (and the older `storage/message/*.json`). Only assistant message
+  metadata is read, from a temporary copy that is deleted right away, so a running OpenCode is never locked. Input,
+  output, reasoning and cache are separate in OpenCode, and child sessions count as subagents. OpenCode's own cost is
+  used when it has one.
+- **Cursor** keeps no log on your computer. Export your usage from cursor.com/dashboard (Usage, Export CSV) and run
+  `computai --import-cursor FILE`, or set `[cursor] exports = ~/Downloads/usage-events*.csv` to import on every sync.
+  Columns are matched by name; the format was taken from a third-party parser and has not been checked against a
+  real export yet. Rows marked "Errored, No Charge" are skipped; importing overlapping exports never counts a row twice.
+
 ## Commands
 
 All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
@@ -322,6 +338,11 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
     [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) (an identity check
     before any request reaches you), and will refuse with that reason otherwise. If you set one up by hand, put
     an Access policy in front of it first and point the tunnel at `http://127.0.0.1:8765`.
+- The web page follows the terminal overview: verdict, limits, four tiles (today vs yesterday, this month with each
+  plan's payback and what you will pay, local inference speed, power with a trend line), then a machine table, a
+  usage-mix donut and "needs attention" (alerts first, then advice), with the detailed panels below. Everything
+  comes from the same `dashboard_state()` as the terminal. It has a web manifest and icons, so on a phone opened
+  through `--tailscale` you can "Add to Home Screen" and it opens like an app.
 - `/metrics`: gauges prefixed `computai_` (month cost and tokens per source, limit use, machine
   CPU/GPU/power, cloud price and GPU use, forecast, alerts by kind).
 - `--report --html FILE`: a single HTML file you can keep or send.

@@ -230,6 +230,11 @@ computai --card --publish ~/Documents/you/assets --push
 - **推不上去**：git 要能推到你的個人頁 repo（`gh auth login` 或 SSH 金鑰）。修好之後執行一次 `computai --card --publish <資料夾> --push`。
 - **GitHub 上字型看起來不一樣**：卡片指定 JetBrains Mono，訪客沒有這個字型時會用他自己的等寬字型。
 
+## 其他 agent
+
+除了 Claude Code 和 Codex，也會讀 Gemini CLI（`~/.gemini/tmp/*/chats`）、OpenCode（`~/.local/share/opencode/opencode.db`）
+和 Cursor（帳號頁匯出的用量 CSV，`computai --import-cursor 檔案` 或 `[cursor] exports`）。一樣只取用量欄位。
+
 ## 隱私與安全
 
 - Claude 整個帳號的額度是問官方的 `claude` 程式（`claude -p /usage`，本機指令，不呼叫模型）：平常每 10 分鐘一次，燒得快時最短每分鐘一次，重置後 30 秒再多查一次。登入由它自己處理，ComputAI 只拿百分比和重置時間，報告裡的其他內容一律不看（`[claude] poll_minutes = 0` 關掉）。

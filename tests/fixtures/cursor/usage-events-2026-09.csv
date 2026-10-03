@@ -1,0 +1,5 @@
+Date,Kind,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost
+2026-09-10T01:00:00.000Z,Included,claude-4.6-sonnet-medium-thinking,No,1200,300,8000,450,9950,Included
+2026-09-10T01:05:00.000Z,On-Demand,gpt-5.5,Yes,0,900,0,120,1020,0.04
+2026-09-10T01:06:00.000Z,"Errored, No Charge",gpt-5.5,No,0,10,0,0,10,0
+2026-09-10T01:07:00.000Z,Included,auto,No,,"1,500",200,30,"1,730",

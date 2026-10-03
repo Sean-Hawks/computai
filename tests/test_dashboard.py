@@ -122,6 +122,29 @@ class Web(unittest.TestCase):
         c.close()
         return r, body
 
+    def test_add_to_home_screen(self):
+        import json
+        import http.client
+        r, body = self.get("/")
+        self.assertIn('rel="manifest"', body)
+        r, body = self.get("/manifest.webmanifest")
+        m = json.loads(body)
+        self.assertEqual((m["display"], m["start_url"]), ("standalone", "/"))
+        c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)
+        c.request("GET", "/icon-180.png", headers={"Host": "127.0.0.1:%d" % self.port})
+        png = c.getresponse().read()
+        c.close()
+        self.assertTrue(png.startswith(b"\x89PNG"))
+        import struct
+        self.assertEqual(struct.unpack(">II", png[16:24]), (180, 180))
+
+    def test_every_string_the_page_uses_exists(self):
+        import re
+        used = set(re.findall(r"\bt\.([a-z][a-z_0-9]*)\b", self.m.WEB_JS)) - {"text"}
+        for lang in ("en", "zh"):
+            missing = [k for k in used if k not in self.m.UI[lang] and k not in self.m.UI["en"]]
+            self.assertEqual(missing, [], lang)
+
     def test_pages(self):
         r, body = self.get("/")
         self.assertEqual(r.status, 200)
