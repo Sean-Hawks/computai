@@ -3035,7 +3035,7 @@ def render_line(info, sep="\uff5c"):
             txt += " (%s)" % fmt_dur(p["resets_in"])
         out.append(txt)
     v = info["today_usd"]
-    out.append("today $%s" % (("%.1f" % v) if v < 100 else "%d" % round(v)))
+    out.append(T("line_today") % (("%.1f" % v) if v < 100 else "%d" % round(v)))
     return sep.join(out)
 
 
@@ -3358,7 +3358,7 @@ UI = {
         "kwh_month": "%.2f kWh this month, AI %s", "busy": "busy", "idle": "idle",
         "no_model": "no model loaded", "rate": "%d req/5m, %s tok/s", "rate_tok": "%s tok/s",
         "no_server": "no inference server found", "usage": "AI USAGE", "api_equiv": "API-equivalent",
-        "resets": "resets in %s", "d14": "14d", "today_x": "today %s", "tok_req": "%s tokens, %s requests",
+        "resets": "resets in %s", "d14": "14d", "today_x": "today %s", "line_today": "today $%s", "tok_req": "%s tokens, %s requests",
         "no_usage": "no usage yet - run computai --sync", "today": "today", "month": "month",
         "forecast": "forecast", "cloud": "CLOUD", "alerts": "ALERTS", "clear": "all clear",
         "compute": "COMPUTE", "machines_n": "%d machines", "machine_1": "1 machine", "machines": "MACHINES",
@@ -3380,7 +3380,7 @@ UI = {
         "kwh_month": "本月 %.2f 度，AI 佔 %s", "busy": "推論中", "idle": "閒置",
         "no_model": "沒有載入模型", "rate": "5 分鐘 %d 個請求，%s tok/s", "rate_tok": "%s tok/s",
         "no_server": "沒有找到推論服務", "usage": "AI 用量", "api_equiv": "等值 API 花費",
-        "resets": "%s 後重置", "d14": "14天", "today_x": "今天 %s", "tok_req": "%s token、%s 個請求",
+        "resets": "%s 後重置", "d14": "14天", "today_x": "今天 %s", "line_today": "今天 $%s", "tok_req": "%s token、%s 個請求",
         "no_usage": "還沒有用量，先跑 computai --sync", "today": "今天", "month": "本月",
         "forecast": "月底預估", "cloud": "雲端", "alerts": "警示", "clear": "一切正常",
         "compute": "算力", "machines_n": "%d 台機器", "machine_1": "1 台機器", "machines": "機器",
