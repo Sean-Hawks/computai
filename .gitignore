@@ -7,3 +7,6 @@ __pycache__/
 *.sqlite-*
 *.db
 config.local.*
+
+# Claude Code agent worktrees
+.claude/worktrees/
