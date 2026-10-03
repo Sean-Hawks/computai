@@ -1405,7 +1405,7 @@ def guard_decide(state, event, tool, t):
         return {}
     msg = "ComputAI: " + "; ".join(parts)
     if event == "pretool":
-        if state.get("strict") and tool in ("Task", "Agent"):
+        if state.get("strict") and tool in ("Task", "Agent", "spawn_agent"):
             return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                            "permissionDecisionReason": msg + ". " + tx.get("strict", "")}}
         return {"systemMessage": msg, "hookSpecificOutput": {"hookEventName": "PreToolUse",
@@ -1483,42 +1483,49 @@ def write_hook_shim():
     return path
 
 
-def guard_hooks_settings(d, cmd):
-    """在 Claude Code 的 settings 裡加上（或換掉舊的）ComputAI hook，其他 hook 原樣保留。回傳新的 dict。"""
+GUARD_TARGETS = {   # 兩邊的 hook 格式一樣；Codex 派 subagent 的工具叫 spawn_agent
+    "claude": {"matcher": "Task|Agent", "path": lambda: claude_settings_path()},
+    "codex": {"matcher": "^(spawn_agent|Agent)$", "path": lambda: os.path.join(codex_home(), "hooks.json")},
+}
+
+
+def guard_hooks_settings(d, cmd, matcher="Task|Agent"):
+    """在 Claude Code 的 settings（或 Codex 的 hooks.json）裡加上（或換掉舊的）ComputAI hook，其他 hook 原樣保留。
+    回傳新的 dict。"""
     d = json.loads(json.dumps(d if isinstance(d, dict) else {}))
     hooks = d.setdefault("hooks", {})
     mine = lambda h: "claude-hook.py" in (h.get("command") or "") or "--hook claude-" in (h.get("command") or "")
-    for event, matcher, arg in (("PreToolUse", "Task|Agent", "pretool"), ("Stop", None, "stop")):
+    for event, match, arg in (("PreToolUse", matcher, "pretool"), ("Stop", None, "stop")):
         groups = []
         for grp in hooks.get(event) or []:
             kept = [h for h in grp.get("hooks") or [] if not mine(h)]
             if kept:
                 groups.append(dict(grp, hooks=kept))
         entry = {"hooks": [{"type": "command", "command": "%s %s" % (cmd, arg), "timeout": 5}]}
-        if matcher:
-            entry = dict({"matcher": matcher}, **entry)
+        if match:
+            entry = dict({"matcher": match}, **entry)
         groups.append(entry)
         hooks[event] = groups
     return d
 
 
-def guard_hooks_diff(cmd):
-    """裝之前給使用者看的 diff：settings.json 會怎麼改。回傳 (diff 文字, 新的 dict)。"""
+def guard_hooks_diff(cmd, target="claude"):
+    """裝之前給使用者看的 diff：settings.json（Codex 是 hooks.json）會怎麼改。回傳 (diff 文字, 新的 dict)。"""
     import difflib
-    path = claude_settings_path()
+    path = GUARD_TARGETS[target]["path"]()
     try:
         with open(path, encoding="utf-8") as f:
             old = json.load(f)
     except (OSError, ValueError):
         old = {}
-    new = guard_hooks_settings(old, cmd)
+    new = guard_hooks_settings(old, cmd, GUARD_TARGETS[target]["matcher"])
     a = json.dumps(old, indent=2, ensure_ascii=False).splitlines()
     b = json.dumps(new, indent=2, ensure_ascii=False).splitlines()
     return "\n".join(difflib.unified_diff(a, b, path, path, lineterm="")), new
 
 
-def install_guard_hooks(new):
-    path = claude_settings_path()
+def install_guard_hooks(new, target="claude"):
+    path = GUARD_TARGETS[target]["path"]()
     if os.path.exists(path):
         shutil.copyfile(path, path + ".computai.bak")
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -5366,9 +5373,10 @@ UI = {
         "su_guard": "Limit guard for Claude Code (optional)",
         "su_guard_what": "Claude Code hooks that tell the agent (and you) when a limit or the budget runs low; "
                          "they only read the ledger and let everything through on any error.",
-        "su_guard_ask": "Install the hooks", "su_guard_diff": "%s will change like this:",
+        "su_guard_ask": "Install the hooks for %s", "su_guard_diff": "%s will change like this:",
+        "su_guard_trust": "Codex runs a new hook only after you trust it once: open codex and type /hooks.",
         "su_guard_strict": "Strict: also refuse new subagents while a limit is nearly used up",
-        "su_guard_on": "the limit guard hooks are installed", "su_guard_change": "add the limit guard hooks",
+        "su_guard_on": "the limit guard hooks are installed for %s", "su_guard_change": "add the limit guard hooks",
         "su_sl_ask": "Connect computai to Claude Code's status line so it records Claude's limits? (settings.json is backed up)",
         "su_sl_other": "Claude Code already runs this status line: %s",
         "su_sl_wrap": "Keep it and add computai's line next to it (a small wrapper script)?",
@@ -5591,9 +5599,10 @@ UI = {
         "su_sl": "Claude 額度百分比",
         "su_guard": "額度護欄（Claude Code hook，可選）",
         "su_guard_what": "Claude Code 的 hook：額度或預算快用完時提醒 agent（和你）；只讀帳本，出任何錯都放行。",
-        "su_guard_ask": "要裝嗎", "su_guard_diff": "%s 會這樣改：",
+        "su_guard_ask": "要幫 %s 裝嗎", "su_guard_diff": "%s 會這樣改：",
+        "su_guard_trust": "Codex 的新 hook 要你先信任一次才會跑：打開 codex 輸入 /hooks。",
         "su_guard_strict": "嚴格模式：額度快用完時也擋下新的 subagent",
-        "su_guard_on": "額度護欄已經裝好了", "su_guard_change": "加上額度護欄 hook",
+        "su_guard_on": "%s 的額度護欄已經裝好了", "su_guard_change": "加上額度護欄 hook",
         "su_sl_ask": "把 computai 接到 Claude Code 的 statusline，記錄 Claude 的額度？（會先備份 settings.json）",
         "su_sl_other": "Claude Code 已經在用這個 statusline：%s",
         "su_sl_wrap": "保留它，並在旁邊加上 computai 的那一行（用一個小腳本包起來）？",
@@ -10202,7 +10211,7 @@ class Setup:
         self.changes = []        # 寫進 config.ini 的 (section, key, value)
         self.secrets = []        # 寫進 secrets.ini 的 (key, value)
         self.statusline = None   # 要寫進 Claude Code 設定的指令
-        self.guard = None        # 要寫進 Claude Code 設定的 hook（整份新的 settings）
+        self.guard = []          # 要裝額度護欄 hook 的地方（claude、codex）
         self.notes = []
 
     @staticmethod
@@ -10419,23 +10428,28 @@ class Setup:
 
     # 額度護欄（Claude Code hook）
     def step_guard(self):
-        if not claude_roots():
+        targets = [x for x, here in (("claude", claude_roots()), ("codex", os.path.isdir(codex_home()))) if here]
+        if not targets:
             return
         self.title(T("su_guard"))
-        cmd = "%s %s" % (shlex_quote(sys.executable), shlex_quote(hook_shim_path()))
-        diff, new = guard_hooks_diff(cmd)
-        if not diff:
-            self.out(rgb(GREEN, T("su_guard_on")))
-            return
         self.out(dim(T("su_guard_what")))
-        if not self.yes(T("su_guard_ask"), default=False):
-            return
-        self.out(T("su_guard_diff") % claude_settings_path())
-        for ln in diff.splitlines():
-            self.out("  " + (rgb(GREEN, ln) if ln.startswith("+") else rgb(RED, ln) if ln.startswith("-") else dim(ln)))
-        if self.yes(T("su_guard_strict"), default=False):
+        cmd = "%s %s" % (shlex_quote(sys.executable), shlex_quote(hook_shim_path()))
+        for target in targets:
+            name = "Claude Code" if target == "claude" else "Codex"
+            diff, _new = guard_hooks_diff(cmd, target)
+            if not diff:
+                self.out(rgb(GREEN, T("su_guard_on") % name))
+                continue
+            if not self.yes(T("su_guard_ask") % name, default=False):
+                continue
+            self.out(T("su_guard_diff") % GUARD_TARGETS[target]["path"]())
+            for ln in diff.splitlines():
+                self.out("  " + (rgb(GREEN, ln) if ln.startswith("+") else rgb(RED, ln) if ln.startswith("-") else dim(ln)))
+            if target == "codex":
+                self.out(dim("  " + T("su_guard_trust")))
+            self.guard.append(target)
+        if self.guard and self.yes(T("su_guard_strict"), default=False):
             self.changes.append(("guard", "strict", "yes"))
-        self.guard = new
 
     # 機器
     def step_machines(self):
@@ -10583,8 +10597,8 @@ class Setup:
             self.out("  secrets.ini: %s = ******" % key)
         if self.statusline:
             self.out("  %s: %s" % (claude_settings_path(), T("su_sl_change")))
-        if self.guard:
-            self.out("  %s: %s" % (claude_settings_path(), T("su_guard_change")))
+        for target in self.guard:
+            self.out("  %s: %s" % (GUARD_TARGETS[target]["path"](), T("su_guard_change")))
         if not self.yes(T("su_save")):
             self.out(T("su_cancel"))
             return 1
@@ -10595,7 +10609,9 @@ class Setup:
             install_statusline(self.statusline)
         if self.guard:   # 小腳本先寫好，hook 才不會指到不存在的檔案；statusline 改過 settings 就重新合併
             write_hook_shim()
-            install_guard_hooks(guard_hooks_diff("%s %s" % (shlex_quote(sys.executable), shlex_quote(hook_shim_path())))[1])
+            for target in self.guard:
+                install_guard_hooks(guard_hooks_diff("%s %s" % (shlex_quote(sys.executable), shlex_quote(hook_shim_path())),
+                                                     target)[1], target)
             try:
                 db = open_ledger()
                 try:

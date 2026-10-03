@@ -44,8 +44,9 @@ class Decide(unittest.TestCase):
         out = self.m.guard_decide(state(left=3, strict=True), "pretool", "Agent", T0)
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertIn("STRICT", out["hookSpecificOutput"]["permissionDecisionReason"])
-        self.assertEqual(self.m.guard_decide(state(left=3, strict=True), "pretool", "Task", T0)
-                         ["hookSpecificOutput"]["permissionDecision"], "deny")
+        for tool in ("Task", "spawn_agent"):   # 舊版 Claude Code 和 Codex 的名字
+            self.assertEqual(self.m.guard_decide(state(left=3, strict=True), "pretool", tool, T0)
+                             ["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertNotIn("permissionDecision",
                          self.m.guard_decide(state(left=3, strict=True), "pretool", "Bash", T0)["hookSpecificOutput"])
 
@@ -116,6 +117,21 @@ class Settings(unittest.TestCase):
         self.assertEqual(len(pre), 2)                                         # 舊的那個被換掉，不會重複
         self.assertEqual(new["hooks"]["Stop"][0]["hooks"][0]["command"], "/py /data/claude-hook.py stop")
         self.assertEqual(m.guard_hooks_settings(new, "/py /data/claude-hook.py"), new)   # 再裝一次不變
+
+
+    def test_codex_hooks_json(self):
+        import tempfile
+        m = helpers.load()
+        home = tempfile.mkdtemp()
+        self.addCleanup(__import__("shutil").rmtree, home)
+        old = os.environ.get("CODEX_HOME")
+        os.environ["CODEX_HOME"] = home
+        self.addCleanup(lambda: os.environ.pop("CODEX_HOME") if old is None else os.environ.update(CODEX_HOME=old))
+        diff, new = m.guard_hooks_diff("/py /d/claude-hook.py", "codex")
+        self.assertIn(os.path.join(home, "hooks.json"), diff)
+        self.assertEqual(new["hooks"]["PreToolUse"][0]["matcher"], "^(spawn_agent|Agent)$")
+        m.install_guard_hooks(new, "codex")
+        self.assertEqual(m.guard_hooks_diff("/py /d/claude-hook.py", "codex")[0], "")   # 裝好之後沒有差異
 
 
 if __name__ == "__main__":
