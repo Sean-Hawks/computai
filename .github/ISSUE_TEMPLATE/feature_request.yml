@@ -1,0 +1,14 @@
+name: Idea or request
+description: A data source, a view, or a decision you wish ComputAI helped with.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like ComputAI to do?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What question would it answer for you?
