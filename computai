@@ -5239,6 +5239,9 @@ def local_compare(prices=None, cp=None):
     name = (cp.get("local", "compare_model", fallback="") or "").strip().lower()
     if name and price_for(name, prices):
         return name, price_for(name, prices)
+    for name in local_settings(cp)["compare"]:   # 跟 --local-cost 用同一個：compare_models 的第一個
+        if normalize_model(name) in prices:
+            return name, prices[normalize_model(name)]
     best = sorted((p["output"], n) for n, p in prices.items() if p.get("output"))
     return (best[0][1], prices[best[0][1]]) if best else (None, None)
 
