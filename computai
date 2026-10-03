@@ -5318,7 +5318,7 @@ def boot_checks(st):
             out.append(("NODE  " + a["machine"], "OFFLINE", "fail"))
     for r in st["limits"]:
         used = r["used_percent"] or 0
-        out.append(("LIMIT %s %s" % (r["source"], r["name"]), "DEPLETED" if used >= LIMIT_FAIL else "%d%%" % round(used),
+        out.append(("LIMIT %s %s" % (r["source"], r["name"]), "DEPLETED" if used >= LIMIT_FAIL else "%d%% %s" % (round(shown_pct(used)), T("m_left") if _limit_view == "left" else T("m_used")),
                     limit_level(used) if used >= LIMIT_WARN else "ok"))
     return out
 
@@ -5332,7 +5332,7 @@ def render_boot(st, width, height, shown, frame=0):
     left = max(0, (width - lw) // 2)
     rows += [""] * max(1, height // 6)
     rows += [" " * left + bold(rgb(CYAN, x)) for x in logo]
-    sub = T("hud_tag") + "  //  v" + __version__
+    sub = T("hud_tag")
     rows += ["", " " * max(0, (width - vlen(sub)) // 2) + dim(sub), ""]
     box = min(64, width - 4)
     pad_ = " " * max(0, (width - box) // 2)
@@ -5340,16 +5340,24 @@ def render_boot(st, width, height, shown, frame=0):
         rows.append(pad_ + rgb(CYAN, spinner()) + " " + T("b_linking"))
         return "\n".join(rows)
     checks = boot_checks(st)
-    for name, state, lv in checks[:shown]:
-        dots = max(2, box - vlen(name) - vlen(state) - 2)
-        rows.append(pad_ + name + " " + rgb(GREY, sym("\u00b7", ".") * dots) + " " + bold(rgb(tone(lv), state)))
     done = shown >= len(checks)
+    inner = box - 4
+    body = [""]
+    for name, state, lv in checks[:shown]:
+        dots = max(2, inner - vlen(name) - vlen(state) - 2)
+        body.append(name + " " + rgb(GREY, sym("\u00b7", ".") * dots) + " " + bold(rgb(tone(lv), state)))
+    body += [""] * (len(checks) - min(shown, len(checks)))
     pct = min(100.0, 100.0 * shown / max(1, len(checks)))
-    rows += ["", pad_ + gauge(pct, box, "brand") + " " + dim("%d/%d" % (min(shown, len(checks)), len(checks)))]
+    body += ["", rail(pct, inner, GREEN if done else None), ""]
+    step = "STEP %d / %d" % (min(shown, len(checks)), len(checks))
     if done:
         v = verdict(st)
-        rows += ["", pad_ + (badge(v["level"], v["word"]) if v["level"] != "ok" else rgb(GREEN, sym("\u25cf ", "* ") + v["word"])) +
-                 "  " + bold(T("b_ready"))]
+        foot = bold(rgb(tone(v["level"]) if v["level"] != "ok" else GREEN,
+                        sym("\u25b2 " if v["level"] != "ok" else "\u25cf ", "* ") + v["word"])) + "  " + bold(T("b_ready"))
+    else:
+        foot = rgb(CYAN, spinner()) + " " + dim(T("b_linking"))
+    for ln in mpanel(tag(sym("\u25ce ", "") + "SYSTEM CHECK"), body, box, dim(step), foot, dim("v" + __version__)):
+        rows.append(pad_ + ln)
     return "\n".join(rows)
 
 

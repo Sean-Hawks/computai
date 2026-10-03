@@ -288,5 +288,5 @@ class Hud(unittest.TestCase):
         done = self.m.render_boot(self.st, 80, 30, 99)
         self.assertIn("GENERATING  RTX", done)
         self.assertIn("DEPLETED", done)
-        self.assertIn("[ALERT]  SYSTEM READY", done)
+        self.assertIn("ALERT  SYSTEM READY", done)
         self.assertIn("linking", self.m.render_boot(None, 80, 30, 0))
