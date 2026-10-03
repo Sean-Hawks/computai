@@ -5499,7 +5499,7 @@ def limit_station(r, width):
     if used < LIMIT_FAIL and r.get("eta_full"):
         side.append(rgb(AMBER, sym("\u25b2 ", "! ") + "EMPTY IN " + fmt_dur(r["eta_full"])))
     elif used < LIMIT_FAIL and r.get("projected_pct") is not None:
-        side.append(dim("\u25b8 AT RESET ") + bold("%d%%" % round(shown_pct(min(100, r["projected_pct"])))))
+        side.append(dim("\u25b8 " + ("LEFT" if _limit_view == "left" else "USED") + " AT RESET ") + bold("%d%%" % round(shown_pct(min(100, r["projected_pct"])))))
     if (r.get("age") or 0) > LIMIT_STALE:
         side.append(dim(T("q_seen") % fmt_dur(r["age"])))
     return side_by_side_many([d, side], 3)
