@@ -7133,10 +7133,11 @@ def render_mission(st, width, height, frame):
 
 
 def hud_tabs(view, width):
-    """分頁列：目前的分頁反白，其他是編號加名字。"""
+    """分頁列：目前的分頁反白，其他是編號加名字；太窄時其他分頁只留編號。"""
+    full = sum(vlen(" %d %s " % (i + 1, T("tab_" + v))) for i, v in enumerate(HUD_VIEWS)) + 1
     parts = []
     for i, v in enumerate(HUD_VIEWS):
-        label = " %d %s " % (i + 1, T("tab_" + v))
+        label = " %d %s " % (i + 1, T("tab_" + v)) if (v == view or full <= width) else " %d " % (i + 1)
         if v == view:
             parts.append("\033[1;38;2;0;0;0;48;2;%d;%d;%dm%s\033[0m" % (MAG + (label,)) if _color else "[%s]" % label.strip())
         else:
