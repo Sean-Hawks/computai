@@ -343,6 +343,23 @@ push = yes
 - `lang` 是卡片的語言。
 - `--setup` 會一項一項問，也會自動找到本機的個人頁 repo。推之前會先接上機器人推的 commit。
 
+## 本地模型的真實成本（`--local-cost`）
+
+`computai --local-cost [--month]` 把每個本地模型跟小的雲端模型放在一起比：
+
+- **每 100 萬 token 的電費**：用那台機器實測的 AI 耗電，照各模型的 token 分攤；沒有實際用量的模型改用最近一次
+  `--bench` 的結果（標成「--bench 估的」）。
+- **硬體**（可選）：`[local] hardware_usd` 和 `lifetime_years` 會加上每 100 萬 token 的折舊，以及打平點：
+  每個月要跑多少 token，硬體才比各個 API 模型划算。
+- **vs**：比 `[local] compare_models`（預設 `claude-haiku-4, gpt-5.4-mini`，輸入和輸出價格各半）便宜幾倍。
+  比較的模型在 prices.ini 裡要有完全同名的一節，不然會直接說沒有，不會拿名字相近的模型來猜。
+- **分流**：這個月 Claude、Codex 的輕量請求（輸出 ≤ `light_output`、上下文 ≤ `light_context`）如果都丟給最省的本地模型，
+  可以省多少錢（照 API 價格）、多少訂閱用量，要花多少電。
+- **碳排**：度數 × `[energy] grid_kg_per_kwh`。預設是台灣 113 年度電力排碳係數 0.474 公斤 CO2e/度
+  （經濟部能源署 2025-04-14 公布）；可以改成你那裡的數字，或設 0 不顯示。
+
+本地模型分頁和 Wrapped 會放一句話的版本：「這個月本地模型替你省了 $17，花了 0.6 度電」。
+
 ## 本地模型跑分
 
 `computai --bench [--machine 名稱]` 對每個正在跑的推論服務，用同一段固定題目連續生成幾秒鐘。
