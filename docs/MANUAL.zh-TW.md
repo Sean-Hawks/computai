@@ -296,6 +296,9 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
   - *Cloudflare Tunnel（還沒內建，規劃成進階選項）*：公開的網址任何人都連得到，所以 ComputAI 只會在那個網址前面設好
     [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)（請求進來前先驗身分）時才開，
     否則拒絕並說明原因。自己手動設的話，先加 Access 政策，再把 tunnel 指到 `http://127.0.0.1:8765`。
+- 網頁版的版面跟終端機總覽一樣：總結列、額度、四塊數字卡（今天和昨天比、本月的各方案回本倍數和要付多少、本地推論速度、
+  功耗和趨勢線），接著是機器表、用量組成甜甜圈和「需要處理」（先警示、再建議），細節面板放在下面。全部用跟終端機同一份
+  `dashboard_state()`。附上 web manifest 和圖示，手機透過 `--tailscale` 打開後可以「加到主畫面」，打開就像一個 App。
 - `/metrics`：`computai_` 開頭的 gauge（每個來源的當月花費和 token、額度使用率、機器 CPU／GPU／功耗、
   雲端價格和 GPU 使用率、預測、各類警示數量）。
 - `--report --html 檔名`：一個可以保存或寄出的 HTML 檔。

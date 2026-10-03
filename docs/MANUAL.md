@@ -338,6 +338,11 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
     [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) (an identity check
     before any request reaches you), and will refuse with that reason otherwise. If you set one up by hand, put
     an Access policy in front of it first and point the tunnel at `http://127.0.0.1:8765`.
+- The web page follows the terminal overview: verdict, limits, four tiles (today vs yesterday, this month with each
+  plan's payback and what you will pay, local inference speed, power with a trend line), then a machine table, a
+  usage-mix donut and "needs attention" (alerts first, then advice), with the detailed panels below. Everything
+  comes from the same `dashboard_state()` as the terminal. It has a web manifest and icons, so on a phone opened
+  through `--tailscale` you can "Add to Home Screen" and it opens like an app.
 - `/metrics`: gauges prefixed `computai_` (month cost and tokens per source, limit use, machine
   CPU/GPU/power, cloud price and GPU use, forecast, alerts by kind).
 - `--report --html FILE`: a single HTML file you can keep or send.
