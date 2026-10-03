@@ -5363,6 +5363,12 @@ UI = {
         "su_none": "I don't pay for this", "su_custom": "other (type name and price)", "su_current": "now: %s",
         "su_pick": "Choice", "su_plan_name": "Plan name", "su_plan_usd": "USD per month", "su_bad": "not understood, skipped",
         "su_sl": "Claude limit percentages",
+        "su_guard": "Limit guard for Claude Code (optional)",
+        "su_guard_what": "Claude Code hooks that tell the agent (and you) when a limit or the budget runs low; "
+                         "they only read the ledger and let everything through on any error.",
+        "su_guard_ask": "Install the hooks", "su_guard_diff": "%s will change like this:",
+        "su_guard_strict": "Strict: also refuse new subagents while a limit is nearly used up",
+        "su_guard_on": "the limit guard hooks are installed", "su_guard_change": "add the limit guard hooks",
         "su_sl_ask": "Connect computai to Claude Code's status line so it records Claude's limits? (settings.json is backed up)",
         "su_sl_other": "Claude Code already runs this status line: %s",
         "su_sl_wrap": "Keep it and add computai's line next to it (a small wrapper script)?",
@@ -5583,6 +5589,11 @@ UI = {
         "su_none": "沒有付這個", "su_custom": "其他（自己輸入名稱和價格）", "su_current": "目前：%s",
         "su_pick": "選擇", "su_plan_name": "方案名稱", "su_plan_usd": "每月美元", "su_bad": "看不懂，先跳過",
         "su_sl": "Claude 額度百分比",
+        "su_guard": "額度護欄（Claude Code hook，可選）",
+        "su_guard_what": "Claude Code 的 hook：額度或預算快用完時提醒 agent（和你）；只讀帳本，出任何錯都放行。",
+        "su_guard_ask": "要裝嗎", "su_guard_diff": "%s 會這樣改：",
+        "su_guard_strict": "嚴格模式：額度快用完時也擋下新的 subagent",
+        "su_guard_on": "額度護欄已經裝好了", "su_guard_change": "加上額度護欄 hook",
         "su_sl_ask": "把 computai 接到 Claude Code 的 statusline，記錄 Claude 的額度？（會先備份 settings.json）",
         "su_sl_other": "Claude Code 已經在用這個 statusline：%s",
         "su_sl_wrap": "保留它，並在旁邊加上 computai 的那一行（用一個小腳本包起來）？",
@@ -10191,6 +10202,7 @@ class Setup:
         self.changes = []        # 寫進 config.ini 的 (section, key, value)
         self.secrets = []        # 寫進 secrets.ini 的 (key, value)
         self.statusline = None   # 要寫進 Claude Code 設定的指令
+        self.guard = None        # 要寫進 Claude Code 設定的 hook（整份新的 settings）
         self.notes = []
 
     @staticmethod
@@ -10217,6 +10229,7 @@ class Setup:
         self.step_lang()
         self.step_plans()
         self.step_statusline()
+        self.step_guard()
         self.step_machines()
         self.step_power()
         self.step_budget()
@@ -10404,6 +10417,26 @@ class Setup:
         if self.yes(T("su_sl_wrap"), default=False):
             self.statusline = ("wrap", cur, me)
 
+    # 額度護欄（Claude Code hook）
+    def step_guard(self):
+        if not claude_roots():
+            return
+        self.title(T("su_guard"))
+        cmd = "%s %s" % (shlex_quote(sys.executable), shlex_quote(hook_shim_path()))
+        diff, new = guard_hooks_diff(cmd)
+        if not diff:
+            self.out(rgb(GREEN, T("su_guard_on")))
+            return
+        self.out(dim(T("su_guard_what")))
+        if not self.yes(T("su_guard_ask"), default=False):
+            return
+        self.out(T("su_guard_diff") % claude_settings_path())
+        for ln in diff.splitlines():
+            self.out("  " + (rgb(GREEN, ln) if ln.startswith("+") else rgb(RED, ln) if ln.startswith("-") else dim(ln)))
+        if self.yes(T("su_guard_strict"), default=False):
+            self.changes.append(("guard", "strict", "yes"))
+        self.guard = new
+
     # 機器
     def step_machines(self):
         self.title(T("su_machines"))
@@ -10541,7 +10574,7 @@ class Setup:
 
     def finish(self):
         self.title(T("su_review"))
-        if not (self.changes or self.secrets or self.statusline):
+        if not (self.changes or self.secrets or self.statusline or self.guard):
             self.out(T("su_nothing"))
             return 0
         for sec, key, val in self.changes:
@@ -10550,6 +10583,8 @@ class Setup:
             self.out("  secrets.ini: %s = ******" % key)
         if self.statusline:
             self.out("  %s: %s" % (claude_settings_path(), T("su_sl_change")))
+        if self.guard:
+            self.out("  %s: %s" % (claude_settings_path(), T("su_guard_change")))
         if not self.yes(T("su_save")):
             self.out(T("su_cancel"))
             return 1
@@ -10558,6 +10593,17 @@ class Setup:
             write_secrets(self.secrets)
         if self.statusline:
             install_statusline(self.statusline)
+        if self.guard:   # 小腳本先寫好，hook 才不會指到不存在的檔案；statusline 改過 settings 就重新合併
+            write_hook_shim()
+            install_guard_hooks(guard_hooks_diff("%s %s" % (shlex_quote(sys.executable), shlex_quote(hook_shim_path())))[1])
+            try:
+                db = open_ledger()
+                try:
+                    write_guard_state(db)
+                finally:
+                    db.close()
+            except Exception:
+                pass
         self.out(rgb(GREEN, T("su_saved") % os.path.join(config_dir(), "config.ini")))
         self.out(dim(T("su_next")))
         return 0
