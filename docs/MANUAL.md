@@ -53,7 +53,14 @@ Nothing to set up. `computai --sync` (and every report, which syncs first unless
   `input_tokens`; ComputAI stores uncached input so both providers mean the same thing.
   The totals match Codex's own `tokens_used` per thread.
 - **Limits**: both are read for the whole account (other machines, T3 Code, claude.ai and other people
-  count too), every 10 minutes:
+  count too). How often follows how fast they burn:
+  - Every `poll_minutes` (default 10) while nothing is close to running out; faster while a limit burns,
+    down to once a minute (remaining % ÷ burn rate ÷ 4). Speeding up takes effect at once; slowing down
+    relaxes gradually so a short pause doesn't drop back to the slow pace.
+  - 30 seconds after any window resets, one extra check, so the recovery shows right away.
+  - The burn rate comes from the ledger's own samples of each window. `computai --doctor` shows the next
+    check and why (`weekly limit runs out in 3h00m at this pace: every 45m`); `[limits] refresh = fixed`
+    goes back to a fixed `poll_minutes`.
   - Claude: ask the official `claude` CLI (`claude -p /usage`, a local command that calls no model and uses
     no quota); Pro and Max accounts only. Setting Claude Code's status line to `computai --statusline`
     (see [one-line.md](one-line.md)) also works and updates on every reply.
