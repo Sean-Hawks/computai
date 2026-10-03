@@ -29,8 +29,8 @@ class Paint(unittest.TestCase):
         self.assertEqual(m.temp_color(70), m.MAG)
         self.assertEqual(m.temp_color(92), m.RED)
         rows = m.panel("NODE", "x", ["a"], 20, foot="SSH")
-        self.assertTrue(rows[0].startswith("\u250c\u2500\u2500 NODE "))
-        self.assertTrue(rows[-1].startswith("\u2514\u2500\u2500 SSH "))  # 來源寫在下框線
+        self.assertTrue(rows[0].startswith("\u25e4") and " NODE " in rows[0])  # HUD 框角，沒有左右邊框
+        self.assertTrue(rows[-1].startswith("\u25e3 SSH "))          # 來源寫在下框線
         self.assertTrue(all(m.vlen(r) == 20 for r in rows))
         self.assertEqual(m.badge("fail", "ALERT"), "[ALERT]")         # 沒有顏色時用方括號
         m.set_style(theme="classic")

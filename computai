@@ -3948,6 +3948,16 @@ def panel(left, right, lines, width, load=0.0, foot="", level=None):
     if vlen(left) + vlen(right) + 2 > inner:
         right = clip(right, max(0, inner - vlen(left) - 2))
     fill = max(0, inner - vlen(left) - vlen(right) - 2)
+    if theme().get("flat") and not _ascii:   # cyber：HUD 框角（◤◥◣◢）、沒有左右邊框，故障時框角變紅
+        col = RED if level == "fail" else CYAN
+        rt = (" " + right.strip() + " ") if right else ""
+        fill = max(0, width - vlen(left) - vlen(rt) - 4)
+        rows = [rgb(col, "\u25e4") + " " + left + " " + rgb(GREY, "\u2500" * fill) + rt + rgb(col, "\u25e5")]
+        rows += [" " + pad(clip(ln, width - 2), width - 2) + " " for ln in lines]
+        ft = (" " + foot + " ") if foot else ""
+        ft = clip(ft, width - 4) if vlen(ft) > width - 4 else ft
+        rows.append(rgb(col, "\u25e3") + ft + rgb(GREY, "\u2500" * max(0, width - 2 - vlen(ft))) + rgb(col, "\u25e2"))
+        return rows
     if level:
         col = tone(level) if level == "fail" or not theme().get("flat") else GREY
     else:
@@ -4926,7 +4936,7 @@ def ptitle(n, text):
     """面板標題。cyber：品牌色的 ◢ 加兩位數編號，像儀器上的通道號碼；classic 就是粗體字。"""
     if not theme().get("flat"):
         return bold(text)
-    return rgb(CYAN, sym("\u25e2", ">")) + dim("%02d" % n) + " " + bold(text)
+    return tag(text) if not _ascii else "[%02d %s]" % (n, text)
 
 
 def hud_tiles(tiles, width, gap=3):
