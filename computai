@@ -3334,8 +3334,7 @@ def insights(db, t=None):
             args = {"src": src, "peak": r["peak_percent"] or 0, "win": r["peak_window"] or "?",
                     "plan": best["name"], "usd": best["usd"], "proj": best["projected_peak"]}
             if best["name"] == r["current"]:
-                if best["fits"]:
-                    out.append({"kind": "plan", "text": T("i_plan_ok") % args})
+                out.append({"kind": "plan", "text": T("i_plan_ok" if best["fits"] else "i_plan_max") % args})
             else:
                 out.append({"kind": "plan", "text": T("i_plan_down" if best["usd"] < (r["current_usd"] or 0)
                                                       else "i_plan_up") % args})
@@ -3422,6 +3421,7 @@ UI = {
         "i_plan_down": "%(src)s: peak was %(peak)d%% of the %(win)s limit; %(plan)s ($%(usd)d) would peak near %(proj)d%%",
         "i_plan_up": "%(src)s: reached %(peak)d%% of the %(win)s limit; %(plan)s ($%(usd)d) would peak near %(proj)d%%",
         "i_plan_ok": "%(src)s: plan fits, peak %(peak)d%% of the %(win)s limit",
+        "i_plan_max": "%(src)s: hit %(peak)d%% of the %(win)s limit and no bigger plan is listed",
         "i_api": "%(src)s: pay-as-you-go would have cost only %(cost)s in 30 days",
         "i_cache": "prompt-cache rewrites cost %(cost)s this month; %(expired)d of %(n)d came after an idle gap",
         "i_offpeak": "%(machine)s: moving AI work off-peak would save %(save).2f %(cur)s",
@@ -3451,6 +3451,7 @@ UI = {
         "i_plan_down": "%(src)s：%(win)s 額度最高只用到 %(peak)d%%，改用 %(plan)s（$%(usd)d）約 %(proj)d%%",
         "i_plan_up": "%(src)s：%(win)s 額度已經用到 %(peak)d%%，改用 %(plan)s（$%(usd)d）約 %(proj)d%%",
         "i_plan_ok": "%(src)s：方案剛好，%(win)s 額度最高用到 %(peak)d%%",
+        "i_plan_max": "%(src)s：%(win)s 額度用到 %(peak)d%%，而且已經是清單裡最大的方案",
         "i_api": "%(src)s：過去 30 天直接付 API 只要 %(cost)s",
         "i_cache": "本月快取重寫多花了 %(cost)s；%(n)d 次裡有 %(expired)d 次是閒置太久",
         "i_offpeak": "%(machine)s：AI 工作挪到離峰可以省 %(save).2f %(cur)s",
