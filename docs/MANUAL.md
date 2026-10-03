@@ -470,6 +470,21 @@ It only reads the ledger (no network, no SSH), so it is fast enough for `$(...)`
 also says when a limit is about to reset with plenty left, and agents can ask the same question through the
 MCP tool `pick`.
 
+## Limit guard (Claude Code hooks)
+
+Optional hooks so the agent itself knows when a limit or the budget is running low. `computai --setup`
+asks whether to install them and shows the `settings.json` diff first.
+
+- **PreToolUse** (only when launching subagents, `Task|Agent`) and **Stop**: when a limit has less than
+  `[guard] warn_left` percent left (default 10), or this month's forecast is over `[budget] monthly_usd`, the
+  agent gets a reminder ("prefer fewer, smaller subagents") and you see it as a message.
+- `[guard] strict = yes`: new subagents are refused while that is the case, and the agent is told why.
+- They never answer "allow", so your own permission settings still apply. Any error (no ledger, old or
+  broken state) lets everything through silently.
+- Fast: every sync writes a small guard state to the ledger, and the hook is a generated script
+  (`claude-hook.py` in the data folder) that only reads that row, in about 20 ms. No network, no prompts read.
+  `computai --hook claude-pretool|claude-stop` gives the same answer, more slowly.
+
 ## MCP server (for agents)
 
 `computai --mcp` speaks the Model Context Protocol on stdin/stdout, so an agent can check its own
