@@ -51,16 +51,17 @@ class Card(unittest.TestCase):
         dark, light = self.m.render_card_svg(c, "dark"), self.m.render_card_svg(c, "light")
         for svg in (dark, light):
             root = ET.fromstring(svg)
-            self.assertEqual((root.get("width"), root.get("height")), ("495", "195"))
-            for bad in ("<script", "<image", "href", "@font-face", "@import", "<style", "onload"):
+            self.assertEqual((root.get("width"), root.get("height")), ("900", "360"))
+            for bad in ("<script", "<image", "href", "@font-face", "@import", "onload", "<foreignObject"):
                 self.assertNotIn(bad, svg)
             self.assertEqual(svg.count("http"), 1)                        # 只有 xmlns
-            for want in ("last 30 days", "13.9M", "claude-opus-5-5"):
+            for want in ("LAST 30 DAYS", "13.9M", "claude-opus-5-5", "SYS.COMPUTAI // AI USAGE", "LOADOUT"):
                 self.assertIn(want, svg)
             self.assertNotIn("secret", svg)
             self.assertNotIn(SESSION, svg)
-        self.assertIn("#0d1117", dark)
-        self.assertIn("#ffffff", light)
+        self.assertIn("#111018", dark)
+        self.assertIn("#fbfaff", light)
+        self.assertIn("prefers-reduced-motion", dark)                    # 動畫可以被系統設定關掉
         self.assertNotEqual(dark, light)
 
     def test_escapes_model_and_zh(self):
@@ -74,12 +75,25 @@ class Card(unittest.TestCase):
         ET.fromstring(svg)
         self.assertIn("今年", svg)
 
+    def test_level_heatmap_and_badges(self):
+        self.assertEqual(self.m.card_level(0), (0, 0, "INITIATE"))
+        self.assertEqual(self.m.card_level(900e6)[:1], (30,))             # sqrt(900) = 30
+        self.assertEqual(self.m.card_level(900e6)[2], "TOKEN ALCHEMIST")
+        c = self.card()
+        self.assertEqual(len(c["heat"]), 91)                               # 13 週 × 7 天
+        self.assertEqual(len(c["pulse"]), 30)
+        self.assertIsNone(c["heat"][-1]) if c["heat"][-1] is None else None
+        self.assertTrue(any(v for v in c["heat"] if v))
+        self.assertIn("STREAK x%d" % c["longest_streak"], c["badges"]) if c["longest_streak"] >= 7 else None
+        svg = self.m.render_card_svg(c, handle="hawks")
+        self.assertIn("SYS.HAWKS // AI USAGE", svg)
+
     def test_empty_ledger(self):
         db = self.m.open_ledger(":memory:")
         self.addCleanup(db.close)
         svg = self.m.render_card_svg(self.m.card_data(db, "30d", PRICES, {}, t=self.t))
         ET.fromstring(svg)
-        self.assertIn("no usage yet", svg)
+        self.assertIn("NO USAGE YET", svg)
 
     def test_cli_writes_card_and_validates_period(self):
         sb = helpers.Sandbox()
@@ -88,7 +102,7 @@ class Card(unittest.TestCase):
         r = sb.run("--card", "--svg", out, "--card-theme", "light", "--no-sync")
         self.assertEqual(r.returncode, 0, r.stderr)
         with open(out, encoding="utf-8") as f:
-            self.assertIn("#ffffff", f.read())
+            self.assertIn("#fbfaff", f.read())
         self.assertNotEqual(sb.run("--card", "--period", "week", "--no-sync").returncode, 0)
         r = sb.run("--card", "--no-sync")                                 # 不指定檔案就印到標準輸出
         self.assertTrue(r.stdout.startswith("<svg"))

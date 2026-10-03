@@ -136,6 +136,10 @@ monthly_usd = 0
 repo =
 period = 30d
 push = no
+# The name on the card's title bar (SYS.<handle> // AI USAGE).
+handle =
+# Card language (en, zh); empty follows [general] lang.
+lang =
 
 [notify]
 # Tell me when something changes, once per change: a limit reaches 80% or runs out, a limit resets
@@ -6087,6 +6091,8 @@ def card_settings(cp=None):
     cp = cp or load_config()
     g = lambda k, d="": (cp.get("card", k, fallback=d) or d).strip()
     return {"repo": os.path.expanduser(g("repo")) if g("repo") else "", "period": g("period", "30d"),
+            "handle": re.sub(r"[^A-Za-z0-9_.-]", "", g("handle"))[:24] or None,
+            "lang": g("lang").lower()[:2] if g("lang").lower()[:2] in UI else None,
             "push": g("push", "no").lower() in ("yes", "true", "1", "on")}
 
 
@@ -7044,7 +7050,7 @@ def card_data(db, period="30d", prices=None, plan_table=None, t=None):
         start, kind = local_ts(today.year, 1, 1), "range"
     else:
         start, kind = 0, "range"
-    w = wrapped(db, start, end, period, kind, prices, plan_table if plan_table is not None else {}, compare=False, t=t)
+    w = wrapped(db, start, end, period, kind, prices, plan_table if plan_table is not None else plans(), compare=False, t=t)
     daily = dict(w["daily"])
     if period in ("30d", "month"):
         days = [today - datetime.timedelta(days=i) for i in range(13, -1, -1)]
@@ -7058,34 +7064,235 @@ def card_data(db, period="30d", prices=None, plan_table=None, t=None):
         months.reverse()
         bars = [round(sum(v for d, v in daily.items() if d[:7] == m_), 2) for m_ in months]
         bars_key = "cd_bars_months"
-    return {"period": period, "tokens": w["tokens"], "api_equivalent_usd": w["api_equivalent_usd"],
-            "top_model": w["top_models"][0]["model"] if w["top_models"] else None,
-            "active_days": w["active_days"], "longest_streak": w["longest_streak"],
-            "bars": bars, "bars_key": bars_key}
+    c = {"period": period, "tokens": w["tokens"], "api_equivalent_usd": w["api_equivalent_usd"],
+         "top_model": w["top_models"][0]["model"] if w["top_models"] else None,
+         "active_days": w["active_days"], "longest_streak": w["longest_streak"],
+         "bars": bars, "bars_key": bars_key}
+    c.update(card_extras(db, w, today, start, end))
+    return c
 
 
-def render_card_svg(c, theme="dark"):
-    th = CARD_THEMES.get(theme, CARD_THEMES["dark"])
-    rows = [(T("cd_tokens"), fmt_tok(c["tokens"])), (T("cd_value"), fmt_usd(c["api_equivalent_usd"])),
-            (T("cd_model"), clip_text(c["top_model"], 15) if c["top_model"] else "-"),
-            (T("cd_days"), T("wr_days_card") % (c["active_days"], c["longest_streak"]))]
-    out = ['<svg xmlns="http://www.w3.org/2000/svg" width="495" height="195" viewBox="0 0 495 195" role="img" '
-           'aria-label="%s">' % svg_escape("ComputAI " + T("cd_" + c["period"])),
-           '<rect x="0.5" y="0.5" width="494" height="194" rx="8" fill="%(bg)s" stroke="%(border)s"/>' % th,
-           '<g font-family="%s">' % svg_escape(SVG_FONT),
-           svg_text(25, 36, "ComputAI · " + T("cd_" + c["period"]), 15, th["title"], weight="700")]
-    y = 72
-    for label, val in rows:
-        out.append(svg_text(25, y, label, 12, th["label"]))
-        out.append(svg_text(120, y, val, 14, th["value"], weight="700"))
-        y += 28
-    if c["tokens"]:
-        out.append(svg_bars(c["bars"], 285, 62, 185, 80, th["bar"], gap=3, min_h=2))
-        out.append(svg_text(377.5, 164, T(c["bars_key"]), 11, th["label"], anchor="middle"))
-    else:
-        out.append(svg_text(377.5, 105, T("cd_none"), 13, th["label"], anchor="middle"))
-    out.append("</g></svg>\n")
-    return "".join(out)
+# 等級：累計 token 開根號（百萬為單位），越後面越難升。稱號照等級分段。
+CARD_RANKS = ((0, "INITIATE"), (5, "PROMPT RUNNER"), (12, "CONTEXT HACKER"), (20, "CACHE WEAVER"),
+              (30, "TOKEN ALCHEMIST"), (45, "NETRUNNER"), (65, "GHOST IN THE SHELL"), (90, "AI OVERLORD"))
+
+
+def card_level(tokens):
+    x = math.sqrt(max(0, tokens) / 1e6)
+    lv = int(x)
+    title = [t_ for need, t_ in CARD_RANKS if lv >= need][-1]
+    return lv, round(100 * (x - lv)), title
+
+
+def card_extras(db, w, today, start, end):
+    """卡片的有趣部分：近 13 週每天的 token（熱力圖）、近 30 天的脈搏、累計等級、裝備欄（前三名模型）、
+    作息人格、目前連續天數、快取省下的錢，以及照真實資料解鎖的成就。只有彙總數字和模型名稱。"""
+    first = today - datetime.timedelta(days=today.weekday() + 7 * 12)       # 13 整週，從週一開始
+    t0 = local_ts(first.year, first.month, first.day)
+    t1 = local_ts(today.year, today.month, today.day) + 86400
+    cols = "input + cache_read + cache_write_5m + cache_write_1h + output"
+    per_day = {r[0]: r[1] for r in db.execute(
+        "SELECT date(ts, 'unixepoch', 'localtime'), SUM(%s) FROM usage WHERE source != 'cloud' AND ts >= ? AND ts < ? "
+        "GROUP BY 1" % cols, (min(t0, t1 - 30 * 86400), t1))}
+    days = [first + datetime.timedelta(days=i) for i in range(13 * 7)]
+    heat = [per_day.get(d.isoformat(), 0) if d <= today else None for d in days]
+    pulse = [per_day.get((today - datetime.timedelta(days=i)).isoformat(), 0) for i in range(29, -1, -1)]
+    streak = 0
+    d = today if per_day.get(today.isoformat()) else today - datetime.timedelta(days=1)
+    while per_day.get(d.isoformat()):
+        streak += 1
+        d -= datetime.timedelta(days=1)
+    total = db.execute("SELECT COALESCE(SUM(%s), 0) FROM usage WHERE source != 'cloud'" % cols).fetchone()[0]
+    lv, xp, title = card_level(total)
+    maxed = db.execute("SELECT COALESCE(MAX(used_percent), 0) FROM limits WHERE ts >= ? AND ts < ?",
+                       (start, end)).fetchone()[0]
+    models = [m for m in w["top_models"][:3]]
+    badges = []
+    for need, name in ((1e10, "10B CLUB"), (1e9, "1B CLUB"), (1e8, "100M CLUB")):
+        if total >= need:
+            badges.append(name)
+            break
+    if w["longest_streak"] >= 7:
+        badges.append("STREAK x%d" % w["longest_streak"])
+    if w.get("persona"):
+        badges.append("persona:" + w["persona"])   # 畫的時候才依卡片語言換成文字
+    if (w.get("cache_savings_usd") or 0) >= 1000:
+        badges.append("CACHE LORD")
+    if (w.get("local_tokens") or 0) > 0:
+        badges.append("HOMELAB")
+    if sum(1 for m in w["top_models"] if m["share_pct"] >= 5) >= 3:
+        badges.append("POLYGLOT")
+    if maxed >= LIMIT_FAIL:
+        badges.append("MAXED OUT")
+    return {"heat": heat, "heat_start": first.isoformat(), "pulse": pulse, "streak": streak,
+            "all_tokens": total, "level": lv, "xp_pct": xp, "rank": title, "models": models,
+            "persona": w.get("persona"), "peak_hour": w.get("peak_hour"),
+            "cache_savings_usd": w.get("cache_savings_usd") or 0, "value_ratio": w.get("value_ratio"),
+            "lotr": (w.get("equivalents") or {}).get("lotr"), "badges": badges[:6]}
+
+
+CARD_FONT = "'JetBrains Mono','Fira Code','SF Mono',Menlo,Consolas,'Liberation Mono','Noto Sans Mono CJK TC',monospace"
+CARD_PAL = {
+    "dark": {"bg": "#111018", "frame": "#2a2633", "grid": "#fbbf24", "grid_op": ".055", "text": "#ece8f4",
+             "gray": "#8b8597", "amber": "#fbbf24", "violet": "#a78bfa", "green": "#4ade80", "track": "#24212d",
+             "heat": ("#1d1b25", "#3b2f63", "#5b46a8", "#8b6cf0", "#fbbf24"), "chip": "#1a1822"},
+    "light": {"bg": "#fbfaff", "frame": "#ddd8ea", "grid": "#6d28d9", "grid_op": ".05", "text": "#1b1a22",
+              "gray": "#6b6577", "amber": "#b45309", "violet": "#6d28d9", "green": "#15803d", "track": "#ebe7f3",
+              "heat": ("#ece9f3", "#d8ccf9", "#b39af2", "#8b5cf6", "#d97706"), "chip": "#f3f0fa"},
+}
+CARD_TXT = {
+    "en": {"usage": "AI USAGE", "tokens": "TOKENS THROUGH AI AGENTS", "api": "AT API PRICES", "value": "SUBSCRIPTION VALUE",
+           "activity": "ACTIVITY // 13 WEEKS", "less": "LESS", "more": "MORE", "rank": "RANK", "xp": "XP %d%% TO LV.%d",
+           "all": "ALL-TIME %s TOK", "loadout": "LOADOUT", "streak": "STREAK %dD", "peak": "PEAK %02d:00",
+           "cache": "CACHE SAVED %s", "lotr": "%.1fx LORD OF THE RINGS, WRITTEN", "sync": "SYNC %s", "online": "ONLINE",
+           "none": "NO USAGE YET", "30d": "LAST 30 DAYS", "month": "THIS MONTH", "year": "THIS YEAR", "all_p": "ALL TIME"},
+    "zh": {"usage": "AI 用量", "tokens": "流過 AI 代理的 TOKEN", "api": "照 API 價格", "value": "訂閱回本",
+           "activity": "活動 // 13 週", "less": "少", "more": "多", "rank": "等級", "xp": "XP %d%% 升到 LV.%d",
+           "all": "累計 %s TOK", "loadout": "裝備", "streak": "連續 %d 天", "peak": "高峰 %02d:00",
+           "cache": "快取省下 %s", "lotr": "AI 寫了 %.1f 套《魔戒》", "sync": "同步 %s", "online": "在線",
+           "none": "還沒有用量", "30d": "近 30 天", "month": "本月", "year": "今年", "all_p": "全部"},
+}
+
+
+def card_persona(key, lang):
+    old = _lang
+    set_lang(lang)
+    try:
+        name = persona_short(key)
+    finally:
+        set_lang(old)
+    return name.upper() if lang == "en" else name
+
+
+def render_card_svg(c, theme="dark", handle=None, t=None, lang=None):
+    """GitHub 個人頁卡片（900x360）：琥珀四角括號、細格線、紫到琥珀的漸層大數字、13 週熱力圖（有掃描光）、
+    等級環、裝備欄、一行事實、成就徽章，分隔線是近 30 天的脈搏。只有彙總數字和模型名稱；不放腳本和外部資源。
+    動畫是 CSS／SMIL，系統設了「減少動態效果」就停。"""
+    p = CARD_PAL.get(theme, CARD_PAL["dark"])
+    lang = lang if lang in CARD_TXT else _lang
+    tx = CARD_TXT.get(lang, CARD_TXT["en"])
+    W, H = 900, 360
+    e = svg_escape
+    handle = (handle or "COMPUTAI").upper()
+    label = "SYS.%s // %s" % (handle, tx["usage"])
+    period = tx["all_p"] if c["period"] == "all" else tx[c["period"]]
+    sync = time.strftime("%m-%d %H:%M", time.localtime(now() if t is None else t))
+
+    def text(x, y, s, size, fill, **kw):
+        return svg_text(x, y, s, size, fill, **kw)
+    o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="%s">'
+         % (W, H, W, H, e("%s · %s · %s tokens" % (label, period, fmt_tok(c["tokens"])))),
+         '<style>text{font-family:%s}.sc{animation:sc 5s linear infinite}@keyframes sc{0%%{transform:translateX(0)}'
+         '100%%{transform:translateX(250px)}}.rg{animation:rg 1.6s ease-out .3s both}@keyframes rg{from{stroke-dashoffset:%.1f}}'
+         '.pl{stroke-dasharray:6 4;animation:pl 2s linear infinite}@keyframes pl{to{stroke-dashoffset:-20}}'
+         '.on{animation:on 1.6s steps(2) infinite}@keyframes on{50%%{opacity:.25}}'
+         '.ty{animation:ty 1.4s steps(24) .2s both}@keyframes ty{from{width:0}}'
+         '@media (prefers-reduced-motion:reduce){.sc,.rg,.pl,.on,.ty{animation:none}}</style>' % (CARD_FONT, 2 * math.pi * 44),
+         '<defs><linearGradient id="ac" x1="0" x2="1"><stop offset="0" stop-color="%(violet)s"/><stop offset="1" stop-color="%(amber)s"/></linearGradient>'
+         '<linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="%(amber)s" stop-opacity="0"/><stop offset=".5" stop-color="%(amber)s" stop-opacity=".35"/>'
+         '<stop offset="1" stop-color="%(amber)s" stop-opacity="0"/></linearGradient>'
+         '<pattern id="gd" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="%(grid)s" stroke-opacity="%(grid_op)s"/></pattern>'
+         '<clipPath id="hm"><rect x="338" y="84" width="236" height="128"/></clipPath>'
+         '<clipPath id="ty"><rect class="ty" x="40" y="26" width="420" height="22"/></clipPath></defs>' % p,
+         '<rect x=".5" y=".5" width="%d" height="%d" rx="14" fill="%s" stroke="%s"/>' % (W - 1, H - 1, p["bg"], p["frame"]),
+         '<rect x="1" y="1" width="%d" height="%d" rx="14" fill="url(#gd)"/>' % (W - 2, H - 2)]
+    for x, y, dx, dy in ((18, 18, 1, 1), (W - 18, 18, -1, 1), (18, H - 18, 1, -1), (W - 18, H - 18, -1, -1)):
+        o.append('<path d="M%d %dV%dH%d" fill="none" stroke="%s" stroke-width="2"/>' % (x, y + 22 * dy, y, x + 22 * dx, p["amber"]))
+    o.append('<g clip-path="url(#ty)">' + text(40, 42, label, 12, p["amber"], weight="700", spacing=3) + '</g>')
+    on = "● " + tx["online"]
+    o.append('<g class="on">' + text(W - 40, 42, on, 11, p["green"], anchor="end", spacing=1.5) + '</g>')
+    o.append(text(W - 40 - 8.2 * vlen(on) - 10, 42, "%s · %s ·" % (period, tx["sync"] % sync), 11, p["gray"],
+                  anchor="end", spacing=1.5))
+    o.append('<rect x="40" y="54" width="300" height="2" fill="url(#ac)" opacity=".8"/>')
+    if not c["tokens"]:
+        o.append(text(W / 2, 200, tx["none"], 18, p["gray"], anchor="middle", spacing=4))
+        o.append("</svg>\n")
+        return "".join(o)
+    # 左：大數字
+    o.append('<text x="38" y="124" font-size="64" font-weight="800" fill="url(#ac)">%s</text>' % e(fmt_tok(c["tokens"])))
+    o.append(text(40, 146, tx["tokens"], 10, p["gray"], spacing=2))
+    o.append(text(40, 184, fmt_usd(c["api_equivalent_usd"]), 22, p["text"], weight="700"))
+    o.append(text(40 + 13.5 * len(fmt_usd(c["api_equivalent_usd"])) + 8, 184, tx["api"], 10, p["gray"], spacing=1.5))
+    if c.get("value_ratio"):
+        vr = "%.1fx" % c["value_ratio"]
+        o.append(text(40, 214, vr, 22, p["amber"], weight="700"))
+        o.append(text(40 + 13.5 * len(vr) + 8, 214, tx["value"], 10, p["gray"], spacing=1.5))
+    # 中：13 週熱力圖
+    o.append(text(338, 76, tx["activity"], 10, p["gray"], spacing=2))
+    known = [v for v in c["heat"] if v]
+    top = max(known) if known else 1
+    for i, v in enumerate(c["heat"]):
+        col, row = divmod(i, 7)
+        if v is None:
+            continue
+        r = v / float(top) if top else 0
+        k = 0 if not v else 1 if r <= .25 else 2 if r <= .5 else 3 if r <= .8 else 4
+        o.append('<rect x="%d" y="%d" width="14" height="14" rx="3" fill="%s"/>' % (338 + col * 18, 84 + row * 18, p["heat"][k]))
+    o.append('<g clip-path="url(#hm)"><rect class="sc" x="310" y="84" width="40" height="128" fill="url(#sw)"/></g>')
+    o.append(text(338, 232, tx["less"], 9, p["gray"]))
+    for k in range(5):
+        o.append('<rect x="%d" y="223" width="10" height="10" rx="2" fill="%s"/>' % (366 + k * 14, p["heat"][k]))
+    o.append(text(440, 232, tx["more"], 9, p["gray"]))
+    # 右：等級環
+    cx, cy, rr = 668, 148, 44
+    circ = 2 * math.pi * rr
+    o.append('<circle cx="%d" cy="%d" r="%d" fill="none" stroke="%s" stroke-width="7"/>' % (cx, cy, rr, p["track"]))
+    o.append('<circle class="rg" cx="%d" cy="%d" r="%d" fill="none" stroke="url(#ac)" stroke-width="7" stroke-linecap="round" '
+             'stroke-dasharray="%.1f" stroke-dashoffset="%.1f" transform="rotate(-90 %d %d)"/>'
+             % (cx, cy, rr, circ, circ * (1 - c["xp_pct"] / 100.0), cx, cy))
+    o.append(text(cx, cy - 12, "LV", 10, p["gray"], anchor="middle", spacing=2))
+    o.append(text(cx, cy + 16, str(c["level"]), 30, p["text"], anchor="middle", weight="800"))
+    o.append(text(730, 108, tx["rank"], 10, p["gray"], spacing=2))
+    words = c["rank"].split(" ")
+    lines = [" ".join(words[:len(words) // 2 + len(words) % 2]), " ".join(words[len(words) // 2 + len(words) % 2:])] \
+        if len(c["rank"]) > 13 else [c["rank"]]
+    for k, ln in enumerate(lines):
+        o.append(text(730, 132 + k * 20, ln, 16, p["amber"], weight="800", spacing=1))
+    y0 = 132 + len(lines) * 20 + 6
+    o.append(text(730, y0, tx["xp"] % (c["xp_pct"], c["level"] + 1), 10, p["gray"], spacing=1))
+    o.append(text(730, y0 + 18, tx["all"] % fmt_tok(c["all_tokens"]), 10, p["gray"], spacing=1))
+    # 分隔線：近 30 天的脈搏
+    pv = c["pulse"]
+    pt = max(pv) or 1
+    pts = " ".join("%.1f,%.1f" % (40 + i * (820.0 / (len(pv) - 1)), 256 - 14 * v / pt) for i, v in enumerate(pv))
+    o.append('<line x1="40" y1="256" x2="860" y2="256" stroke="%s"/>' % p["frame"])
+    o.append('<polyline class="pl" points="%s" fill="none" stroke="%s" stroke-width="1.5" opacity=".75"/>' % (pts, p["amber"]))
+    # 裝備欄
+    o.append(text(40, 286, tx["loadout"], 10, p["amber"], weight="700", spacing=2))
+    for k, m in enumerate(c["models"]):
+        x = 130 + k * 245
+        o.append(text(x, 284, clip_text(m["model"], 22), 12, p["text"], weight="700"))
+        o.append('<rect x="%d" y="291" width="190" height="4" rx="2" fill="%s"/>' % (x, p["track"]))
+        o.append('<rect x="%d" y="291" width="%.1f" height="4" rx="2" fill="url(#ac)"/>' % (x, 190 * m["share_pct"] / 100.0))
+        o.append(text(x + 200, 296, "%d%%" % m["share_pct"], 10, p["gray"]))
+    # 一行事實
+    facts = []
+    if c["streak"]:
+        facts.append(tx["streak"] % c["streak"])
+    if c.get("persona"):
+        facts.append(card_persona(c["persona"], lang))
+    if c.get("peak_hour") is not None:
+        facts.append(tx["peak"] % c["peak_hour"])
+    if c["cache_savings_usd"] >= 1:
+        facts.append(tx["cache"] % fmt_usd(c["cache_savings_usd"]))
+    if c.get("lotr"):
+        facts.append(tx["lotr"] % c["lotr"])
+    while facts and vlen("  //  ".join(facts)) * 7.6 > W - 80:   # 放不下就從後面拿掉
+        facts.pop()
+    o.append(text(40, 322, "  //  ".join(facts), 11, p["text"], spacing=1))
+    # 成就徽章
+    x = 48
+    for b in c["badges"]:
+        label_ = "◆ " + (card_persona(b[8:], lang) if b.startswith("persona:") else b)
+        w_ = 7.2 * vlen(label_) + 20
+        if x + w_ > W - 40:
+            break
+        o.append('<rect x="%.1f" y="333" width="%.1f" height="18" rx="4" fill="%s" stroke="%s" stroke-opacity=".6"/>'
+                 % (x, w_, p["chip"], p["amber"]))
+        o.append(text(x + 10, 346, label_, 10, p["amber"], weight="700", spacing=1))
+        x += w_ + 8
+    o.append("</svg>\n")
+    return "".join(o)
 
 
 def publish_card(db, period, path, push=False, prices=None, plan_table=None):
@@ -7112,7 +7319,7 @@ def publish_card(db, period, path, push=False, prices=None, plan_table=None):
     lines = []
     for theme, name in (("dark", names[0]), ("light", names[1])):
         with open(os.path.join(root, name), "w", encoding="utf-8") as f:
-            f.write(render_card_svg(c, theme))
+            f.write(render_card_svg(c, theme, card_settings()["handle"], lang=card_settings()["lang"]))
         lines.append("wrote %s" % os.path.join(root, name))
     r = git("add", "--", *names)
     if r.returncode:
@@ -8171,12 +8378,12 @@ def run(args, db):
                 return 0
         if args.svg:
             with open(args.svg, "w", encoding="utf-8") as f:
-                f.write(render_card_svg(c, args.card_theme))
+                f.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"]))
             print("computai: wrote %s" % args.svg)
         elif args.json:
             emit(c, "", True)
         else:
-            sys.stdout.write(render_card_svg(c, args.card_theme))
+            sys.stdout.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"]))
         return 0
     if args.recap is not None:
         if not args.no_sync:
