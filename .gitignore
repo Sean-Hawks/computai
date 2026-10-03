@@ -10,3 +10,6 @@ config.local.*
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# 交接筆記只存在本機（裡面有機器位址、花費等個人資訊）
+NIGHT_LOG.md
