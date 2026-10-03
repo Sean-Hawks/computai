@@ -88,6 +88,7 @@ codex = Plus 20 x1, Pro 200 x20
 #   services   = ollama:11434, vllm:8000   inference servers to probe (default: common ports)
 #   base_watts = 60    the rest of the machine, added on top of measured GPU power
 #   cpu_watts  = 90    extra power when the CPU is fully busy, scaled by CPU use
+#   mac        = aa:bb:cc:dd:ee:ff     for computai --wake NAME (Wake-on-LAN)
 #   plug       = shelly:192.168.1.50   measured power from a smart plug (shelly, shelly1, tasmota,
 #                ha:sensor.x with HA_URL and HA_TOKEN); used instead of the estimate when it answers
 #   idle_watts = 8     whole machine at idle, used when GPU power can't be read (e.g. Macs)
@@ -1806,6 +1807,34 @@ def read_plug(spec):
     except (KeyError, IndexError, TypeError, ValueError):
         return None
     return None
+
+
+# ---- Wake-on-LAN（--wake）
+
+def magic_packet(mac):
+    """6 個 0xFF 加上 16 次 MAC。MAC 格式不對回傳 None。"""
+    h = re.sub(r"[^0-9a-fA-F]", "", mac or "")
+    if len(h) != 12:
+        return None
+    return b"\xff" * 6 + bytes.fromhex(h) * 16
+
+
+def wake(name, addr="255.255.255.255", port=9):
+    """喚醒 [machines] 裡的機器（要在 [machine.名稱] 設 mac，可選 wol_address 指定廣播位址）。"""
+    cp = load_config()
+    sec = "machine." + name
+    mac = cp.get(sec, "mac", fallback="") if cp.has_section(sec) else ""
+    pkt = magic_packet(mac)
+    if pkt is None:
+        raise SystemExit("computai: set mac = aa:bb:cc:dd:ee:ff under [%s] first" % sec)
+    addr = cp.get(sec, "wol_address", fallback=addr) or addr
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(pkt, (addr, port))
+    finally:
+        sock.close()
+    return mac, addr
 
 
 def estimate_power(m, gpu_power, util, cpu):
@@ -4863,6 +4892,7 @@ def parse_args(argv=None):
                    help="look for machines in ~/.ssh/config and Tailscale, test SSH, print config lines")
     p.add_argument("--mcp", action="store_true",
                    help="run as an MCP server on stdio so agents can query usage, limits and budget")
+    p.add_argument("--wake", metavar="NAME", help="send a Wake-on-LAN packet to a machine (needs mac = ... in its section)")
     p.add_argument("--cloud", action="store_true",
                    help="list your RunPod, Vast.ai and Lambda GPUs (read-only API calls)")
     p.add_argument("--proxy", action="store_true",
@@ -4957,7 +4987,7 @@ def local_hostname():
 
 
 ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "report", "once", "discover", "csv", "mcp", "recap", "weekly")
+           "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake")
 
 
 def run(args, db):
@@ -4992,6 +5022,10 @@ def run(args, db):
         add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()), only_changes=True)
         db.commit()
         args.line = True
+    if args.wake:
+        mac, addr = wake(args.wake)
+        print("computai: sent a wake-up packet to %s (%s via %s)" % (args.wake, mac, addr))
+        return 0
     if args.mcp:
         return serve_mcp(db)
     if args.discover:

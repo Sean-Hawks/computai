@@ -328,3 +328,37 @@ class Plugs(unittest.TestCase):
         m = {"name": "box", "plug": "shelly:1.2.3.4", "idle_watts": 10, "max_watts": 20}
         self.m.record_sample(db, m, {"cpu": ("pct", 50.0), "gpus": [], "services": []}, 100)
         self.assertEqual(db.execute("SELECT power_w FROM samples").fetchone()[0], 187.4)
+
+
+class Wake(unittest.TestCase):
+    def test_magic_packet(self):
+        m = helpers.load()
+        p = m.magic_packet("AA:bb-cc:dd:ee:ff")
+        self.assertEqual(len(p), 102)
+        self.assertEqual(p[:6], b"\xff" * 6)
+        self.assertEqual(p[6:12], bytes.fromhex("aabbccddeeff"))
+        self.assertIsNone(m.magic_packet("nope"))
+
+    def test_wake_sends_udp(self):
+        import socket
+        sb = helpers.Sandbox()
+        old = dict(os.environ)
+        rx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        rx.bind(("127.0.0.1", 0))
+        rx.settimeout(5)
+        try:
+            os.makedirs(sb.config)
+            with open(os.path.join(sb.config, "config.ini"), "w") as f:
+                f.write("[machines]\nbox = box\n\n[machine.box]\nmac = 11:22:33:44:55:66\nwol_address = 127.0.0.1\n")
+            os.environ["COMPUTAI_CONFIG_DIR"] = sb.config
+            m = helpers.load()
+            m.wake("box", port=rx.getsockname()[1])
+            data, _ = rx.recvfrom(200)
+            self.assertEqual(data[6:12], bytes.fromhex("112233445566"))
+            with self.assertRaises(SystemExit):
+                m.wake("unknown")
+        finally:
+            rx.close()
+            os.environ.clear()
+            os.environ.update(old)
+            sb.close()
