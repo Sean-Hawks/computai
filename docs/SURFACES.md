@@ -13,7 +13,7 @@ TUI 只是其中一個介面。使用者真正想知道的只有三件事：
 |---|---|---|---|
 | 零：自己來找你 | 桌面通知：額度到 80%、用完、**重置了可以繼續用**、機器連不上、模型佔記憶體沒在用、雲端 GPU 閒置計費 | ✓ | 在 `computai`／`--web`／`--watch` 裡自動跑；`--install-watch` 登入就在背景跑；`--notify-test` 試一則 |
 | 零 | Discord／Telegram 即時通知、每週摘要 | ✓ | `[notify] chat = yes`；`--weekly --send` |
-| 零：本來就在看 | Claude Code 狀態列 | ✓ | statusLine 設成 `computai --statusline`（同時讓 ComputAI 讀到 Claude 的額度） |
+| 零：本來就在看 | Claude Code 狀態列 | ✓ | statusLine 設成 `computai --statusline`（Claude 額度本來就會自己從 `claude -p /usage` 讀，這只是多一個顯示的地方） |
 | 零 | tmux、SwiftBar 選單列 | ✓ | `computai --line` |
 | 零 | AI agent 自己查預算和額度 | ✓ | `computai --mcp` |
 | 一眼 | 終端機總覽 | ✓ | `computai` |

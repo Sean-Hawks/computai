@@ -52,9 +52,14 @@ Nothing to set up. `computai --sync` (and every report, which syncs first unless
 - **Codex**: one row per `token_count` event. OpenAI counts cached tokens inside
   `input_tokens`; ComputAI stores uncached input so both providers mean the same thing.
   The totals match Codex's own `tokens_used` per thread.
-- **Limits**: Codex logs its limit windows (`rate_limits`); they appear as `week`, `5h` and so on.
-  Claude's limits are only available to a status line command, so set Claude Code's status line
-  to `computai --statusline` (see [one-line.md](one-line.md)); Pro and Max accounts only.
+- **Limits**: both are read for the whole account (other machines, T3 Code, claude.ai and other people
+  count too), every 10 minutes:
+  - Claude: ask the official `claude` CLI (`claude -p /usage`, a local command that calls no model and uses
+    no quota); Pro and Max accounts only. Setting Claude Code's status line to `computai --statusline`
+    (see [one-line.md](one-line.md)) also works and updates on every reply.
+  - Codex: ask the official `codex` CLI (`codex app-server`); the limit windows in its logs are read too.
+  - The official CLIs handle their own login; ComputAI only receives percentages and reset times.
+    `[claude]` / `[codex] poll_minutes = 0` turns it off.
 
 ## Commands
 
@@ -72,6 +77,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
 | `--card --setup` | Set up the GitHub profile card in a few questions (finds or clones the profile repo, writes the first card, adds it to the README). |
 | `--watch` | No screen: keep the ledger fresh and send notifications (see Notifications). |
+| `--claude-limits` | Read the Claude account's limits now through the claude CLI (`claude -p /usage`; no model call). |
 | `--codex-limits` | Read the Codex account's limits now through the codex CLI (includes other machines and people on the account). |
 | `--limit-reset claude\|codex` | Mark a subscription's limits as reset now (after an early reset the logs can't show); the next real reading replaces it. |
 | `--notify-test` | Send a test notification. |
@@ -427,7 +433,7 @@ Codex, an `[mcp_servers.computai]` entry with `command = "computai"` and `args =
 ## Troubleshooting
 
 - *A model shows "?" cost*: add it to `prices.ini`.
-- *No Claude percentage*: set up `computai --statusline` (Pro/Max only).
+- *No Claude percentage*: make sure the `claude` CLI is installed and logged in (Pro/Max only), then try `computai --claude-limits`.
 - *A machine never appears*: `--sample`, `--live` and `--web` show why ("cannot read: ..."). Run
   `ssh -o BatchMode=yes HOST true`; it must work without prompts. "Host key verification failed" means
   known_hosts has the key under another name: use the name or IP you normally ssh to (for Tailscale
