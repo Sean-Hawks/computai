@@ -59,6 +59,20 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
   - Codex：問官方的 `codex` 程式（`codex app-server`）；log 裡的額度視窗也會讀。
   - 登入都由官方程式自己處理，ComputAI 只拿到百分比和重置時間。`[claude]`／`[codex] poll_minutes = 0` 關掉。
 
+### 其他 agent：Gemini CLI、OpenCode、Cursor
+
+一樣只取用量欄位：
+
+- **Gemini CLI**：`~/.gemini/tmp/<專案>/chats/*.jsonl`（可以用 `GEMINI_CLI_HOME` 改位置）。每則 Gemini 回應一列，用 id 去重；
+  `input` 含快取、`output` 不含 thinking，ComputAI 會扣掉、加回（用真實紀錄核對過：total = input + output + thoughts + tool）。
+  subagent（`kind: subagent`）算在主 session 底下。
+- **OpenCode**：`~/.local/share/opencode/opencode*.db`（和舊版的 `storage/message/*.json`）。只讀 assistant 訊息的中繼資料，
+  而且是讀暫存複本（讀完立刻刪），OpenCode 開著也不會被鎖住。OpenCode 的 input、output、reasoning、快取互不重疊，
+  子 session 算 subagent；OpenCode 有算出花費時就用它的。
+- **Cursor** 在你的電腦上沒有 log。到 cursor.com/dashboard（Usage → Export CSV）匯出，然後 `computai --import-cursor 檔案`，
+  或設 `[cursor] exports = ~/Downloads/usage-events*.csv` 讓每次同步自動匯入。欄位照標題名稱找；格式來自第三方的解析程式，
+  還沒用真的匯出檔核對過。「Errored, No Charge」的列不算；重疊的匯出檔重複匯入不會重複計算。
+
 ## 指令
 
 每個指令都可以加 `--json`。時間範圍：`--month [YYYY-MM]`、`--since YYYY-MM-DD`、

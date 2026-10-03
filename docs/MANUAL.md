@@ -72,6 +72,22 @@ Nothing to set up. `computai --sync` (and every report, which syncs first unless
   - The official CLIs handle their own login; ComputAI only receives percentages and reset times.
     `[claude]` / `[codex] poll_minutes = 0` turns it off.
 
+### More agents: Gemini CLI, OpenCode, Cursor
+
+Read the same way, usage fields only:
+
+- **Gemini CLI**: `~/.gemini/tmp/<project>/chats/*.jsonl` (`GEMINI_CLI_HOME` moves it). One row per Gemini reply, deduplicated by
+  its id; `input` includes cached tokens and `output` excludes thinking, so ComputAI subtracts and adds them (checked on
+  real recordings: total = input + output + thoughts + tool). Subagents (`kind: subagent`) count under their session.
+- **OpenCode**: `~/.local/share/opencode/opencode*.db` (and the older `storage/message/*.json`). Only assistant message
+  metadata is read, from a temporary copy that is deleted right away, so a running OpenCode is never locked. Input,
+  output, reasoning and cache are separate in OpenCode, and child sessions count as subagents. OpenCode's own cost is
+  used when it has one.
+- **Cursor** keeps no log on your computer. Export your usage from cursor.com/dashboard (Usage, Export CSV) and run
+  `computai --import-cursor FILE`, or set `[cursor] exports = ~/Downloads/usage-events*.csv` to import on every sync.
+  Columns are matched by name; the format was taken from a third-party parser and has not been checked against a
+  real export yet. Rows marked "Errored, No Charge" are skipped; importing overlapping exports never counts a row twice.
+
 ## Commands
 
 All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
