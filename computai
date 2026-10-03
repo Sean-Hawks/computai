@@ -1223,8 +1223,8 @@ def write_device_files(db, folder, t=None):
     row = db.execute("SELECT value FROM meta WHERE key = 'device_export_sig'").fetchone()
     data = os.path.join(folder, dev + ".jsonl")
     n = None
-    if (not row or row["value"] != sig or not os.path.exists(data)) and \
-            (not os.path.exists(data) or due(db, "device_data_at", DEVICE_EVERY["data"], t)):
+    changed = not row or row["value"] != sig or not os.path.exists(data)
+    if changed and (due(db, "device_data_at", DEVICE_EVERY["data"], t) or not os.path.exists(data)):
         text, n = export_usage(db, t=t)
         write_atomic(data, text)
         db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('device_export_sig', ?)", (sig,))
