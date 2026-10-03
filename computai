@@ -2867,8 +2867,7 @@ def cloud_alerts(db, t=None):
             continue
         if r["gpu_util"] is None:
             out.append({"kind": "cloud_unknown_util", "provider": r["provider"], "id": r["id"],
-                        "message": "%s %s is billing %s/h; GPU use unknown (set [cloud] ssh_user)"
-                        % (r["provider"], r["name"], fmt_usd(r["usd_per_hour"]))})
+                        "message": T("a_cloud_unknown") % (r["provider"], r["name"], fmt_usd(r["usd_per_hour"]))})
             continue
         if r["gpu_util"] >= cs["idle_util"]:
             continue
@@ -2884,9 +2883,9 @@ def cloud_alerts(db, t=None):
             out.append({"kind": "cloud_idle_billing", "provider": r["provider"], "id": r["id"],
                         "idle_minutes": int(idle // 60), "usd_per_hour": r["usd_per_hour"],
                         "wasted_usd": round(wasted, 2),
-                        "message": "%s %s: GPU idle for %s but still billing %s/h (%s so far)"
-                        % (r["provider"], r["name"], fmt_dur(idle), fmt_usd(r["usd_per_hour"]),
-                           fmt_usd(wasted))})
+                        "name": r["name"],
+                        "message": T("a_cloud_idle") % (r["provider"], r["name"], fmt_dur(idle),
+                                                        fmt_usd(r["usd_per_hour"]), fmt_usd(wasted))})
     return out
 
 
@@ -3954,6 +3953,14 @@ UI = {
         "advice": "ADVICE", "w_advice": "Advice",
         "i_reset": " (it resets in %s)", "i_alt": "; meanwhile %s still has %d%% left",
         "a_idle": "%s: %s is loaded but has not been used for %s%s - stop it or let it unload to free the memory",
+        "a_cloud_unknown": "%s %s is billing %s/h but its GPU use is unknown (set [cloud] ssh_user to read it)",
+        "a_cloud_idle": "%s %s: the GPU has been idle for %s but is still billing %s/h (%s so far) - stop it if you are done",
+        "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
+        "v_used_up": "%s %s is used up - resets in %s", "v_used_up_nr": "%s %s is used up",
+        "v_high": "%s %s is %d%% used", "v_high_r": "%s %s is %d%% used - resets in %s",
+        "v_budget": "this month is heading for %s, over the %s budget",
+        "v_down": "%s cannot be reached", "v_idle": "%s: a model is holding memory but not being used",
+        "v_cloud_idle": "%s is idle but still billing %s/h",
         "a_hold": ", holding %s MB",
         "wk_title": "ComputAI weekly report (%s - %s)", "wk_src": "%s: %s (%s tokens out%s)",
         "wk_none": "no AI usage recorded", "wk_peaks": "limit peaks: ", "wk_machines": "machines: ",
@@ -4040,6 +4047,14 @@ UI = {
         "advice": "建議", "w_advice": "建議",
         "i_reset": "（%s 後重置）", "i_alt": "；這段時間可以先用 %s（還剩 %d%%）",
         "a_idle": "%s：%s 已經載入，但 %s 沒有被用到%s，關掉或讓它卸載就能釋放記憶體",
+        "a_cloud_unknown": "%s %s 每小時計費 %s，但看不到 GPU 有沒有在用（設定 [cloud] ssh_user 才讀得到）",
+        "a_cloud_idle": "%s %s：GPU 已經閒置 %s，還在以每小時 %s 計費（目前多花 %s），用完了就關掉",
+        "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
+        "v_used_up": "%s %s用完了，%s 後重置", "v_used_up_nr": "%s %s用完了",
+        "v_high": "%s %s已用 %d%%", "v_high_r": "%s %s已用 %d%%，%s 後重置",
+        "v_budget": "這個月預估 %s，超過 %s 的預算",
+        "v_down": "%s 連不上", "v_idle": "%s：有模型佔著記憶體卻沒在用",
+        "v_cloud_idle": "%s 閒著還在計費（每小時 %s）",
         "a_hold": "，佔著 %s MB",
         "wk_title": "ComputAI 週報（%s ～ %s）", "wk_src": "%s：%s（輸出 %s token%s）",
         "wk_none": "這週沒有 AI 用量", "wk_peaks": "額度最高：", "wk_machines": "機器耗電：",
@@ -4302,6 +4317,41 @@ def advice_panel(st, width):
         for i, ln in enumerate(wrap(x["text"], max(20, width - 4 - vlen(arrow)))):
             lines.append(" %s %s" % (rgb(CYAN, arrow) if i == 0 else " " * vlen(arrow), ln))
     return panel(bold(T("advice")), "", lines, width, 0)
+
+
+LIMIT_WARN, LIMIT_FAIL = 80.0, 99.5
+
+
+def verdict(st):
+    """畫面最上面那一句：現在有沒有事。回傳等級（ok／warn／fail）、等級的字、
+    依嚴重程度排好的事情清單（每件是 (等級, 白話句子)）。終端機和網頁共用這一份判斷。"""
+    items = []
+    for r in st.get("limits") or []:
+        used = r["used_percent"] or 0
+        src, win = T("src").get(r["source"], r["source"]), limit_label(r["name"])
+        reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
+        if used >= LIMIT_FAIL:
+            items.append(("fail", T("v_used_up") % (src, win, reset) if reset else T("v_used_up_nr") % (src, win)))
+        elif used >= LIMIT_WARN:
+            items.append(("warn", T("v_high_r") % (src, win, round(used), reset) if reset
+                          else T("v_high") % (src, win, round(used))))
+    for a in st.get("alerts") or []:
+        k = a["kind"]
+        if k == "machine_unreachable":
+            items.append(("fail", T("v_down") % a["machine"]))
+        elif k == "cloud_idle_billing":
+            items.append(("fail", T("v_cloud_idle") % ("%s %s" % (a["provider"], a.get("name") or a["id"]),
+                                                       fmt_usd(a["usd_per_hour"]))))
+        elif k == "idle_model":
+            items.append(("warn", T("v_idle") % a["machine"]))
+        else:
+            items.append(("warn", a["message"]))
+    f = st.get("forecast") or {}
+    if f.get("over_budget"):
+        items.append(("fail", T("v_budget") % (fmt_usd(f["projected_usd"]), fmt_usd(f["budget_usd"]))))
+    items.sort(key=lambda x: x[0] != "fail")  # 穩定排序：fail 在前，同等級保持原順序
+    level = items[0][0] if items else "ok"
+    return {"level": level, "word": T("v_" + level), "items": items}
 
 
 def header_parts(st):
