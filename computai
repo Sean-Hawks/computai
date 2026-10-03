@@ -88,6 +88,8 @@ codex = Plus 20 x1, Pro 200 x20
 #   services   = ollama:11434, vllm:8000   inference servers to probe (default: common ports)
 #   base_watts = 60    the rest of the machine, added on top of measured GPU power
 #   cpu_watts  = 90    extra power when the CPU is fully busy, scaled by CPU use
+#   plug       = shelly:192.168.1.50   measured power from a smart plug (shelly, shelly1, tasmota,
+#                ha:sensor.x with HA_URL and HA_TOKEN); used instead of the estimate when it answers
 #   idle_watts = 8     whole machine at idle, used when GPU power can't be read (e.g. Macs)
 #   max_watts  = 45    whole machine at full load
 this-computer = local
@@ -1712,6 +1714,7 @@ def machines(cp=None):
                     "services": service_list(get("services", DEFAULT_SERVICES)),
                     "base_watts": _float(get("base_watts"), 0.0),
                     "cpu_watts": _float(get("cpu_watts"), 0.0),
+                    "plug": (get("plug") or "").strip() or None,
                     "idle_watts": _float(get("idle_watts")),
                     "max_watts": _float(get("max_watts"))})
     return out
@@ -1746,6 +1749,63 @@ def power_settings(cp=None):
             "currency": cp.get("power", "currency", fallback="USD").strip().upper() or "USD",
             "idle_alert_minutes": _float(cp.get("power", "idle_alert_minutes", fallback="15"), 15.0),
             "usd_to_local": _float(cp.get("general", "usd_to_local", fallback="0"), 0.0)}
+
+
+# ---- 智慧插座：實測整台機器的功耗
+#
+# [machine.名稱] plug = shelly:192.168.1.50     Shelly Gen2/3（RPC，Switch.GetStatus 的 apower）
+#                plug = shelly1:192.168.1.50    Shelly Gen1（/status 的 meters[0].power）
+#                plug = tasmota:192.168.1.51    Tasmota（Status 8 的 ENERGY.Power）
+#                plug = ha:sensor.gpu_box_power Home Assistant 的功率感測器（HA_URL、HA_TOKEN）
+# 插座在區網，由跑 computai 的這台直接用 HTTP 讀；讀不到就退回估算值。
+
+def plug_url(spec):
+    kind, _, target = (spec or "").partition(":")
+    kind, target = kind.strip().lower(), target.strip()
+    if not target or not re.match(r"^[\w.:\-\[\]]+$", target):
+        return None, None
+    if kind == "shelly":
+        return kind, "http://%s/rpc/Switch.GetStatus?id=0" % target
+    if kind == "shelly1":
+        return kind, "http://%s/status" % target
+    if kind == "tasmota":
+        return kind, "http://%s/cm?cmnd=Status%%208" % target
+    if kind == "ha":
+        base = (secret("HA_URL") or "").rstrip("/")
+        return (kind, "%s/api/states/%s" % (base, target)) if base else (None, None)
+    return None, None
+
+
+def read_plug(spec):
+    """插座現在的瓦數；讀不到回傳 None。"""
+    kind, url = plug_url(spec)
+    if not url:
+        return None
+    fx = os.environ.get("COMPUTAI_FIXTURES")
+    if fx:
+        path = os.path.join(fx, "http", "plug-%s.json" % kind)
+        body = open(path, encoding="utf-8").read() if os.path.exists(path) else None
+    else:
+        headers = {"Authorization": "Bearer " + (secret("HA_TOKEN") or "")} if kind == "ha" else None
+        body = http_get(url, timeout=3, headers=headers)
+    try:
+        d = json.loads(body or "")
+    except ValueError:
+        return None
+    try:
+        if kind == "shelly":
+            return float(d["apower"])
+        if kind == "shelly1":
+            return float(d["meters"][0]["power"])
+        if kind == "tasmota":
+            return float(d["StatusSNS"]["ENERGY"]["Power"])
+        if kind == "ha":
+            w = float(d["state"])
+            unit = (d.get("attributes") or {}).get("unit_of_measurement", "W")
+            return w * 1000 if unit == "kW" else w
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+    return None
 
 
 def estimate_power(m, gpu_power, util, cpu):
@@ -1827,7 +1887,8 @@ def record_sample(db, m, d, ts):
     # 沒有更好的訊號時才看 GPU 使用率；Mac 的 GPU 使用率包含畫面繪製，不能拿來判斷
     busy_gpu = any(g["vendor"] != "apple" and (g["util"] or 0) >= AI_GPU_UTIL for g in gpus)
     active = bool(rows or running or proxied or touched or (loaded and busy_gpu))
-    power = estimate_power(m, gpu_power, util, pct)
+    plug = read_plug(m["plug"]) if m.get("plug") else None
+    power = plug if plug is not None else estimate_power(m, gpu_power, util, pct)
     # 畫面要用的細節：每張 GPU、整台記憶體、負載、每個服務
     detail = {"gpus": gpus, "mem_used": d.get("mem_used"), "mem_total": d.get("mem_total"),
               "load": d.get("load"), "ncpu": d.get("ncpu"),

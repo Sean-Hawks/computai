@@ -297,3 +297,34 @@ class Discover(unittest.TestCase):
         self.assertIn("homelab = 100.64.0.5", text)
         self.assertNotIn("gpu1 = gpu1", text)            # 已經設定過的不再建議
         self.assertIn("known_hosts", text)
+
+
+class Plugs(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        self.old = dict(os.environ)
+        os.environ.update(COMPUTAI_CONFIG_DIR=self.sb.config, COMPUTAI_FIXTURES=helpers.fixture("plugs"),
+                          HA_URL="http://ha.local:8123", HA_TOKEN="SECRET")
+        self.m = helpers.load()
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def test_read_plugs(self):
+        r = self.m.read_plug
+        self.assertEqual(r("shelly:192.168.1.50"), 187.4)
+        self.assertEqual(r("shelly1:10.0.0.2"), 95.5)
+        self.assertEqual(r("tasmota:plug.lan"), 64.0)
+        self.assertEqual(r("ha:sensor.gpu_box_power"), 420.0)      # kW 換成 W
+        self.assertIsNone(r("nope:1.2.3.4"))
+        self.assertIsNone(r("shelly:bad host; rm -rf"))            # 不合法的主機名稱直接拒絕
+        self.assertEqual(self.m.plug_url("tasmota:1.2.3.4")[1], "http://1.2.3.4/cm?cmnd=Status%208")
+
+    def test_plug_overrides_estimate(self):
+        db = self.m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        m = {"name": "box", "plug": "shelly:1.2.3.4", "idle_watts": 10, "max_watts": 20}
+        self.m.record_sample(db, m, {"cpu": ("pct", 50.0), "gpus": [], "services": []}, 100)
+        self.assertEqual(db.execute("SELECT power_w FROM samples").fetchone()[0], 187.4)
