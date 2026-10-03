@@ -1149,6 +1149,15 @@ def window_label(minutes):
     return "%dm" % minutes
 
 
+def limit_reset_rows(db, source, t=None):
+    """手動標記某個訂閱的額度已經重置（例如提早重置、log 裡看不到）：每個視窗寫一筆 0%，
+    重置時間不知道就留空。下次 Claude／Codex 寫出真的數字（比較新）就會取代它。"""
+    t = now() if t is None else t
+    return [{"source": source, "name": r["name"], "ts": int(t), "used_percent": 0.0,
+             "window_minutes": r["window_minutes"], "resets_at": None}
+            for r in current_limits(db, t) if r["source"] == source]
+
+
 def current_limits(db, t=None):
     """每個額度視窗最新的一筆。已經過了重置時間的視窗當作 0%。"""
     t = now() if t is None else t
@@ -4291,7 +4300,9 @@ UI = {
         "q_unlinked": "limits not connected: set Claude Code's statusLine to `computai --statusline`",
         "q_foot": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
         "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
-        "v_used_up": "%s %s is used up - resets in %s", "v_used_up_nr": "%s %s is used up",
+        "v_used_up": "%s %s is used up - resets in %s",
+        "lr_note": "until the next real reading", "v_used_up_old": "%s %s was used up when last seen %s ago - use it once to refresh, or computai --limit-reset if it reset early",
+        "q_seen": "seen %s ago", "v_used_up_nr": "%s %s is used up",
         "v_high": "%s %s is %d%% used", "v_high_r": "%s %s is %d%% used - resets in %s",
         "v_budget": "this month is heading for %s, over the %s budget",
         "v_down": "%s cannot be reached", "v_idle": "%s: a model is holding memory but not being used",
@@ -4456,7 +4467,9 @@ UI = {
         "q_unlinked": "額度還沒接上：把 Claude Code 的 statusLine 設成 computai --statusline",
         "q_foot": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
         "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
-        "v_used_up": "%s %s用完了，%s 後重置", "v_used_up_nr": "%s %s用完了",
+        "v_used_up": "%s %s用完了，%s 後重置",
+        "lr_note": "直到下次讀到真的數字", "v_used_up_old": "%s %s上次看到是用完（%s 前）；用一次就會更新，提早重置了可以用 computai --limit-reset",
+        "q_seen": "%s 前看到的", "v_used_up_nr": "%s %s用完了",
         "v_high": "%s %s已用 %d%%", "v_high_r": "%s %s已用 %d%%，%s 後重置",
         "v_budget": "這個月預估 %s，超過 %s 的預算",
         "v_down": "%s 連不上", "v_idle": "%s：有模型佔著記憶體卻沒在用",
@@ -4676,7 +4689,16 @@ def limit_label(name):
 
 
 def limit_note(r):
-    """額度下面那一行：已用完就講重置時間，用太快就講幾點用完，不然講重置時大約到幾 %。"""
+    """額度下面那一行：已用完就講重置時間，用太快就講幾點用完，不然講重置時大約到幾 %。
+    資料太舊時後面加上「幾小時前看到的」，提醒這不一定是現在的數字。"""
+    note = _limit_note(r)
+    if (r.get("age") or 0) > LIMIT_STALE:
+        old = dim(T("q_seen") % fmt_dur(r["age"]))
+        note = (note + dim(" \u00b7 ") + old) if note else old
+    return note
+
+
+def _limit_note(r):
     used = r["used_percent"] or 0
     reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
     if used >= LIMIT_FAIL:
@@ -4947,6 +4969,7 @@ def advice_panel(st, width):
 
 
 LIMIT_WARN, LIMIT_FAIL = 80.0, 99.5
+LIMIT_STALE = 6 * 3600   # 額度只有在用 Claude／Codex 時才會更新；超過這麼久沒看到新的就標出「幾小時前看到的」
 QUOTA_PANEL = True  # 額度有自己的面板（quota_panel），訂閱面板就只講錢
 
 
@@ -4958,7 +4981,9 @@ def verdict(st):
         used = r["used_percent"] or 0
         src, win = T("src").get(r["source"], r["source"]), limit_label(r["name"])
         reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
-        if used >= LIMIT_FAIL:
+        if used >= LIMIT_FAIL and (r.get("age") or 0) > LIMIT_STALE:   # 舊資料：說清楚這是上次看到的
+            items.append(("warn", T("v_used_up_old") % (src, win, fmt_dur(r["age"]))))
+        elif used >= LIMIT_FAIL:
             items.append(("fail", T("v_used_up") % (src, win, reset) if reset else T("v_used_up_nr") % (src, win)))
         elif used >= LIMIT_WARN:
             items.append(("warn", T("v_high_r") % (src, win, round(used), reset) if reset
@@ -5707,9 +5732,11 @@ function quotaCard(st) {   // 額度：粗量表、大百分比、白線標出�
     const g = el("div", {class: "g" + (lv ? " lv-" + lv : "")}, el("i", {style: `width:${Math.max(r.used_percent > 0 ? 1 : 0, Math.min(100, r.used_percent))}%`}));
     if (r.elapsed_pct !== null && r.elapsed_pct !== undefined) g.append(el("b", {style: `left:calc(${r.elapsed_pct}% - 1px)`, title: t.q_foot}));
     let note = reset ? fmt(t.resets, reset) : "", cls = "n";
+    const old = r.age > 21600 ? fmt(t.q_seen, dur(r.age)) : "";   // 太久沒更新：標出是幾小時前看到的
     if (r.used_percent >= 99.5) { note = reset ? fmt(t.q_wait, reset) : ""; cls += " lv-fail"; }
     else if (r.eta_full) { note = fmt(t.q_eta, dur(r.eta_full), reset); cls += " lv-warn"; }
     else if (r.projected_pct !== null && r.projected_pct !== undefined) note = fmtn(t.q_proj, {pct: r.projected_pct, reset: reset});
+    if (old) note = note ? `${note} · ${old}` : old;
     return el("div", {class: "q"}, el("span", {class: "lab"}, `${t.src[r.source] || r.source} ${winLabel(r.name)}`), g,
               el("span", {class: "p" + (lv ? " lv-" + lv : "")}, r.used_percent >= 99.5 ? t.used_up : pct(r.used_percent)),
               note ? el("span", {class: cls}, note) : null);
@@ -8503,6 +8530,9 @@ def parse_args(argv=None):
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--limit-reset", metavar="SOURCE", choices=sorted(SUBSCRIPTION_SOURCES),
+                   help="mark a subscription's limits as reset now (claude or codex), e.g. after an early reset; "
+                        "the next real reading replaces it")
     p.add_argument("--notify-test", action="store_true", help="send a test notification ([notify] in config.ini)")
     p.add_argument("--bench", action="store_true",
                    help="run each local model for a few seconds: tokens/s, watts, electricity per 1M tokens vs the API")
@@ -8603,7 +8633,7 @@ def local_hostname():
 
 
 ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "watch", "notify_test", "install_watch", "uninstall_watch", "bench",
+           "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
 
@@ -8655,6 +8685,16 @@ def run(args, db):
     if args.bench:
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
+        return 0
+    if args.limit_reset:
+        rows = limit_reset_rows(db, args.limit_reset)
+        add_limits(db, rows)
+        db.commit()
+        for r in rows:
+            print("computai: %s %s -> 0%% (%s)" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]),
+                                                 T("lr_note")))
+        if not rows:
+            print("computai: no %s limits recorded yet" % args.limit_reset)
         return 0
     if args.notify_test:
         settings = notify_settings()

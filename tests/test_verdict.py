@@ -70,3 +70,33 @@ class Pace(unittest.TestCase):
     def test_used_up(self):
         r = self.pace([(19000, 100.0)], 19000)
         self.assertEqual(r["eta_full"], 0)
+
+
+class StaleLimits(unittest.TestCase):
+    def setUp(self):
+        self.m = helpers.load()
+        self.m.set_lang("en")
+
+    def test_old_used_up_reading_is_a_hint_not_a_fact(self):
+        r = dict(lim("codex", "week", 100, 5000), age=26 * 3600)
+        v = self.m.verdict({"limits": [r], "alerts": [], "forecast": {}})
+        self.assertEqual(v["level"], "warn")
+        self.assertIn("was used up when last seen 1d2h ago", v["items"][0][1])
+        self.assertIn("computai --limit-reset", v["items"][0][1])
+        self.m.set_style(color=False)
+        self.assertIn("seen 1d2h ago", self.m.limit_note(r))
+        fresh = dict(lim("codex", "week", 100, 5000), age=60)
+        self.assertEqual(self.m.verdict({"limits": [fresh], "alerts": [], "forecast": {}})["level"], "fail")
+
+    def test_limit_reset_until_the_next_real_reading(self):
+        db = self.m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        self.m.add_limits(db, [dict(source="codex", name="week", ts=1000, used_percent=100.0, window_minutes=10080,
+                                    resets_at=900000)])
+        rows = self.m.limit_reset_rows(db, "codex", t=2000)
+        self.assertEqual([(r["name"], r["used_percent"], r["resets_at"]) for r in rows], [("week", 0.0, None)])
+        self.m.add_limits(db, rows)
+        self.assertEqual(self.m.current_limits(db, 2100)[0]["used_percent"], 0.0)
+        self.m.add_limits(db, [dict(source="codex", name="week", ts=3000, used_percent=12.0, window_minutes=10080,
+                                    resets_at=600000)])
+        self.assertEqual(self.m.current_limits(db, 3100)[0]["used_percent"], 12.0)   # 真的數字回來就取代
