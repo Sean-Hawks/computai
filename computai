@@ -153,6 +153,14 @@ poll_minutes = 10
 # poll_minutes), and once more 30 seconds after any window resets. fixed: always every poll_minutes.
 refresh = adaptive
 
+[devices]
+# Combine Claude Code and Codex usage from your other computers (docs/MULTI-DEVICE.md).
+# folder: a folder every computer syncs (iCloud Drive, Dropbox, Syncthing, a private git repo). Each computer
+# writes only usage numbers there (no prompts, paths or session ids) and reads the others'.
+folder =
+# This computer's name in the device list; empty uses the host name.
+name =
+
 [card]
 # Keep a GitHub profile card up to date: once a day computai (and --web / --watch) writes
 # computai-card.svg + computai-card-light.svg into this git repo folder and commits them.
@@ -1071,6 +1079,203 @@ def sync_codex(db):
 
 
 SOURCES.append(("codex", sync_codex))
+
+
+# ---- 多台電腦：交換只有用量欄位的匯出檔（共用資料夾或 SSH 拉取，docs/MULTI-DEVICE.md）
+
+EXPORT_SOURCES = ("claude", "codex")   # 本地模型和 API 用量在每台各自記，交換會重複計算
+EXPORT_COLS = ("source", "uid", "ts", "model", "project", "input", "cache_read", "cache_write_5m",
+               "cache_write_1h", "output", "reasoning", "requests", "subagent")
+EXPORT_INT_COLS = EXPORT_COLS[2:3] + EXPORT_COLS[5:]
+DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
+DEVICE_STALE = 600   # 超過 10 分鐘沒回報就標成過時
+
+
+def device_settings(cp=None):
+    """[devices] folder：跟其他電腦共用的資料夾（iCloud、Dropbox、Syncthing、私人 git repo）；name：這台的名字。"""
+    cp = cp or load_config()
+    folder = (cp.get("devices", "folder", fallback="") or "").strip()
+    name = (cp.get("devices", "name", fallback="") or "").strip()
+    return {"folder": os.path.expanduser(folder) if folder else "", "name": name or local_hostname()}
+
+
+def local_device(db):
+    """這台電腦的裝置代號（第一次用到時隨機產生，記在帳本 meta）和名字。"""
+    row = db.execute("SELECT value FROM meta WHERE key = 'device_id'").fetchone()
+    if row:
+        dev = row["value"]
+    else:
+        import uuid
+        dev = uuid.uuid4().hex[:12]
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('device_id', ?)", (dev,))
+        db.commit()
+    return dev, device_settings()["name"]
+
+
+def export_usage(db, since=0, t=None):
+    """這台自己的 Claude、Codex 用量，寫成 JSONL：第一行是標頭，之後每行一筆，只有 EXPORT_COLS 這些欄位。
+    專案只留資料夾名稱，session、prompt、回應、路徑都不會出去。回傳 (文字, 筆數)。"""
+    dev, name = local_device(db)
+    t = now() if t is None else t
+    head = {"computai_export": 1, "device": dev, "name": name, "written": int(t), "version": __version__,
+            "cols": list(EXPORT_COLS)}
+    lines = [json.dumps(head, ensure_ascii=False)]
+    q = ("SELECT %s FROM usage WHERE device = '' AND source IN (%s) AND ts >= ? ORDER BY ts"
+         % (", ".join(EXPORT_COLS), ",".join("?" * len(EXPORT_SOURCES))))
+    for r in db.execute(q, EXPORT_SOURCES + (int(since),)):
+        row = [r[c] for c in EXPORT_COLS]
+        row[4] = os.path.basename((row[4] or "").rstrip("/\\"))[:120]
+        lines.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+    return "\n".join(lines) + "\n", len(lines) - 1
+
+
+def parse_export(text):
+    """讀匯出檔，整份檢查：任何一行格式不對就整份不要（ValueError），不會只合併一半。
+    回傳 (標頭, 用量列)。"""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        raise ValueError("empty")
+    try:
+        head = json.loads(lines[0])
+    except ValueError:
+        raise ValueError("bad header")
+    if not isinstance(head, dict) or head.get("computai_export") != 1:
+        raise ValueError("not a computai export")
+    dev, cols = head.get("device"), head.get("cols")
+    if not isinstance(dev, str) or not DEVICE_ID.match(dev):
+        raise ValueError("bad device id")
+    if not isinstance(cols, list) or any(c not in cols for c in EXPORT_COLS):
+        raise ValueError("missing columns")
+    idx = [cols.index(c) for c in EXPORT_COLS]
+    rows = []
+    for n, ln in enumerate(lines[1:], 2):
+        try:
+            arr = json.loads(ln)
+        except ValueError:
+            raise ValueError("line %d is not JSON" % n)
+        if not isinstance(arr, list) or len(arr) != len(cols):
+            raise ValueError("line %d has the wrong shape" % n)
+        r = dict(zip(EXPORT_COLS, (arr[i] for i in idx)))
+        if r["source"] not in EXPORT_SOURCES or not isinstance(r["uid"], str) or not 0 < len(r["uid"]) <= 200:
+            raise ValueError("line %d: bad source or id" % n)
+        for c in ("model", "project"):
+            if not isinstance(r[c], str) or len(r[c]) > 120:
+                raise ValueError("line %d: bad %s" % (n, c))
+            r[c] = untrusted(r[c])
+        for c in EXPORT_INT_COLS:
+            if not isinstance(r[c], int) or isinstance(r[c], bool) or not 0 <= r[c] < 10 ** 13:
+                raise ValueError("line %d: bad %s" % (n, c))
+        r["device"] = dev
+        rows.append(r)
+    name = head.get("name") if isinstance(head.get("name"), str) else ""
+    written = head.get("written") if isinstance(head.get("written"), int) else None
+    return {"device": dev, "name": untrusted(name)[:60], "written": written}, rows
+
+
+def note_device(db, dev, name=None, seen=None, via=None, error=None, rows=None):
+    """更新 devices 表：只改有給的欄位。"""
+    db.execute("INSERT OR IGNORE INTO devices (id) VALUES (?)", (dev,))
+    for col, v in (("name", name), ("seen", seen), ("via", via), ("error", error), ("rows", rows)):
+        if v is not None:
+            db.execute("UPDATE devices SET %s = ? WHERE id = ?" % col, (v, dev))
+
+
+def merge_export(db, head, rows, via):
+    """把別台的用量併進帳本。同一筆（source, uid）只記一次；自己的匯出檔繞回來就略過。回傳新增幾筆。"""
+    if head["device"] == local_device(db)[0]:
+        return 0
+    added = add_usage(db, rows)
+    note_device(db, head["device"], name=head["name"] or head["device"], seen=head["written"], via=via, error="",
+                rows=db.execute("SELECT COUNT(*) FROM usage WHERE device = ?", (head["device"],)).fetchone()[0])
+    return added
+
+
+def write_atomic(path, text):
+    """先寫暫存檔再改名：同步軟體或別台電腦永遠只會看到完整的舊檔或完整的新檔。"""
+    tmp = os.path.join(os.path.dirname(path), ".%s.%d.tmp" % (os.path.basename(path), os.getpid()))
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def write_device_files(db, folder, t=None):
+    """把這台的用量寫進共用資料夾：<代號>.jsonl（用量有變才重寫）和 <代號>.json（每次都寫，當作心跳）。"""
+    t = now() if t is None else t
+    dev, name = local_device(db)
+    os.makedirs(folder, exist_ok=True)
+    sig = db.execute("SELECT COUNT(*), MAX(ts), SUM(input + output + cache_read + cache_write_5m + cache_write_1h) "
+                     "FROM usage WHERE device = '' AND source IN (%s)" % ",".join("?" * len(EXPORT_SOURCES)),
+                     EXPORT_SOURCES).fetchone()
+    sig = "%s:%s:%s" % tuple(sig)
+    row = db.execute("SELECT value FROM meta WHERE key = 'device_export_sig'").fetchone()
+    data = os.path.join(folder, dev + ".jsonl")
+    n = None
+    if not row or row["value"] != sig or not os.path.exists(data):
+        text, n = export_usage(db, t=t)
+        write_atomic(data, text)
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('device_export_sig', ?)", (sig,))
+    status = {"computai_device": 1, "device": dev, "name": name, "seen": int(t), "version": __version__}
+    write_atomic(os.path.join(folder, dev + ".json"), json.dumps(status, ensure_ascii=False) + "\n")
+    return n
+
+
+def read_device_folder(db, folder):
+    """讀共用資料夾裡別台的匯出檔。檔案沒變就不重讀；壞掉的整份略過、記下原因，之前併進來的資料照留。
+    回傳新增幾筆。"""
+    dev = local_device(db)[0]
+    added = 0
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return 0
+    for fn in names:
+        stem, ext = os.path.splitext(fn)
+        if fn.startswith(".") or stem == dev or not DEVICE_ID.match(stem) or ext not in (".jsonl", ".json"):
+            continue
+        path = os.path.join(folder, fn)
+        if ext == ".json":   # 心跳：最後一次回報的時間
+            try:
+                with open(path, encoding="utf-8") as f:
+                    st = json.load(f)
+                if isinstance(st, dict) and st.get("device") == stem and isinstance(st.get("seen"), int):
+                    old = db.execute("SELECT seen FROM devices WHERE id = ?", (stem,)).fetchone()
+                    if not old or (old["seen"] or 0) < st["seen"]:
+                        note_device(db, stem, seen=st["seen"], via="folder",
+                                    name=untrusted(st["name"])[:60] if isinstance(st.get("name"), str) else None)
+            except (OSError, ValueError):
+                pass
+            continue
+        sig = file_changed(db, path)
+        if sig is None:
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                head, rows = parse_export(f.read())
+            if head["device"] != stem:
+                raise ValueError("device id does not match the file name")
+            added += merge_export(db, head, rows, "folder")
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            note_device(db, stem, via="folder", error=str(e)[:200])
+        mark_file(db, path, sig)
+    return added
+
+
+def sync_devices(db):
+    """共用資料夾：先寫自己的，再讀別台的。另外對設了 usage = pull 的機器用 SSH 拉。"""
+    added = 0
+    folder = device_settings()["folder"]
+    if folder:
+        try:
+            write_device_files(db, folder)
+        except OSError as e:
+            warn("devices: cannot write to %s: %s" % (folder, e))
+        added += read_device_folder(db, folder)
+    added += pull_devices(db)
+    return added
+
+
+def pull_devices(db):
+    return 0
 
 
 def sync(db, only=None, quiet=False):
@@ -3456,6 +3661,7 @@ def sync_openai_api(db):
 
 SOURCES.append(("anthropic-api", sync_anthropic_api))
 SOURCES.append(("openai-api", sync_openai_api))
+SOURCES.append(("devices", lambda db: sync_devices(db)))   # 放最後：自己的 log 先匯入，匯出檔才是最新的
 
 
 # ---------------------------------------------------------------- 分析
