@@ -65,6 +65,24 @@ class Pick(unittest.TestCase):
         self.assertEqual(p["command"], "ssh m1m ollama run qwen3:8b")
 
 
+class PickQuoting(unittest.TestCase):
+    def test_model_names_cannot_run_commands_on_the_other_side(self):
+        import os
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        old = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
+        os.environ.update(sb.env())
+        m = helpers.load()
+        m.machines = lambda: [{"name": "box", "host": "box"}]
+        m.latest_samples = lambda db: [{"machine": "box", "age": 5, "services": [],
+                                        "loaded": [{"service": "ollama", "name": "x; touch /tmp/pwned"}]}]
+        db = m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        _subs, local = m.pick_inputs(db)
+        self.assertEqual(local[0]["command"], "ssh box ollama run 'x; touch /tmp/pwned'")
+
+
 class PickInsight(unittest.TestCase):
     def test_home_suggests_using_a_limit_that_resets_soon(self):
         import os

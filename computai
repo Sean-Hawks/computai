@@ -5891,7 +5891,10 @@ def pick_inputs(db, t=None):
             if x.get("service") != "ollama" or not x.get("name"):
                 continue
             host = hosts.get(m["machine"], "local")
-            cmd = "ollama run %s" % x["name"] if host == "local" else "ssh %s ollama run %s" % (host, x["name"])
+            # 模型名來自那台的 Ollama：加上一層引號。$(computai --pick) 在本機只會切字、不會解析引號，
+            # ssh 把字接回去交給遠端的 shell，那裡才解析這層引號，名字裡的 ; 之類就不會變成指令
+            cmd = "ollama run %s" % shlex_quote(x["name"]) if host == "local" else \
+                "ssh %s ollama run %s" % (shlex_quote(host), shlex_quote(x["name"]))
             busy = any(svc.get("busy") for svc in m["services"] if svc.get("kind") == "ollama")
             local.append({"model": x["name"], "machine": m["machine"], "command": cmd, "busy": busy})
     return subs, local
