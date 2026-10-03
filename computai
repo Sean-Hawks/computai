@@ -6630,7 +6630,7 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
 
 /* 兩個主題共用：總結列、面板的標題列／來源列、依用途的顏色 class */
 .verdict:empty, .quota:empty, #line:empty { display:none; }
-.quota .q { display:grid; grid-template-columns:minmax(120px,max-content) minmax(0,1fr) 5.5em; gap:2px 14px;
+.quota .q { display:grid; grid-template-columns:minmax(120px,max-content) minmax(0,1fr) max-content; gap:2px 14px;
   align-items:center; padding:8px 0; border-top:1px solid var(--line); }
 .quota .hd + .q { border-top:0; }
 .quota .lab { font-weight:700; }
@@ -6640,7 +6640,7 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
 .quota .g > b { position:absolute; top:0; bottom:0; width:2px; background:#f5f6f7; }
 .quota .p { font-size:24px; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .quota .n { grid-column:2 / -1; font-size:12px; color:var(--dim); }
-@media (max-width: 520px) { .quota .q { grid-template-columns:minmax(0,1fr) 5em; }
+@media (max-width: 520px) { .quota .q { grid-template-columns:minmax(0,1fr) max-content; }
   .quota .lab { grid-column:1 / -1; } .quota .n { grid-column:1 / -1; } }
 .verdict { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; padding:12px 14px;
   border:1px solid var(--line); border-left:4px solid var(--ok); border-radius:6px; background:var(--panel); }
@@ -6961,7 +6961,7 @@ function render(st) {
   $("#line").textContent = "";   // 額度和今天的用量已經在總結列、額度區和小卡片上
   if (st.verdict) verdictBand(st.verdict);
   $("#quota").replaceChildren(...quotaCard(st));
-  $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString();
+  $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString(st.lang === "zh" ? "zh-TW" : "en-US");
   const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
   const f = st.forecast;
   const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.w_at_api),
