@@ -107,3 +107,42 @@ class ExportCommand(unittest.TestCase):
                     r.stdout.replace('"claude"', '"local"', 1).replace('"cols"', '"cols"')):
             with self.assertRaises(ValueError):
                 m.parse_export(bad)
+
+
+@unittest.skipIf(os.name == "nt", "runs the remote side through sh")
+class SshPull(unittest.TestCase):
+    """B：用 SSH 拉。這裡的「遠端」是本機的 sh，但走的是同一套指令：檢查 python3、送檔案、匯出、合併。"""
+
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        self.old = dict(os.environ)
+        os.environ.clear()
+        os.environ.update(self.sb.env(CLAUDE_CONFIG_DIR=helpers.fixture("claude"), CODEX_HOME=helpers.fixture("codex")))
+        self.m = helpers.load()
+        self.db = self.m.open_ledger()
+
+    def tearDown(self):
+        self.db.close()
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def test_pull_copies_once_and_merges(self):
+        box = {"name": "box", "host": "local", "usage": "pull"}
+        calls = []
+        real = self.m.run_script
+        self.m.run_script = lambda host, script, timeout=25: calls.append(script[:20]) or real(host, script, timeout)
+        added, err = self.m.pull_device(self.db, box)
+        self.assertEqual(err, "")
+        self.assertGreater(added, 0)
+        remote = os.path.join(self.sb.root, ".cache", "computai")
+        self.assertTrue(os.path.exists(os.path.join(remote, "computai")))
+        self.assertEqual([tuple(r) for r in self.db.execute("SELECT name, via FROM devices")], [("box", "ssh")])
+        n = len(calls)
+        self.assertEqual(self.m.pull_device(self.db, box), (0, ""))       # 已經有了：不重送、不重複計算
+        self.assertEqual(len(calls) - n, 2)                                 # 只有檢查和匯出
+        self.assertNotIn("FAKE", "\n".join(self.db.iterdump()))
+
+    def test_no_python_on_the_other_side(self):
+        self.m.run_script = lambda host, script, timeout=25: "NOPY\n"
+        self.assertEqual(self.m.pull_device(self.db, {"name": "box", "host": "box"}), (0, "python3 not found there"))

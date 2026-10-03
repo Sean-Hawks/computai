@@ -1274,8 +1274,81 @@ def sync_devices(db):
     return added
 
 
+REMOTE_DIR = "$HOME/.cache/computai"
+PULL_CHECK = """p="%s/computai"
+command -v python3 >/dev/null 2>&1 || { echo NOPY; exit 0; }
+if [ -f "$p" ]; then python3 -c 'import hashlib,sys; print("PY", hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$p"
+else echo "PY none"; fi
+""" % REMOTE_DIR
+
+
+def pull_upload_script(body):
+    """把這個檔案送到遠端的快取資料夾：內容用 base64 放在 heredoc 裡交給遠端的 python3，不需要 scp。"""
+    import base64
+    b64 = base64.b64encode(body).decode("ascii")
+    lines = [b64[i:i + 76] for i in range(0, len(b64), 76)]
+    return ('mkdir -p "%s" && chmod 700 "%s" && python3 - "%s/computai" <<\'COMPUTAI_EOF\'\n'
+            'import base64, os, sys\n'
+            'data = base64.b64decode("".join("""\n%s\n""".split()))\n'
+            'tmp = sys.argv[1] + ".tmp"\n'
+            'open(tmp, "wb").write(data)\n'
+            'os.chmod(tmp, 0o700)\n'
+            'os.replace(tmp, sys.argv[1])\n'
+            'print("UPLOADED")\n'
+            'COMPUTAI_EOF\n') % (REMOTE_DIR, REMOTE_DIR, REMOTE_DIR, "\n".join(lines))
+
+
+def pull_export_script(since):
+    """在遠端跑匯出：設定和帳本放在快取資料夾，不動遠端使用者自己的 ComputAI。"""
+    return ('d="%s"; COMPUTAI_CONFIG_DIR="$d/config" COMPUTAI_DATA_DIR="$d/data" COMPUTAI_NO_UPDATE_CHECK=1 '
+            'python3 "$d/computai" --export-usage %d\n') % (REMOTE_DIR, int(since))
+
+
+def pull_device(db, m, body=None, t=None):
+    """用 SSH 從一台機器拉回它的 Claude、Codex 用量。回傳 (新增筆數, 錯誤訊息或 "")。"""
+    t = now() if t is None else t
+    name = m["name"]
+    if body is None:
+        with open(os.path.abspath(__file__), "rb") as f:
+            body = f.read()
+    import hashlib
+    out = run_script(m["host"], PULL_CHECK, timeout=20)
+    if "NOPY" in out:
+        return 0, "python3 not found there"
+    got = re.search(r"^PY (\S+)", out, re.M)
+    if not got:
+        return 0, ssh_errors.get(m["host"]) or "no answer over SSH"
+    if got.group(1) != hashlib.sha256(body).hexdigest():
+        if "UPLOADED" not in run_script(m["host"], pull_upload_script(body), timeout=60):
+            return 0, "could not copy computai there"
+    row = db.execute("SELECT value FROM meta WHERE key = ?", ("pull_since:" + name,)).fetchone()
+    since = int(_float(row["value"], 0)) if row else 0
+    text = run_script(m["host"], pull_export_script(since), timeout=180)
+    try:
+        head, rows = parse_export(text)
+    except ValueError as e:
+        return 0, "bad export (%s)" % e
+    head["name"] = name
+    added = merge_export(db, head, rows, "ssh")
+    # 下次從這次寫出的時間往前一天開始拉：中途變長的串流紀錄也會更新到
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+               ("pull_since:" + name, str(max(0, (head["written"] or int(t)) - 86400))))
+    return added, ""
+
+
 def pull_devices(db):
-    return 0
+    """對設了 usage = pull 的機器各拉一次；失敗的原因記在 meta，給 --doctor 看。"""
+    added = 0
+    for m in machines():
+        if m.get("usage") != "pull" or m["host"] == "local":
+            continue
+        try:
+            n, err = pull_device(db, m)
+        except Exception as e:   # 一台壞掉不要拖垮其他
+            n, err = 0, str(e)[:200]
+        added += n
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", ("pull_error:" + m["name"], err))
+    return added
 
 
 def sync(db, only=None, quiet=False):
@@ -2456,7 +2529,8 @@ def machines(cp=None):
                     "cpu_watts": _float(get("cpu_watts"), 0.0),
                     "plug": (get("plug") or "").strip() or None,
                     "idle_watts": _float(get("idle_watts")),
-                    "max_watts": _float(get("max_watts"))})
+                    "max_watts": _float(get("max_watts")),
+                    "usage": (get("usage") or "").strip().lower()})
     return out
 
 
