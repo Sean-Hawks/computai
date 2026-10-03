@@ -153,6 +153,14 @@ poll_minutes = 10
 # poll_minutes), and once more 30 seconds after any window resets. fixed: always every poll_minutes.
 refresh = adaptive
 
+[devices]
+# Combine Claude Code and Codex usage from your other computers (docs/MULTI-DEVICE.md).
+# folder: a folder every computer syncs (iCloud Drive, Dropbox, Syncthing, a private git repo). Each computer
+# writes only usage numbers there (no prompts, paths or session ids) and reads the others'.
+folder =
+# This computer's name in the device list; empty uses the host name.
+name =
+
 [card]
 # Keep a GitHub profile card up to date: once a day computai (and --web / --watch) writes
 # computai-card.svg + computai-card-light.svg into this git repo folder and commits them.
@@ -567,6 +575,7 @@ def warn(msg):
 #   output      計費的輸出，包含 reasoning
 #   reasoning   output 裡屬於思考的部分（只是細項，不另外計費）
 #   cost_usd    來源自己給的實際金額（雲端帳單等）；NULL 表示用價目表換算
+#   device      哪台電腦的用量：'' 是這台，其他是別台的裝置代號（共用資料夾或 SSH 拉回來的，見 devices 表）
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS usage (
     source TEXT NOT NULL,
@@ -584,6 +593,7 @@ CREATE TABLE IF NOT EXISTS usage (
     requests INTEGER NOT NULL DEFAULT 1,
     subagent INTEGER NOT NULL DEFAULT 0,
     cost_usd REAL,
+    device TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (source, uid)
 );
 CREATE INDEX IF NOT EXISTS usage_ts ON usage (ts);
@@ -637,11 +647,19 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS devices (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    seen INTEGER,
+    via TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    rows INTEGER NOT NULL DEFAULT 0
+);
 """
 
 USAGE_COLS = ("source", "uid", "ts", "model", "project", "session", "input", "cache_read",
               "cache_write_5m", "cache_write_1h", "output", "reasoning", "requests",
-              "subagent", "cost_usd")
+              "subagent", "cost_usd", "device")
 TOKEN_COLS = ("input", "cache_read", "cache_write_5m", "cache_write_1h", "output", "reasoning")
 
 
@@ -661,6 +679,7 @@ def open_ledger(path=None, shared=False):
     # 舊版帳本：補上後來加的欄位
     add_columns(db, "files", {"offset": "INTEGER NOT NULL DEFAULT 0", "state": "TEXT"})
     add_columns(db, "samples", {"detail": "TEXT"})
+    add_columns(db, "usage", {"device": "TEXT NOT NULL DEFAULT ''"})
     return db
 
 
@@ -683,7 +702,7 @@ def add_usage(db, rows):
         ", ".join("%s = excluded.%s" % (c, c) for c in TOKEN_COLS + ("requests",)), grown)
     before = db.total_changes
     defaults = {"model": "", "project": "", "session": "", "requests": 1, "subagent": 0,
-                "cost_usd": None}
+                "cost_usd": None, "device": ""}
     batch = []
     for r in rows:
         batch.append(tuple(r.get(c, defaults.get(c, 0)) for c in USAGE_COLS))
@@ -1060,6 +1079,294 @@ def sync_codex(db):
 
 
 SOURCES.append(("codex", sync_codex))
+
+
+# ---- 多台電腦：交換只有用量欄位的匯出檔（共用資料夾或 SSH 拉取，docs/MULTI-DEVICE.md）
+
+EXPORT_SOURCES = ("claude", "codex")   # 本地模型和 API 用量在每台各自記，交換會重複計算
+EXPORT_COLS = ("source", "uid", "ts", "model", "project", "input", "cache_read", "cache_write_5m",
+               "cache_write_1h", "output", "reasoning", "requests", "subagent")
+EXPORT_INT_COLS = EXPORT_COLS[2:3] + EXPORT_COLS[5:]
+DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
+DEVICE_STALE = 600   # 超過 10 分鐘沒回報就標成過時
+# 背景每 30 秒同步一次，但共用資料夾和 SSH 不用那麼勤：心跳 1 分鐘、用量檔 2 分鐘、SSH 拉取 5 分鐘。
+# 手動 --sync 時（_devices_now）不等。
+DEVICE_EVERY = {"status": 60, "data": 120, "pull": 300}
+_devices_now = False
+
+
+def due(db, key, every, t):
+    """這件事距離上次做是否超過 every 秒；是的話記下現在。"""
+    row = db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    if not _devices_now and row and t - _float(row["value"], 0) < every:
+        return False
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, str(int(t))))
+    return True
+
+
+def device_settings(cp=None):
+    """[devices] folder：跟其他電腦共用的資料夾（iCloud、Dropbox、Syncthing、私人 git repo）；name：這台的名字。"""
+    cp = cp or load_config()
+    folder = (cp.get("devices", "folder", fallback="") or "").strip()
+    name = (cp.get("devices", "name", fallback="") or "").strip()
+    return {"folder": os.path.expanduser(folder) if folder else "", "name": name or local_hostname()}
+
+
+def local_device(db):
+    """這台電腦的裝置代號（第一次用到時隨機產生，記在帳本 meta）和名字。"""
+    row = db.execute("SELECT value FROM meta WHERE key = 'device_id'").fetchone()
+    if row:
+        dev = row["value"]
+    else:
+        import uuid
+        dev = uuid.uuid4().hex[:12]
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('device_id', ?)", (dev,))
+        db.commit()
+    return dev, device_settings()["name"]
+
+
+def export_usage(db, since=0, t=None):
+    """這台自己的 Claude、Codex 用量，寫成 JSONL：第一行是標頭，之後每行一筆，只有 EXPORT_COLS 這些欄位。
+    專案只留資料夾名稱，session、prompt、回應、路徑都不會出去。回傳 (文字, 筆數)。"""
+    dev, name = local_device(db)
+    t = now() if t is None else t
+    head = {"computai_export": 1, "device": dev, "name": name, "written": int(t), "version": __version__,
+            "cols": list(EXPORT_COLS)}
+    lines = [json.dumps(head, ensure_ascii=False)]
+    q = ("SELECT %s FROM usage WHERE device = '' AND source IN (%s) AND ts >= ? ORDER BY ts"
+         % (", ".join(EXPORT_COLS), ",".join("?" * len(EXPORT_SOURCES))))
+    for r in db.execute(q, EXPORT_SOURCES + (int(since),)):
+        row = [r[c] for c in EXPORT_COLS]
+        row[4] = os.path.basename((row[4] or "").rstrip("/\\"))[:120]
+        lines.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
+    return "\n".join(lines) + "\n", len(lines) - 1
+
+
+def parse_export(text):
+    """讀匯出檔，整份檢查：任何一行格式不對就整份不要（ValueError），不會只合併一半。
+    回傳 (標頭, 用量列)。"""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        raise ValueError("empty")
+    try:
+        head = json.loads(lines[0])
+    except ValueError:
+        raise ValueError("bad header")
+    if not isinstance(head, dict) or head.get("computai_export") != 1:
+        raise ValueError("not a computai export")
+    dev, cols = head.get("device"), head.get("cols")
+    if not isinstance(dev, str) or not DEVICE_ID.match(dev):
+        raise ValueError("bad device id")
+    if not isinstance(cols, list) or any(c not in cols for c in EXPORT_COLS):
+        raise ValueError("missing columns")
+    idx = [cols.index(c) for c in EXPORT_COLS]
+    rows = []
+    for n, ln in enumerate(lines[1:], 2):
+        try:
+            arr = json.loads(ln)
+        except ValueError:
+            raise ValueError("line %d is not JSON" % n)
+        if not isinstance(arr, list) or len(arr) != len(cols):
+            raise ValueError("line %d has the wrong shape" % n)
+        r = dict(zip(EXPORT_COLS, (arr[i] for i in idx)))
+        if r["source"] not in EXPORT_SOURCES or not isinstance(r["uid"], str) or not 0 < len(r["uid"]) <= 200:
+            raise ValueError("line %d: bad source or id" % n)
+        for c in ("model", "project"):
+            if not isinstance(r[c], str) or len(r[c]) > 120:
+                raise ValueError("line %d: bad %s" % (n, c))
+            r[c] = untrusted(r[c])
+        for c in EXPORT_INT_COLS:
+            if not isinstance(r[c], int) or isinstance(r[c], bool) or not 0 <= r[c] < 10 ** 13:
+                raise ValueError("line %d: bad %s" % (n, c))
+        r["device"] = dev
+        rows.append(r)
+    name = head.get("name") if isinstance(head.get("name"), str) else ""
+    written = head.get("written") if isinstance(head.get("written"), int) else None
+    return {"device": dev, "name": untrusted(name)[:60], "written": written}, rows
+
+
+def note_device(db, dev, name=None, seen=None, via=None, error=None, rows=None):
+    """更新 devices 表：只改有給的欄位。"""
+    db.execute("INSERT OR IGNORE INTO devices (id) VALUES (?)", (dev,))
+    for col, v in (("name", name), ("seen", seen), ("via", via), ("error", error), ("rows", rows)):
+        if v is not None:
+            db.execute("UPDATE devices SET %s = ? WHERE id = ?" % col, (v, dev))
+
+
+def merge_export(db, head, rows, via):
+    """把別台的用量併進帳本。同一筆（source, uid）只記一次；自己的匯出檔繞回來就略過。回傳新增幾筆。"""
+    if head["device"] == local_device(db)[0]:
+        return 0
+    added = add_usage(db, rows)
+    note_device(db, head["device"], name=head["name"] or head["device"], seen=head["written"], via=via, error="",
+                rows=db.execute("SELECT COUNT(*) FROM usage WHERE device = ?", (head["device"],)).fetchone()[0])
+    return added
+
+
+def write_atomic(path, text):
+    """先寫暫存檔再改名：同步軟體或別台電腦永遠只會看到完整的舊檔或完整的新檔。"""
+    tmp = os.path.join(os.path.dirname(path), ".%s.%d.tmp" % (os.path.basename(path), os.getpid()))
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def write_device_files(db, folder, t=None):
+    """把這台的用量寫進共用資料夾：<代號>.jsonl（用量有變才重寫）和 <代號>.json（每次都寫，當作心跳）。"""
+    t = now() if t is None else t
+    dev, name = local_device(db)
+    os.makedirs(folder, exist_ok=True)
+    sig = db.execute("SELECT COUNT(*), MAX(ts), SUM(input + output + cache_read + cache_write_5m + cache_write_1h) "
+                     "FROM usage WHERE device = '' AND source IN (%s)" % ",".join("?" * len(EXPORT_SOURCES)),
+                     EXPORT_SOURCES).fetchone()
+    sig = "%s:%s:%s" % tuple(sig)
+    row = db.execute("SELECT value FROM meta WHERE key = 'device_export_sig'").fetchone()
+    data = os.path.join(folder, dev + ".jsonl")
+    n = None
+    changed = not row or row["value"] != sig or not os.path.exists(data)
+    if changed and (due(db, "device_data_at", DEVICE_EVERY["data"], t) or not os.path.exists(data)):
+        text, n = export_usage(db, t=t)
+        write_atomic(data, text)
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('device_export_sig', ?)", (sig,))
+    if not due(db, "device_status_at", DEVICE_EVERY["status"], t):
+        return n
+    status = {"computai_device": 1, "device": dev, "name": name, "seen": int(t), "version": __version__}
+    write_atomic(os.path.join(folder, dev + ".json"), json.dumps(status, ensure_ascii=False) + "\n")
+    return n
+
+
+def read_device_folder(db, folder):
+    """讀共用資料夾裡別台的匯出檔。檔案沒變就不重讀；壞掉的整份略過、記下原因，之前併進來的資料照留。
+    回傳新增幾筆。"""
+    dev = local_device(db)[0]
+    added = 0
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return 0
+    for fn in names:
+        stem, ext = os.path.splitext(fn)
+        if fn.startswith(".") or stem == dev or not DEVICE_ID.match(stem) or ext not in (".jsonl", ".json"):
+            continue
+        path = os.path.join(folder, fn)
+        if ext == ".json":   # 心跳：最後一次回報的時間
+            try:
+                with open(path, encoding="utf-8") as f:
+                    st = json.load(f)
+                if isinstance(st, dict) and st.get("device") == stem and isinstance(st.get("seen"), int):
+                    old = db.execute("SELECT seen FROM devices WHERE id = ?", (stem,)).fetchone()
+                    if not old or (old["seen"] or 0) < st["seen"]:
+                        note_device(db, stem, seen=st["seen"], via="folder",
+                                    name=untrusted(st["name"])[:60] if isinstance(st.get("name"), str) else None)
+            except (OSError, ValueError):
+                pass
+            continue
+        sig = file_changed(db, path)
+        if sig is None:
+            continue
+        try:
+            with open(path, encoding="utf-8") as f:
+                head, rows = parse_export(f.read())
+            if head["device"] != stem:
+                raise ValueError("device id does not match the file name")
+            added += merge_export(db, head, rows, "folder")
+        except (OSError, ValueError, UnicodeDecodeError) as e:
+            note_device(db, stem, via="folder", error=str(e)[:200])
+        mark_file(db, path, sig)
+    return added
+
+
+def sync_devices(db):
+    """共用資料夾：先寫自己的，再讀別台的。另外對設了 usage = pull 的機器用 SSH 拉。"""
+    added = 0
+    folder = device_settings()["folder"]
+    if folder:
+        try:
+            write_device_files(db, folder)
+        except OSError as e:
+            warn("devices: cannot write to %s: %s" % (folder, e))
+        added += read_device_folder(db, folder)
+    added += pull_devices(db)
+    return added
+
+
+REMOTE_DIR = "$HOME/.cache/computai"
+PULL_CHECK = """p="%s/computai"
+command -v python3 >/dev/null 2>&1 || { echo NOPY; exit 0; }
+if [ -f "$p" ]; then python3 -c 'import hashlib,sys; print("PY", hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$p"
+else echo "PY none"; fi
+""" % REMOTE_DIR
+
+
+def pull_upload_script(body):
+    """把這個檔案送到遠端的快取資料夾：內容用 base64 放在 heredoc 裡交給遠端的 python3，不需要 scp。"""
+    import base64
+    b64 = base64.b64encode(body).decode("ascii")
+    lines = [b64[i:i + 76] for i in range(0, len(b64), 76)]
+    return ('mkdir -p "%s" && chmod 700 "%s" && python3 - "%s/computai" <<\'COMPUTAI_EOF\'\n'
+            'import base64, os, sys\n'
+            'data = base64.b64decode("".join("""\n%s\n""".split()))\n'
+            'tmp = sys.argv[1] + ".tmp"\n'
+            'open(tmp, "wb").write(data)\n'
+            'os.chmod(tmp, 0o700)\n'
+            'os.replace(tmp, sys.argv[1])\n'
+            'print("UPLOADED")\n'
+            'COMPUTAI_EOF\n') % (REMOTE_DIR, REMOTE_DIR, REMOTE_DIR, "\n".join(lines))
+
+
+def pull_export_script(since):
+    """在遠端跑匯出：設定和帳本放在快取資料夾，不動遠端使用者自己的 ComputAI。"""
+    return ('d="%s"; COMPUTAI_CONFIG_DIR="$d/config" COMPUTAI_DATA_DIR="$d/data" COMPUTAI_NO_UPDATE_CHECK=1 '
+            'python3 "$d/computai" --export-usage %d\n') % (REMOTE_DIR, int(since))
+
+
+def pull_device(db, m, body=None, t=None):
+    """用 SSH 從一台機器拉回它的 Claude、Codex 用量。回傳 (新增筆數, 錯誤訊息或 "")。"""
+    t = now() if t is None else t
+    name = m["name"]
+    if body is None:
+        with open(os.path.abspath(__file__), "rb") as f:
+            body = f.read()
+    import hashlib
+    out = run_script(m["host"], PULL_CHECK, timeout=20)
+    if "NOPY" in out:
+        return 0, "python3 not found there"
+    got = re.search(r"^PY (\S+)", out, re.M)
+    if not got:
+        return 0, ssh_errors.get(m["host"]) or "no answer over SSH"
+    if got.group(1) != hashlib.sha256(body).hexdigest():
+        if "UPLOADED" not in run_script(m["host"], pull_upload_script(body), timeout=60):
+            return 0, "could not copy computai there"
+    row = db.execute("SELECT value FROM meta WHERE key = ?", ("pull_since:" + name,)).fetchone()
+    since = int(_float(row["value"], 0)) if row else 0
+    text = run_script(m["host"], pull_export_script(since), timeout=180)
+    try:
+        head, rows = parse_export(text)
+    except ValueError as e:
+        return 0, "bad export (%s)" % e
+    head["name"] = name
+    added = merge_export(db, head, rows, "ssh")
+    # 下次從這次寫出的時間往前一天開始拉：中途變長的串流紀錄也會更新到
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+               ("pull_since:" + name, str(max(0, (head["written"] or int(t)) - 86400))))
+    return added, ""
+
+
+def pull_devices(db):
+    """對設了 usage = pull 的機器各拉一次；失敗的原因記在 meta，給 --doctor 看。"""
+    added = 0
+    for m in machines():
+        if m.get("usage") != "pull" or m["host"] == "local":
+            continue
+        if not due(db, "pull_at:" + m["name"], DEVICE_EVERY["pull"], now()):
+            continue
+        try:
+            n, err = pull_device(db, m)
+        except Exception as e:   # 一台壞掉不要拖垮其他
+            n, err = 0, str(e)[:200]
+        added += n
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", ("pull_error:" + m["name"], err))
+    return added
 
 
 def sync(db, only=None, quiet=False):
@@ -1477,6 +1784,7 @@ def render_limits(limits):
 
 
 BREAKDOWNS = {
+    "device": "device",
     "project": "project",
     "session": "session",
     "day": "date(ts, 'unixepoch', 'localtime')",
@@ -1507,6 +1815,10 @@ def breakdown(db, start, end, by, prices=None):
         g["cost_usd"] += cost or 0.0
         g["models"].append(r["model"])
     out = list(groups.values())
+    if by == "device":   # 代號換成名字；'' 是這台
+        names = device_names(db)
+        for g in out:
+            g["device"] = names.get(g["device"], g["device"])
     if by == "day":
         out.sort(key=lambda g: (g["day"], g["source"]))
     else:
@@ -1664,6 +1976,68 @@ def log_places():
     claude = [p.strip() for p in env.split(",") if p.strip()] if env else [os.path.join(home, ".claude")]
     paths = [os.path.join(c, "projects") for c in claude] + [os.path.join(codex_home(), "sessions")]
     return ", ".join(("~" + p[len(home):]) if p.startswith(home) else p for p in paths)
+
+
+def device_names(db):
+    """裝置代號 -> 名字；'' 是這台電腦。"""
+    out = {r["id"]: r["name"] or r["id"] for r in db.execute("SELECT id, name FROM devices")}
+    out[""] = device_settings()["name"]
+    return out
+
+
+def devices_report(db, start, end, t=None):
+    """每台電腦這段期間的用量和最後回報時間。只有這台時回傳 []（不用特別顯示）。
+    超過 10 分鐘沒回報的標成 stale；匯出檔壞掉的帶著 error。"""
+    t = now() if t is None else t
+    known = [dict(r) for r in db.execute("SELECT * FROM devices ORDER BY name")]
+    if not known:
+        return []
+    prices = load_prices()
+    cost, tokens, reqs = {}, {}, {}
+    q = ("SELECT device, model, %s, SUM(requests) AS requests, SUM(cost_usd) AS cost_usd, COUNT(cost_usd) AS n_cost, "
+         "COUNT(*) AS n FROM usage WHERE ts >= ? AND ts < ? AND source IN (%s) GROUP BY device, model"
+         % (", ".join("SUM(%s) AS %s" % (c, c) for c in TOKEN_COLS), ",".join("?" * len(EXPORT_SOURCES))))
+    for row in db.execute(q, (start, end) + EXPORT_SOURCES):
+        r = dict(row)
+        if r["n_cost"] != r["n"]:
+            r["cost_usd"] = None
+        d = r["device"]
+        cost[d] = cost.get(d, 0.0) + (row_cost(r, price_for(r["model"], prices)) or 0.0)
+        tokens[d] = tokens.get(d, 0) + sum(r[c] or 0 for c in TOKEN_COLS if c != "reasoning")
+        reqs[d] = reqs.get(d, 0) + (r["requests"] or 0)
+    out = [{"id": local_device(db)[0], "name": device_settings()["name"], "local": True, "via": "",
+            "seen": int(t), "age": 0, "stale": False, "error": "", "tokens": tokens.get("", 0),
+            "requests": reqs.get("", 0), "cost_usd": round(cost.get("", 0.0), 4)}]
+    for d in known:
+        age = int(t - d["seen"]) if d["seen"] else None
+        out.append({"id": d["id"], "name": d["name"] or d["id"], "local": False, "via": d["via"], "seen": d["seen"],
+                    "age": age, "stale": age is None or age > DEVICE_STALE, "error": d["error"],
+                    "tokens": tokens.get(d["id"], 0), "requests": reqs.get(d["id"], 0),
+                    "cost_usd": round(cost.get(d["id"], 0.0), 4)})
+    return out
+
+
+def device_line(devs):
+    """一行講完每台電腦：「mac $12.30 · m1m $4.10（3h 前，過時）」。"""
+    parts = []
+    for d in devs:
+        txt = "%s %s" % (d["name"], fmt_usd(d["cost_usd"]))
+        if d["error"]:
+            txt += " (%s)" % T("dev_error")
+        elif d["stale"]:
+            txt += " (%s)" % (T("dev_stale") % (fmt_dur(d["age"]) if d["age"] is not None else "?"))
+        parts.append(rgb(AMBER, txt) if d["error"] or d["stale"] else txt)
+    return " \u00b7 ".join(parts)
+
+
+def render_devices(devs):
+    lines = ["Devices            requests     tokens  API equiv  last report"]
+    for d in devs:
+        when = "this computer" if d["local"] else ("never" if d["age"] is None else fmt_dur(d["age"]) + " ago")
+        flag = "  (error: %s)" % d["error"] if d["error"] else ("  (stale)" if d["stale"] else "")
+        lines.append("  %s %8s %10s %10s  %s%s" % (cell(d["name"], 16), fmt_tok(d["requests"]), fmt_tok(d["tokens"]),
+                                                  fmt_usd(d["cost_usd"]), when, flag))
+    return "\n".join(lines)
 
 
 def render_summary(s, ledger_empty=False):
@@ -2240,7 +2614,8 @@ def machines(cp=None):
                     "cpu_watts": _float(get("cpu_watts"), 0.0),
                     "plug": (get("plug") or "").strip() or None,
                     "idle_watts": _float(get("idle_watts")),
-                    "max_watts": _float(get("max_watts"))})
+                    "max_watts": _float(get("max_watts")),
+                    "usage": (get("usage") or "").strip().lower()})
     return out
 
 
@@ -3445,6 +3820,7 @@ def sync_openai_api(db):
 
 SOURCES.append(("anthropic-api", sync_anthropic_api))
 SOURCES.append(("openai-api", sync_openai_api))
+SOURCES.append(("devices", lambda db: sync_devices(db)))   # 放最後：自己的 log 先匯入，匯出檔才是最新的
 
 
 # ---------------------------------------------------------------- 分析
@@ -4470,6 +4846,7 @@ def dashboard_state(db):
     st["verdict"] = verdict(st)
     st["local"] = local_overview(db, st["machines"], energy, t)
     st["ledger_empty"] = not st["sources"] and ledger_empty(db)
+    st["devices"] = devices_report(db, start, end, t)
     return st
 
 
@@ -4669,7 +5046,7 @@ UI = {
         "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "Subscriptions", "machine": "Machines",
                     "machines": "Machines", "power": "Electricity", "prices": "Prices", "secrets": "Keys",
-                    "card": "Profile card", "update": "Update"},
+                    "card": "Profile card", "update": "Update", "devices": "Devices"},
         "dr_card_off": "no GitHub profile card yet", "dr_card_missing": "the card folder %s is gone",
         "dr_card_stale": "the card was last written %s ago", "dr_card_ok": "card in %s, updated %s ago (daily %s)",
         "dr_logs": "%s logs found (%d files)", "dr_nologs": "no %s logs (looked in %s)",
@@ -4677,6 +5054,11 @@ UI = {
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
         "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
         "dr_cl_cli": "Claude account limits are read from the claude CLI at least every %d minutes (no status line needed)",
+        "dr_dev_folder": "sharing usage through %s", "dr_dev_nofolder": "the shared folder %s is missing or not writable",
+        "dr_dev_error": "%s: its usage file can't be read (%s); the last good numbers are kept",
+        "dr_dev_stale": "%s last reported %s ago", "dr_dev_ok": "%s reported %s ago (via %s)",
+        "dr_dev_pull": "%s: could not pull usage (%s)",
+        "dr_dev_none": "only this computer's Claude and Codex tokens are counted; use a shared folder to add your other computers",
         "dr_update": "computai %s is out (you have %s)", "update_note": "computai %s is out (you have %s); update: %s",
         "dr_next": "%s limits: next check %s (%s)", "dr_now": "now", "dr_in": "in %s",
         "why_first": "not read yet", "why_fixed": "fixed: every %s", "why_idle": "not being used: every %s",
@@ -4745,6 +5127,7 @@ UI = {
         "win": {"5h": "5-hour limit", "week": "weekly limit"}, "used_up": "used up", "used_pct": "%d%% used",
         "today_worth": "today %s worth", "today_spent": "today %s",
         "sum_value": "Usage value: %s this month, %s today (at API prices)",
+        "dev_title": "Devices", "dev_n": "%d devices", "dev_n_stale": "%d stale", "dev_stale": "%s ago, stale", "dev_error": "its file is broken",
         "sum_pay": "You will actually pay about %s this month (plans + cloud + electricity)",
         "over_budget": "over the %s budget",
         "hdr_limit": "%s %s %d%% used", "hdr_left": "%s %s %d%% left", "pct_left": "%d%% left",
@@ -4874,7 +5257,7 @@ UI = {
         "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "訂閱", "machine": "機器",
                     "machines": "機器", "power": "電價", "prices": "價格", "secrets": "金鑰",
-                    "card": "個人頁卡片", "update": "更新"},
+                    "card": "個人頁卡片", "update": "更新", "devices": "多台電腦"},
         "dr_card_off": "還沒有 GitHub 個人頁卡片", "dr_card_missing": "卡片資料夾 %s 不見了",
         "dr_card_stale": "卡片上次更新是 %s 前", "dr_card_ok": "卡片在 %s，%s 前更新（每天 %s）",
         "dr_logs": "找到 %s 的 log（%d 個檔案）", "dr_nologs": "沒有 %s 的 log（找過 %s）",
@@ -4882,6 +5265,11 @@ UI = {
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
         "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
         "dr_cl_cli": "Claude 帳號額度從 claude 程式讀，最久 %d 分鐘一次（不用設 statusline）",
+        "dr_dev_folder": "用 %s 跟其他電腦交換用量", "dr_dev_nofolder": "共用資料夾 %s 不存在或不能寫",
+        "dr_dev_error": "%s：匯出檔讀不了（%s），保留上一份好的數字",
+        "dr_dev_stale": "%s 最後一次回報是 %s 前", "dr_dev_ok": "%s %s 前回報（%s）",
+        "dr_dev_pull": "%s：拉不到用量（%s）",
+        "dr_dev_none": "只算到這台電腦的 Claude、Codex token；設一個共用資料夾就能把其他電腦加進來",
         "dr_update": "computai 有新版 %s（你的是 %s）", "update_note": "computai 有新版 %s（你的是 %s），更新：%s",
         "dr_next": "%s 額度：%s再查（%s）", "dr_now": "現在", "dr_in": "%s 後",
         "why_first": "還沒讀過", "why_fixed": "固定每 %s", "why_idle": "沒在消耗 → 每 %s",
@@ -4949,6 +5337,7 @@ UI = {
         "win": {"5h": "5 小時額度", "week": "每週額度"}, "used_up": "已用完", "used_pct": "已用 %d%%",
         "today_worth": "今天價值 %s", "today_spent": "今天 %s",
         "sum_value": "用量價值：本月 %s、今天 %s（照 API 價格算）",
+        "dev_title": "裝置", "dev_n": "%d 台裝置", "dev_n_stale": "%d 台過時", "dev_stale": "%s 前，過時", "dev_error": "匯出檔壞了",
         "sum_pay": "這個月實際約要付 %s（月費＋雲端＋電費）",
         "over_budget": "超過 %s 的預算",
         "hdr_limit": "%s %s已用 %d%%", "hdr_left": "%s %s剩 %d%%", "pct_left": "剩 %d%%",
@@ -5464,6 +5853,8 @@ def usage_panel(st, width):
         lines.append(dim(" " + (T("no_logs") % log_places() if st.get("ledger_empty") else T("no_usage"))))
     f = st["forecast"]
     lines.append("")
+    if st.get("devices"):   # 多台電腦：每台這個月用了多少、多久前回報
+        lines.append(" " + dim(T("dev_title")) + "  " + device_line(st["devices"]))
     lines.append(" " + T("sum_value") % (bold(fmt_usd(st["total_cost_usd"])), bold(fmt_usd(st["today_usd"]))))
     pay = bold(rgb(RED, fmt_usd(f["projected_usd"])) if f.get("over_budget") else
                fmt_usd(f["projected_usd"]) if theme().get("flat") else rgb(CYAN, fmt_usd(f["projected_usd"])))
@@ -6102,6 +6493,10 @@ def render_mission(st, width, height, frame):
             plans.append(cell(T("src").get(x["source"], x["source"]).split()[0], 7) + roi_meter(ratio, max(4, iw - 14)) +
                          " " + bold(rgb(GREEN if ratio >= 1 else AMBER, "%.1fx" % ratio)))
     month = fmt_usd(st["total_cost_usd"]).split(".")[0]
+    devs = st.get("devices") or []
+    if devs:   # 多台電腦合併：幾台、有沒有過時的
+        bad = sum(1 for d in devs if d["stale"] or d["error"])
+        plans = [dim(T("dev_n") % len(devs)) + (rgb(AMBER, " \u00b7 " + T("dev_n_stale") % bad) if bad else "")] + plans
     t2 = tile(T("hm_month"), big_num(month), (plans + [dim(T("h_api_value"))])[:2], tw,
               dim(T("m_pay") + " ") + bold(fmt_usd(f["projected_usd"]).split(".")[0]) + dim(T("h_per_mo")))
     rate = sum(m["recent"]["tok_s"] or 0 for m in ms)
@@ -6890,6 +7285,10 @@ function usageCard(st) {
     if (s.source !== "local") box.append(el("div", {class: "legend"}, s.requests ? fmt(t.tok_req, tok(s.tokens), tok(s.requests)) : fmt(t.tok_only, tok(s.tokens))));
     card.append(box);
   }
+  if ((st.devices || []).length)   // 多台電腦：每台這個月用了多少，過時或壞掉的標出來
+    card.append(el("div", {class: "legend"}, `${t.dev_title}: `, ...st.devices.flatMap((d, i) => [i ? " · " : "",
+      el("span", {class: d.error || d.stale ? "lv-warn" : ""}, `${d.name} ${usd(d.cost_usd)}` +
+         (d.error ? ` (${t.dev_error})` : d.stale ? ` (${fmt(t.dev_stale, d.age === null ? "?" : dur(d.age))})` : ""))])));
   if (!st.sources.length && !st.limits.length) card.append(el("div", {class: "muted"}, t.w_no_usage));
   else card.append(FLAT() ? ft(t.api_equiv) : el("div", {class: "legend"}, t.api_equiv));
   return card;
@@ -8404,6 +8803,8 @@ def card_data(db, period="30d", prices=None, plan_table=None, t=None):
          "active_days": w["active_days"], "longest_streak": w["longest_streak"],
          "bars": bars, "bars_key": bars_key}
     c.update(card_extras(db, w, today, start, end))
+    c["devices"] = db.execute("SELECT COUNT(DISTINCT device) FROM usage WHERE ts >= ? AND ts < ? AND source IN (%s)"
+                              % ",".join("?" * len(EXPORT_SOURCES)), (start, end) + EXPORT_SOURCES).fetchone()[0]
     return c
 
 
@@ -8551,7 +8952,7 @@ CARD_TXT = {
            "value": "PLAN VALUE", "hours": "AGENT HOURS", "parallel": "PEAK PARALLEL", "run": "LONGEST RUN",
            "cache_hit": "CACHE HIT", "activity": "ACTIVITY // 13W", "less": "LESS", "more": "MORE", "fleet": "FLEET",
            "rank": "RANK", "xp": "XP %d%% > LV.%d", "all": "ALL-TIME %s TOK", "prompts": "PROMPTS", "subagents": "SUBAGENTS",
-           "loadout": "LOADOUT", "streak": "STREAK %dD", "peak": "PEAK %02d:00", "cache": "CACHE SAVED %s",
+           "loadout": "LOADOUT", "streak": "STREAK %dD", "rigs": "%d RIGS", "peak": "PEAK %02d:00", "cache": "CACHE SAVED %s",
            "sync": "SYNC %s", "online": "ONLINE", "none": "NO SIGNAL // NO USAGE YET",
            "30d": "30D", "month": "MONTH", "year": "YEAR", "all_p": "ALL TIME",
            "src": {"claude": "CLAUDE", "codex": "CODEX", "local": "LOCAL", "anthropic": "ANTHROPIC API", "openai": "OPENAI API"}},
@@ -8559,7 +8960,7 @@ CARD_TXT = {
            "value": "方案回本", "hours": "AGENT 工時", "parallel": "最多同時", "run": "最長連續",
            "cache_hit": "快取命中", "activity": "活動 // 13 週", "less": "少", "more": "多", "fleet": "艦隊",
            "rank": "等級", "xp": "XP %d%% > LV.%d", "all": "累計 %s TOK", "prompts": "請求", "subagents": "子代理",
-           "loadout": "裝備", "streak": "連續 %d 天", "peak": "高峰 %02d:00", "cache": "快取省下 %s",
+           "loadout": "裝備", "streak": "連續 %d 天", "rigs": "%d 台裝置", "peak": "高峰 %02d:00", "cache": "快取省下 %s",
            "sync": "同步 %s", "online": "在線", "none": "沒有訊號 // 還沒有用量",
            "30d": "近 30 天", "month": "本月", "year": "今年", "all_p": "全部",
            "src": {"claude": "CLAUDE", "codex": "CODEX", "local": "本地", "anthropic": "ANTHROPIC API", "openai": "OPENAI API"}},
@@ -8743,6 +9144,8 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netr
         facts.append(tx["peak"] % c["peak_hour"])
     if c["streak"]:
         facts.append(tx["streak"] % c["streak"])
+    if (c.get("devices") or 0) > 1:   # 多台電腦合併：只寫台數，機器名不上卡片
+        facts.append(tx["rigs"] % c["devices"])
     if c["cache_savings_usd"] >= 1:
         facts.append(tx["cache"] % fmt_usd(c["cache_savings_usd"]))
     room = W - 68 - (130 if credit else 0)
@@ -9057,7 +9460,10 @@ class Redactor:
                 names.append(("host", m["host"]))
                 names.append(("host", host))
         names.append(("machine", local_hostname()))
+        names.append(("machine", device_settings()["name"]))
         if db is not None:
+            for (n,) in db.execute("SELECT name FROM devices WHERE name != ''"):
+                names.append(("machine", n))
             for (p,) in db.execute("SELECT DISTINCT project FROM usage WHERE project != ''"):
                 base = os.path.basename(p.rstrip("/\\"))
                 if base.lower() not in self.COMMON:
@@ -9144,6 +9550,29 @@ def doctor(db, sample=True):
             add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
         else:
             add("claude", "todo", T("dr_sl_none"), "computai --setup")
+    # 多台電腦
+    ds = device_settings()
+    if ds["folder"]:
+        ok = os.path.isdir(ds["folder"]) and os.access(ds["folder"], os.W_OK)
+        add("devices", "ok" if ok else "todo", (T("dr_dev_folder") if ok else T("dr_dev_nofolder")) % ds["folder"],
+            "" if ok else "mkdir -p " + ds["folder"])
+    for d in devices_report(db, t - 30 * 86400, t + 1, t):
+        if d["local"]:
+            continue
+        if d["error"]:
+            add("devices", "todo", T("dr_dev_error") % (d["name"], d["error"]))
+        elif d["stale"]:
+            add("devices", "tip", T("dr_dev_stale") % (d["name"], fmt_dur(d["age"]) if d["age"] is not None else "?"))
+        else:
+            add("devices", "ok", T("dr_dev_ok") % (d["name"], fmt_dur(d["age"] or 0), d["via"]))
+    for m in machines():
+        if m.get("usage") == "pull":
+            row = db.execute("SELECT value FROM meta WHERE key = ?", ("pull_error:" + m["name"],)).fetchone()
+            if row and row["value"]:
+                add("devices", "todo", T("dr_dev_pull") % (m["name"], row["value"]),
+                    "ssh -o BatchMode=yes %s 'command -v python3'" % m["host"])
+    if not ds["folder"] and not any(m.get("usage") == "pull" for m in machines()) and n_claude + n_codex:
+        add("devices", "tip", T("dr_dev_none"), "computai --set devices.folder=~/Library/Mobile\\ Documents/com~apple~CloudDocs/computai")
     # 新版
     newer = newer_version(db)
     if newer:
@@ -9892,6 +10321,9 @@ def parse_args(argv=None):
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--export-usage", nargs="?", const="0", metavar="SINCE",
+                   help="print this computer's Claude and Codex usage (usage numbers only) as JSONL for another "
+                        "computer to merge; SINCE is an epoch second (used by [machine.X] usage = pull)")
     p.add_argument("--claude-limits", action="store_true",
                    help="read your Claude account's limits now through the claude CLI (`claude -p /usage`; no model call)")
     p.add_argument("--codex-limits", action="store_true",
@@ -10016,7 +10448,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -10075,6 +10507,16 @@ def run(args, db):
     if args.bench:
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
+        return 0
+    if args.export_usage is not None:
+        if not args.no_sync:
+            sync(db, only=[n for n in EXPORT_SOURCES], quiet=True)
+        try:
+            since = int(float(args.export_usage))
+        except ValueError:
+            raise SystemExit("computai: --export-usage takes an epoch second, got %r" % args.export_usage)
+        text, _n = export_usage(db, since=since)
+        sys.stdout.write(text)
         return 0
     if args.claude_limits:
         rows = claude_account_limits()
@@ -10295,6 +10737,8 @@ def run(args, db):
         emit(a, render_analysis(a), args.json)
         return 0
     if args.sync:
+        global _devices_now
+        _devices_now = True   # 手動同步：共用資料夾和 SSH 也馬上做
         added = sync(db, quiet=args.json)
         if args.json and not args.summary:
             print(json.dumps({"added": added}))
@@ -10306,6 +10750,9 @@ def run(args, db):
     s = summary(db, start, end, label=label)
     s["limits"] = current_limits(db)
     text = render_summary(s, ledger_empty=ledger_empty(db))
+    s["devices"] = devices_report(db, start, end)
+    if s["devices"]:
+        text += "\n\n" + render_devices(s["devices"])
     if s["limits"]:
         text += "\n\n" + render_limits(s["limits"])
     s["machines"] = machine_report(db, start, end)

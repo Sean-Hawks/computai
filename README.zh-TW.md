@@ -29,6 +29,9 @@
 另外有快取效率分析（哪些 session 一直在重寫快取、多花了多少）、月底花費預測與預算警示、
 方案模擬器、GPU 回本計算機、台電時間電價。
 
+在好幾台電腦上用 Claude 或 Codex？設一個共用資料夾（`[devices] folder`）或用 SSH 拉，帳本就會把每台都算進來，
+只交換用量數字（[做法](docs/MULTI-DEVICE.md)）。
+
 另外還有：`--discover` 從 `~/.ssh/config` 和 Tailscale 找機器；每台機器顯示還放得下多大的模型；
 智慧插座（Shelly、Tasmota、Home Assistant）的實測功耗；`--wake` 遠端開機；`--mcp` 讓 agent 自己查預算；
 `--weekly --send` 把週報送到 Discord 或 Telegram；`--wrapped` 像 Spotify Wrapped 的故事頁和分享卡、`--card` GitHub 個人頁卡片（`--recap` 是較早的年度回顧卡）；`--csv` 匯出明細；

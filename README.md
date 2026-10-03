@@ -46,6 +46,9 @@ On top of the ledger: cache-efficiency analysis (which sessions keep re-writing 
 cache and what that cost), a month-end forecast with an optional budget, a plan simulator,
 a GPU payback calculator and time-of-use electricity prices (Taipower two-tier presets).
 
+Using Claude or Codex on more than one computer? Point them at a shared folder (`[devices] folder`) or pull
+over SSH and the ledger counts all of them, usage numbers only ([how](docs/MULTI-DEVICE.md)).
+
 Also: `--discover` finds machines in `~/.ssh/config` and Tailscale; each machine shows how large a model
 still fits; smart plugs (Shelly, Tasmota, Home Assistant) give measured power; `--wake` sends Wake-on-LAN;
 `--mcp` lets agents ask about their own budget; `--weekly --send` posts a weekly summary to Discord or

@@ -63,6 +63,12 @@ def build(root):
                              cache_read=rnd.randint(20000, 90000), output=rnd.randint(500, 4000),
                              reasoning=rnd.randint(200, 2000)))
     m.add_usage(db, rows)
+    # 另一台電腦（共用資料夾合併進來的）：一台正常、一台 3 小時沒回報
+    for dev, name, age, k in (("demo-laptop", "laptop", 60, 40), ("demo-desk", "desk", 3 * 3600, 15)):
+        m.add_usage(db, [dict(source="claude", uid="%s-%d" % (dev, i), ts=int(t - rnd.randint(0, 20 * 86400)),
+                              model="claude-opus-5-5", project="gamma", output=rnd.randint(800, 6000),
+                              cache_read=rnd.randint(20000, 90000), device=dev) for i in range(k)])
+        m.note_device(db, dev, name=name, seen=int(t - age), via="folder", error="")
     for k in range(6):   # 最近一小時的額度樣本，看得出速度
         ts = int(t - (5 - k) * 600)
         m.add_limits(db, [dict(source="claude", name="5h", ts=ts, used_percent=30.0 + 3 * k, window_minutes=300,

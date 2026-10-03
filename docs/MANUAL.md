@@ -193,6 +193,21 @@ taipower.com.tw, so compare them with your bill. With a time-of-use tariff, ener
 the time it was used, and `--analyze` shows how much AI work ran at peak and what moving it
 off-peak would save.
 
+## Your other computers
+
+Limits are account-wide, but tokens and cost come from this computer's logs. To add your laptop, work
+computer or homelab boxes ([details](MULTI-DEVICE.md)):
+
+- **Shared folder** (recommended): on every computer, `computai --set devices.folder=PATH` with a folder they all
+  sync (iCloud Drive, Dropbox, Syncthing, a private git repo). Each writes its own usage there (usage numbers only:
+  no prompts, paths or session ids) and reads the others'. `devices.name` sets the name shown.
+- **SSH pull**: `[machine.X] usage = pull` for a machine in `[machines]`. ComputAI copies itself to
+  `~/.cache/computai` there (only `python3` is needed) and runs `computai --export-usage`.
+
+Each row is counted once however it arrives. A broken file is skipped whole and earlier numbers stay. Devices
+that have not reported for 10 minutes are marked stale. `--summary` lists devices, `--summary --by device`
+splits by device, and `--doctor` shows each device's last report and any errors.
+
 ## Machines and local models
 
 `computai --discover` lists candidates from `~/.ssh/config` and Tailscale, tests SSH to each and
