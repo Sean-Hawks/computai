@@ -26,6 +26,11 @@
 另外有快取效率分析（哪些 session 一直在重寫快取、多花了多少）、月底花費預測與預算警示、
 方案模擬器、GPU 回本計算機、台電時間電價。
 
+另外還有：`--discover` 從 `~/.ssh/config` 和 Tailscale 找機器；每台機器顯示還放得下多大的模型；
+智慧插座（Shelly、Tasmota、Home Assistant）的實測功耗；`--wake` 遠端開機；`--mcp` 讓 agent 自己查預算；
+`--weekly --send` 把週報送到 Discord 或 Telegram；`--recap` 年度回顧卡；`--csv` 匯出明細；
+`--totals`／`--lab` 實驗室彙總；`--lang zh` 中文介面。
+
 ## 安裝
 
 需要 Python 3.8 以上，只用標準函式庫；macOS、Linux、Windows 都可以。
@@ -53,6 +58,8 @@ computai --sample                 # 讀一次 [machines] 裡的每台機器
 computai --cloud                  # RunPod / Vast.ai / Lambda
 computai --proxy                  # 統計 Ollama 的 token：127.0.0.1:11435 -> :11434
 computai --payback 1800 --gpu-watts 450
+computai --discover               # 看看哪些機器讀得到
+computai --once --lang zh         # 中文、印一次
 ```
 
 每個指令都可以加 `--json`。第一次執行會在 `~/.config/computai/` 寫入 `config.ini` 和

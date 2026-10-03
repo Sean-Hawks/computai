@@ -43,6 +43,12 @@ On top of the ledger: cache-efficiency analysis (which sessions keep re-writing 
 cache and what that cost), a month-end forecast with an optional budget, a plan simulator,
 a GPU payback calculator and time-of-use electricity prices (Taipower two-tier presets).
 
+Also: `--discover` finds machines in `~/.ssh/config` and Tailscale; each machine shows how large a model
+still fits; smart plugs (Shelly, Tasmota, Home Assistant) give measured power; `--wake` sends Wake-on-LAN;
+`--mcp` lets agents ask about their own budget; `--weekly --send` posts a weekly summary to Discord or
+Telegram; `--recap` makes a year-in-review card; `--csv` exports records; `--totals`/`--lab` combine a
+group's totals; `--lang zh` switches the dashboards to Traditional Chinese.
+
 ## Install
 
 Python 3.8 or newer, standard library only. macOS, Linux and Windows.
@@ -70,6 +76,8 @@ computai --sample                 # read every machine in [machines] once
 computai --cloud                  # RunPod / Vast.ai / Lambda
 computai --proxy                  # count Ollama tokens on 127.0.0.1:11435 -> :11434
 computai --payback 1800 --gpu-watts 450
+computai --discover               # which of my machines can ComputAI read?
+computai --once --lang zh         # 中文、印一次
 ```
 
 Every command takes `--json`. The first run writes `config.ini` and `prices.ini` to
