@@ -139,3 +139,30 @@ class Doctor(unittest.TestCase):
         with open(os.path.join(self.sb.root, "cc", "settings.json"), "w") as f:
             f.write('{"statusLine": {"type": "command", "command": "computai --statusline"}, "x": 1}')
         self.assertEqual(self.m.claude_statusline(), "computai --statusline")
+
+
+class DiscoverAdd(unittest.TestCase):
+    def test_add_machines(self):
+        sb = helpers.Sandbox()
+        old = dict(os.environ)
+        try:
+            os.makedirs(sb.config)
+            with open(os.path.join(sb.config, "config.ini"), "w") as f:
+                f.write("# mine\n[machines]\nmac = othermac\n")
+            os.environ.update(COMPUTAI_CONFIG_DIR=sb.config, COMPUTAI_FIXTURES=helpers.fixture("machines"))
+            m = helpers.load()
+            found = [{"name": "mac", "host": "mac", "ok": True, "configured": False},
+                     {"name": "gpubox", "host": "gpubox", "ok": True, "configured": False},
+                     {"name": "dead", "host": "dead", "ok": False, "configured": False},
+                     {"name": "old", "host": "old", "ok": True, "configured": True}]
+            added = m.add_machines(found)
+            self.assertEqual([(a["name"], a["host"]) for a in added], [("mac-2", "mac"), ("gpubox", "gpubox")])
+            text = open(os.path.join(sb.config, "config.ini"), encoding="utf-8").read()
+            self.assertIn("# mine", text)
+            self.assertIn("mac-2 = mac", text)
+            self.assertIn("[machine.mac-2]\nidle_watts = 5\nmax_watts = 30", text)
+            self.assertIn("[machine.gpubox]\nbase_watts = 60\ncpu_watts = 90", text)
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            sb.close()

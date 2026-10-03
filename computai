@@ -2164,6 +2164,33 @@ def render_discover(found):
     return "\n".join(lines)
 
 
+def add_machines(found, with_power=True):
+    """把 discover 找到、連得上、還沒設定的機器寫進 [machines]，再依硬體填功耗建議值。回傳加了哪些。"""
+    have = {m["name"] for m in machines()}
+    changes, added = [], []
+    for r in found:
+        if not r.get("ok") or r.get("configured"):
+            continue
+        name = r["name"]
+        n = 2
+        while name in have:
+            name = "%s-%d" % (r["name"], n)
+            n += 1
+        have.add(name)
+        changes.append(("machines", name, r["host"]))
+        sug = {}
+        if with_power:
+            d = snapshot(r["host"], [])
+            if d:
+                sug, _why = suggest_power(d)
+        for k, v in sorted(sug.items()):
+            changes.append(("machine." + name, k, "%g" % v))
+        added.append({"name": name, "host": r["host"], "power": sug})
+    if changes:
+        write_config(changes)
+    return added
+
+
 def sample_machines(db, only=None, timeout=25):
     """所有機器同時取樣（一台卡住不會拖慢其他台），寫進帳本。回傳 {名稱: 取樣或 None}。"""
     ms = [m for m in machines() if not only or m["name"] in only]
@@ -5271,7 +5298,7 @@ HELP_GROUPS = (
     ("reports", ("sync", "summary", "month", "since", "until", "by", "analyze", "report", "html", "weekly", "send",
                  "recap", "csv", "totals", "who", "lab", "payback", "gpu_watts", "hours_per_day", "rent_per_hour")),
     ("dashboards", ("live", "once", "interval", "web", "line", "statusline", "sep", "lang")),
-    ("machines and cloud", ("sample", "discover", "wake", "cloud", "proxy", "listen", "upstream", "machine",
+    ("machines and cloud", ("sample", "discover", "add", "wake", "cloud", "proxy", "listen", "upstream", "machine",
                             "sample_every", "no_usage_injection")),
     ("integrations", ("mcp",)),
     ("setup", ("doctor", "set", "unset")),
@@ -5313,6 +5340,8 @@ def parse_args(argv=None):
                    help="check every source and machine and say what is missing and how to fix it")
     p.add_argument("--discover", action="store_true",
                    help="look for machines in ~/.ssh/config and Tailscale, test SSH, print config lines")
+    p.add_argument("--add", action="store_true",
+                   help="with --discover: add the reachable machines to config.ini with suggested power settings")
     p.add_argument("--mcp", action="store_true",
                    help="run as an MCP server on stdio so agents can query usage, limits and budget")
     p.add_argument("--wake", metavar="NAME", help="send a Wake-on-LAN packet to a machine (needs mac = ... in its section)")
@@ -5479,6 +5508,14 @@ def run(args, db):
         return 0
     if args.discover:
         found = discover()
+        if args.add:
+            added = add_machines(found)
+            text = render_discover(found).split("\n\n")[0]
+            text += "\n\n" + ("\n".join("added %s = %s%s" % (a["name"], a["host"], (" (" + ", ".join(
+                "%s=%g" % kv for kv in sorted(a["power"].items())) + ")") if a["power"] else "") for a in added)
+                               if added else "nothing new to add")
+            emit({"found": found, "added": added}, text, args.json)
+            return 0
         emit(found, render_discover(found), args.json)
         return 0
     if args.cloud:
