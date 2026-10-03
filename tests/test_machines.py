@@ -110,6 +110,7 @@ class Sampling(unittest.TestCase):
         r = rows[0]
         self.assertEqual((r["input"], r["output"], r["model"], r["project"]), (60000, 6000, "Qwen/Qwen3-32B", "gpubox"))
         self.assertEqual(r["cost_usd"], 0.0)
+        self.assertEqual(r["requests"], 0)
         s = self.db.execute("SELECT * FROM samples ORDER BY ts").fetchall()
         self.assertEqual(s[0]["power_w"], 310.5 + 60.2 + 100)
         self.assertEqual(s[1]["power_w"], 320.0 + 100)     # 第二張卡讀不到功耗

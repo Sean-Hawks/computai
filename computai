@@ -1807,7 +1807,8 @@ def record_sample(db, m, d, ts):
             kind, _port, model = key.split(":", 2)
             rows.append({"source": "local", "uid": "%s:%s:%d" % (m["name"], key, ts), "ts": int(ts),
                          "model": model, "project": m["name"], "session": kind,
-                         "input": int(dp), "output": int(dg), "cost_usd": 0.0})
+                         "input": int(dp), "output": int(dg), "cost_usd": 0.0,
+                         "requests": 0})  # 計數器只有 token 總數，不知道是幾個請求
     proxied = 0
     if prev:
         proxied = db.execute("SELECT COUNT(*) FROM usage WHERE source = 'local' AND project = ? "
