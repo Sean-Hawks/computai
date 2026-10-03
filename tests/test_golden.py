@@ -79,10 +79,16 @@ class Golden(unittest.TestCase):
         self.check("live-cyber.txt", self.m.render_live(self.st, 100, theme_name="cyber"))
 
     def test_cyber_color(self):
-        # 有色碼的版本：確認 cyber 的霓虹色真的有用上
+        # 有色碼的版本：cyber 的顏色依用途（docs/DESIGN.md）
         text = self.m.render_live(self.st, 100, color=True, theme_name="cyber")
-        self.assertIn("38;2;0;240;255m", text)       # 霓虹青
-        self.assertIn("38;2;255;0;170m", text)       # 洋紅
+        self.assertIn("48;2;251;191;36m WATCH ", text)   # 總結列：琥珀底的「注意」是唯一的反白色塊
+        self.assertEqual(text.count("48;2;"), 1)
+        self.assertIn("38;2;103;232;249m", text)         # 品牌青
+        self.assertNotIn("\033[2m", text)                # 次要資訊用 meta 灰，不用 SGR 2
+        self.assertNotIn("38;2;255;0;170m", text)        # 沒有洋紅霓虹
+        st = dict(self.st, limits=[dict(r, used_percent=100.0) for r in self.st["limits"]])
+        full = self.m.render_live(st, 100, color=True, theme_name="cyber")
+        self.assertIn("48;2;248;113;113m ALERT ", full)   # 額度用完：紅底「警告」
         self.m.set_style(theme="classic")
 
     def test_zh(self):

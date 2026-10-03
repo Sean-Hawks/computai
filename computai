@@ -3423,13 +3423,15 @@ THEMES = {
         "box": ("\u256d", "\u256e", "\u2570", "\u256f", "\u2500", "\u2502"),
         "title": (" ", " "), "led": "\u25c9", "head": ("", ""),
     },
+    # cyber：顏色依用途命名（見 docs/DESIGN.md）。grey＝框線，cyan＝品牌，mag＝一般數值（不再用洋紅），
+    # red／amber／green＝故障／注意／正常。flat＝長條不做熱度漸層，dim 改用 meta 色而不是 SGR 2。
     "cyber": {
-        "grey": (78, 70, 112), "cyan": (0, 240, 255), "mag": (255, 0, 170), "red": (255, 42, 109),
-        "amber": (252, 238, 10), "green": (57, 255, 20),
-        "heat": ((0, (0, 240, 255)), (45, (130, 90, 255)), (75, (255, 0, 170)), (100, (255, 42, 109))),
-        "bar": ("\u25b0", "\u25b1", "", ""),
-        "box": ("\u250f", "\u2513", "\u2517", "\u251b", "\u2501", "\u2503"),
-        "title": ("\u252b ", " \u2523"), "led": "\u25c6", "head": ("\u2593\u2592\u2591 ", " \u2591\u2592\u2593"),
+        "grey": (58, 63, 71), "cyan": (103, 232, 249), "mag": (230, 232, 235), "red": (248, 113, 113),
+        "amber": (251, 191, 36), "green": (74, 222, 128), "meta": (154, 161, 171),
+        "heat": ((0, (103, 232, 249)), (100, (103, 232, 249))), "flat": True,
+        "bar": ("\u2501", "\u2500", "", ""),
+        "box": ("\u250c", "\u2510", "\u2514", "\u2518", "\u2500", "\u2502"),
+        "title": (" ", " "), "led": "\u25cf", "head": ("", ""),
     },
 }
 
@@ -3476,7 +3478,26 @@ def bold(s):
 
 
 def dim(s):
-    return sgr("2", s)
+    """次要資訊。cyber 用 meta 灰（很多終端機把 SGR 2 畫得幾乎看不見）。"""
+    meta = theme().get("meta")
+    return rgb(meta, s) if meta else sgr("2", s)
+
+
+def tone(level):
+    """用途 -> 顏色：ok／warn／fail／brand／text。"""
+    return {"ok": GREEN, "warn": AMBER, "fail": RED, "brand": CYAN, "text": MAG}.get(level, MAG)
+
+
+def limit_level(used):
+    return "fail" if (used or 0) >= LIMIT_FAIL else "warn" if (used or 0) >= LIMIT_WARN else "brand"
+
+
+def badge(level, s):
+    """反白色塊（總結列專用）：色底黑字；沒有顏色時用方括號。"""
+    if not _color:
+        return "[%s]" % s
+    c = tone(level)
+    return "\033[1;38;2;0;0;0;48;2;%d;%d;%dm %s \033[0m" % (c[0], c[1], c[2], s)
 
 
 def heat(pct):
@@ -3491,15 +3512,18 @@ def heat(pct):
 
 
 def temp_color(t):
+    if theme().get("flat"):
+        return RED if t >= 90 else AMBER if t >= 80 else MAG
     return heat(max(0, min(100, (t - 35) / 50 * 100)))
 
 
-def gradbar(pct, width=12):
-    """漸層長條：每一格依自己的位置上色，填到的格子才亮。"""
+def gradbar(pct, width=12, level=None):
+    """長條。classic：每一格依位置做熱度漸層；cyber 或指定 level：整條一個顏色（見 docs/DESIGN.md）。"""
     pct = max(0.0, min(100.0, pct or 0.0))
     filled = int(round(pct / 100 * width))
     _, full, empty, lcap, rcap, _box = glyphs()
-    cells = [rgb(heat((i + 1) / width * 100), full) if i < filled else rgb(GREY, empty) for i in range(width)]
+    one = tone(level) if level else None
+    cells = [rgb(one or heat((i + 1) / width * 100), full) if i < filled else rgb(GREY, empty) for i in range(width)]
     return lcap + "".join(cells) + rcap
 
 
@@ -3555,8 +3579,9 @@ def pad(s, width):
     return s + " " * max(0, width - vlen(s))
 
 
-def panel(left, right, lines, width, load=0.0):
-    """圓角面板：標題在上框線左邊，摘要在右邊，框線顏色跟著負載（0-100）走。"""
+def panel(left, right, lines, width, load=0.0, foot="", level=None):
+    """面板＝標題列／主體／來源列：標題在上框線左邊、狀態在右邊，來源寫在下框線上。
+    classic 的框線顏色跟著負載（0-100）走；cyber 的框線是安靜的細線，只有 level="fail" 時變紅。"""
     tl, tr, bl, br, h, v = glyphs()[5]
     inner = max(10, width - 2)
     o, c = (" ", " ") if _ascii else theme()["title"]
@@ -3565,11 +3590,19 @@ def panel(left, right, lines, width, load=0.0):
     if vlen(left) + vlen(right) + 2 > inner:
         right = clip(right, max(0, inner - vlen(left) - 2))
     fill = max(0, inner - vlen(left) - vlen(right) - 2)
-    edge = lambda s: rgb(heat(load), s)
+    if level:
+        col = tone(level) if level == "fail" or not theme().get("flat") else GREY
+    else:
+        col = GREY if theme().get("flat") else heat(load)
+    edge = lambda s: rgb(col, s)
     rows = [edge(tl + h * 2) + left + edge(h * fill) + right + edge(tr)]
     for ln in lines:
         rows.append(edge(v) + pad(clip(ln, inner), inner) + edge(v))
-    rows.append(edge(bl + h * inner + br))
+    foot = (" %s " % foot) if foot else ""
+    if vlen(foot) > inner - 2:
+        foot = clip(foot, inner - 2)
+    rows.append(edge(bl + h * 2) + foot + edge(h * max(0, inner - 2 - vlen(foot)) + br) if foot
+                else edge(bl + h * inner + br))
     return rows
 
 
@@ -3596,6 +3629,11 @@ def wrap(text, width, indent=""):
     if line.strip():
         out.append(line.rstrip())
     return out or [""]
+
+
+def label(s):
+    """面板裡的欄位名稱（CPU、MEM…）：classic 用青色，cyber 是安靜的 meta 灰，讓數值當主角。"""
+    return dim(s) if theme().get("flat") else rgb(CYAN, s)
 
 
 def led():
@@ -3955,7 +3993,7 @@ UI = {
         "a_idle": "%s: %s is loaded but has not been used for %s%s - stop it or let it unload to free the memory",
         "a_cloud_unknown": "%s %s is billing %s/h but its GPU use is unknown (set [cloud] ssh_user to read it)",
         "a_cloud_idle": "%s %s: the GPU has been idle for %s but is still billing %s/h (%s so far) - stop it if you are done",
-        "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
+        "sampled": "read %s ago", "n_used_up": "%d used up", "n_high": "%d nearly used up", "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
         "v_used_up": "%s %s is used up - resets in %s", "v_used_up_nr": "%s %s is used up",
         "v_high": "%s %s is %d%% used", "v_high_r": "%s %s is %d%% used - resets in %s",
         "v_budget": "this month is heading for %s, over the %s budget",
@@ -4049,7 +4087,7 @@ UI = {
         "a_idle": "%s：%s 已經載入，但 %s 沒有被用到%s，關掉或讓它卸載就能釋放記憶體",
         "a_cloud_unknown": "%s %s 每小時計費 %s，但看不到 GPU 有沒有在用（設定 [cloud] ssh_user 才讀得到）",
         "a_cloud_idle": "%s %s：GPU 已經閒置 %s，還在以每小時 %s 計費（目前多花 %s），用完了就關掉",
-        "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
+        "sampled": "%s 前讀取", "n_used_up": "%d 個額度用完", "n_high": "%d 個額度快用完", "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
         "v_used_up": "%s %s用完了，%s 後重置", "v_used_up_nr": "%s %s用完了",
         "v_high": "%s %s已用 %d%%", "v_high_r": "%s %s已用 %d%%，%s 後重置",
         "v_budget": "這個月預估 %s，超過 %s 的預算",
@@ -4161,9 +4199,15 @@ def machine_panel(m, width, energy=None, error=None):
     gpus = m.get("gpus") or []
     load = (m["gpu_util"] if m["gpu_util"] is not None else m["cpu_pct"]) or 0.0
     where = T("local") if m.get("host") == "local" else T("ssh")
-    ai = " " + rgb(GREEN, "AI") if m["ai_active"] else ""
+    ai = " " + rgb(GREEN, sym("\u25cf ", "* ") + T("busy")) if m["ai_active"] else ""
     stale = (" " + rgb(AMBER, T("ago") % fmt_dur(m["age"]))) if m["age"] > 300 else ""
-    left = "%s %s %s %s%s%s" % (dim(T("node")), bold(rgb(CYAN, m["machine"])), rgb(heat(load), dot), dim(where), ai, stale)
+    if theme().get("flat"):  # cyber：標題只放名字和狀態字，來源（SSH／本機、多久前取樣）放在下框線
+        left = "%s %s%s%s" % (dim(T("node")), bold(m["machine"]), ai, stale)
+        foot = dim("%s %s %s" % (where, sym("\u00b7", "|"), T("sampled") % fmt_dur(m["age"])))
+    else:
+        left = "%s %s %s %s%s%s" % (dim(T("node")), bold(rgb(CYAN, m["machine"])), rgb(heat(load), dot), dim(where),
+                                    " " + rgb(GREEN, "AI") if m["ai_active"] else "", stale)
+        foot = ""
     bits = []
     if gpus:
         names = sorted({g.get("model") or g.get("vendor") or "GPU" for g in gpus})
@@ -4177,12 +4221,12 @@ def machine_panel(m, width, energy=None, error=None):
     sp_w = 10 if width >= 70 else 6
     cpu = m["cpu_pct"]
     ld = m.get("load")
-    lines.append(" %s %s %s %s %s" % (rgb(CYAN, "CPU"), gradbar(cpu or 0), _num(cpu, "%5.1f%%", "    -"),
+    lines.append(" %s %s %s %s %s" % (label("CPU"), gradbar(cpu or 0), _num(cpu, "%5.1f%%", "    -"),
                                        spark(m["history"]["cpu"], sp_w),
                                        dim(T("load") % ld[0]) if ld else ""))
     if m.get("mem_total"):
         mp = 100.0 * (m["mem_used"] or 0) / m["mem_total"]
-        lines.append(" %s %s %5.1f%% %s" % (rgb(CYAN, "MEM"), gradbar(mp), mp,
+        lines.append(" %s %s %5.1f%% %s" % (label("MEM"), gradbar(mp), mp,
                                            dim("%.0f/%.0f GiB" % ((m["mem_used"] or 0) / 1024.0, m["mem_total"] / 1024.0))))
     for g in gpus:
         u = g.get("util")
@@ -4191,7 +4235,7 @@ def machine_panel(m, width, energy=None, error=None):
             mem = "%.1f/%.0fG" % ((g.get("mem_used") or 0) / 1024.0, g["mem_total"] / 1024.0)
         temp = rgb(temp_color(g["temp"]), "%2.0f°" % g["temp"]) if g.get("temp") is not None else dim("  -")
         pw = dim(_num(g.get("power"), "%4.0fW", "    "))
-        lines.append(" %s%s %s %s %s %s %s %s" % (rgb(CYAN, "G"), bold(str(g.get("idx"))), gradbar(u or 0),
+        lines.append(" %s%s %s %s %s %s %s %s" % (label("G"), label(str(g.get("idx"))), gradbar(u or 0),
                                                  _num(u, "%3.0f%%", "  -"), spark(g.get("history"), sp_w),
                                                  dim(mem), temp, pw))
     ph = [p for p in m["history"]["power"] if p is not None]
@@ -4201,7 +4245,7 @@ def machine_panel(m, width, energy=None, error=None):
         if energy and energy.get("kwh"):
             extra = dim("  " + T("kwh_month") % (
                 energy["kwh"], "-" if energy["ai_share"] is None else "%d%%" % round(100 * energy["ai_share"])))
-        lines.append(" %s %s %s%s" % (rgb(CYAN, "PWR"), rgb(MAG, "%5.0f W" % (m["power_w"] or 0)),
+        lines.append(" %s %s %s%s" % (label("PWR"), rgb(MAG, "%5.0f W" % (m["power_w"] or 0)),
                                        spark(ph, sp_w + 6, color=MAG, relative=True), extra))
     by_svc = {}
     for x in m.get("loaded") or []:
@@ -4210,7 +4254,8 @@ def machine_panel(m, width, energy=None, error=None):
         key = (svc["kind"], svc["port"])
         models = by_svc.pop(key, [])
         busy = svc.get("busy", m["ai_active"])
-        state = rgb(GREEN, sym("\u25cf", "*") + " " + T("busy")) if busy else dim(sym("\u25cb", "o") + " " + T("idle"))
+        state = rgb(GREEN, sym("\u25cf", "*") + " " + T("busy")) if busy else \
+            (sym("\u25cb", "o") + " " + T("idle") if theme().get("flat") else dim(sym("\u25cb", "o") + " " + T("idle")))
         names = ", ".join("%s%s" % (x["name"], dim(" %s MB" % format(x["vram_mb"], ",")) if x.get("vram_mb") else "")
                           for x in models) or dim(T("no_model"))
         rate = ""
@@ -4226,7 +4271,7 @@ def machine_panel(m, width, energy=None, error=None):
     if f:
         lines.append(dim(" " + (T("fits") % (f["free_gb"], "%gB" % f["params_b"]) if f["params_b"]
                                 else T("fits_none") % f["free_gb"]) + (" " + T("fits_multi") if f["multi_gpu"] else "")))
-    return panel(left, right, lines, width, load)
+    return panel(left, right, lines, width, load, foot=foot)
 
 
 def limit_label(name):
@@ -4250,7 +4295,8 @@ def usage_panel(st, width):
             lines.append(" %s %s" % (bold(cell(name, 14)), T("local_free") % fmt_tok(x["tokens"])))
             continue
         if src in SUBSCRIPTION_SOURCES:
-            bits = [rgb(CYAN, T("worth") % fmt_usd(x["cost_usd"]))]
+            bits = [bold(T("worth") % fmt_usd(x["cost_usd"])) if theme().get("flat")
+                    else rgb(CYAN, T("worth") % fmt_usd(x["cost_usd"]))]
             if plan:
                 ratio = plan["value_ratio"] or 0
                 bits.append(dim(T("plan_fee") % (fmt_usd(plan["fee_in_range"]), plan["name"])))
@@ -4262,9 +4308,12 @@ def usage_panel(st, width):
         lines.append(" %s %s" % (bold(cell(name, 14)), dim(sym(" \u00b7 ", " | ")).join(bits)))
         for r in sorted(lim.pop(src, []), key=lambda r: r["window_minutes"] or 0):
             used = r["used_percent"]
-            state = rgb(RED, T("used_up")) if used >= 99.5 else T("used_pct") % used
+            lv = limit_level(used)
+            state = T("used_up") if used >= LIMIT_FAIL else T("used_pct") % used
+            state = bold(rgb(tone(lv), state)) if lv != "brand" else state
             when = dim(" " + sym("\u00b7", "|") + " " + T("resets") % fmt_dur(r["resets_in"])) if r["resets_in"] is not None else ""
-            lines.append("   %s %s %s%s" % (dim(cell(limit_label(r["name"]), 12)), gradbar(used, bar_w), state, when))
+            lines.append("   %s %s %s%s" % (dim(cell(limit_label(r["name"]), 12)),
+                                            gradbar(used, bar_w, lv if theme().get("flat") else None), state, when))
         series = daily["sources"].get(src)
         if series and any(series):
             lines.append("   %s %s %s" % (dim(cell(T("d14"), 12)), spark(series, len(series), top=max(series), color=CYAN),
@@ -4279,10 +4328,18 @@ def usage_panel(st, width):
     f = st["forecast"]
     lines.append("")
     lines.append(" " + T("sum_value") % (bold(fmt_usd(st["total_cost_usd"])), bold(fmt_usd(st["today_usd"]))))
-    pay = bold(rgb(RED if f.get("over_budget") else CYAN, fmt_usd(f["projected_usd"])))
+    pay = bold(rgb(RED, fmt_usd(f["projected_usd"])) if f.get("over_budget") else
+               fmt_usd(f["projected_usd"]) if theme().get("flat") else rgb(CYAN, fmt_usd(f["projected_usd"])))
     lines.append(" " + T("sum_pay") % pay + (("  " + rgb(RED, T("over_budget") % fmt_usd(f["budget_usd"])))
                                             if f.get("over_budget") else ""))
-    return panel(bold(T("usage")) + " " + dim(st["month"]), dim(T("api_equiv")), lines, width, 0)
+    if not theme().get("flat"):
+        return panel(bold(T("usage")) + " " + dim(st["month"]), dim(T("api_equiv")), lines, width, 0)
+    # cyber：右上角是狀態字（幾個額度用完／快用完），「金額怎麼算」是來源，放在下框線
+    full = sum(1 for r in st["limits"] if (r["used_percent"] or 0) >= LIMIT_FAIL)
+    high = sum(1 for r in st["limits"] if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
+    state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
+    return panel(bold(T("usage")) + " " + dim(st["month"]), state, lines, width, 0,
+                 foot=dim(T("api_equiv")), level="fail" if full else None)
 
 
 def cloud_panel(st, width):
@@ -4299,12 +4356,23 @@ def cloud_panel(st, width):
 def alerts_panel(st, width):
     warn_ = "!" if _ascii else "⚠"
     lines = []
-    for a in st["alerts"]:
+    worst = None
+    for a in sorted(st["alerts"], key=lambda a: alert_level(a) != "fail"):  # 嚴重的在前
+        lv = alert_level(a)
+        worst = worst or lv
         for i, ln in enumerate(wrap(a["message"], max(20, width - 6))):
-            lines.append(" %s %s" % (rgb(RED, warn_) if i == 0 else " ", ln))
-    lines = lines or [dim(" " + T("clear"))]
-    return panel(bold(T("alerts")), dim("%d" % len(st["alerts"])) if st["alerts"] else "", lines, width,
-                 100 if st["alerts"] else 0)
+            lines.append(" %s %s" % (rgb(tone(lv) if theme().get("flat") else RED, warn_) if i == 0 else " ", ln))
+    if not lines:
+        lines = [" " + rgb(GREEN, sym("\u25cf ", "* ") + T("clear"))] if theme().get("flat") else [dim(" " + T("clear"))]
+    count = "%d" % len(st["alerts"]) if st["alerts"] else ""
+    if theme().get("flat"):
+        return panel(bold(T("alerts")), rgb(tone(worst), count) if count else "", lines, width, 0,
+                     level="fail" if worst == "fail" else None)
+    return panel(bold(T("alerts")), dim(count) if count else "", lines, width, 100 if st["alerts"] else 0)
+
+
+def alert_level(a):
+    return "fail" if a["kind"] in ("machine_unreachable", "cloud_idle_billing") else "warn"
 
 
 def advice_panel(st, width):
@@ -4354,6 +4422,21 @@ def verdict(st):
     return {"level": level, "word": T("v_" + level), "items": items}
 
 
+def verdict_line(v, width):
+    """總結列：等級（正常是綠字；注意、警告是整個畫面唯一的反白色塊）＋最嚴重那件事＋還有幾件。"""
+    if v["level"] == "ok":
+        return " " + rgb(GREEN, sym("\u25cf ", "* ") + v["word"])
+    more = (dim(sym(" \u00b7 ", " | ")) + dim(T("v_more") % (len(v["items"]) - 1))) if len(v["items"]) > 1 else ""
+    lead = " " + badge(v["level"], v["word"]) + " "
+    text = rgb(tone(v["level"]), v["items"][0][1]) + more
+    rows = wrap(v["items"][0][1], max(20, width - vlen(lead) - 1))
+    if len(rows) == 1 and vlen(lead + text) <= width:
+        return lead + text
+    pad_ = " " * vlen(lead)
+    return "\n".join((lead if i == 0 else pad_) + rgb(tone(v["level"]), r) for i, r in enumerate(rows)) + \
+        ("\n" + pad_ + more.lstrip(" \u00b7|").strip() if more else "")
+
+
 def header_parts(st):
     """標頭那一行的白話版：每個訂閱最吃緊的額度、重置時間、今天的用量價值。"""
     parts = []
@@ -4376,18 +4459,17 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
     寬度夠（>= 150）就兩欄：左邊算力，右邊 AI 用量和警示；不夠就上下排。"""
     set_style(color, ascii_, theme_name)
     width = max(60, width)
-    h0, h1 = ("", "") if _ascii else theme()["head"]
-    brand = (rgb(MAG, h0) + bold(rgb(CYAN, "COMPUTAI")) + rgb(MAG, h1) + rgb(GREY, " // NEON LEDGER")
-             if _theme == "cyber" and not _ascii else bold("ComputAI"))
-    head = "%s %s  %s   %s" % (rgb(CYAN, led()), brand,
-                               dim(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))), header_text(st))
-    if vlen(head) > width:  # 太長就把用量摘要移到下一行並折行，不裁掉重置時間
-        sep, rows = dim(sym(" \u00b7 ", " | ")), [""]
-        for part in header_parts(st):  # 在分隔點之間換行，每一段保持完整
-            if rows[-1] and vlen(rows[-1] + sep + part) > width - 2:
-                rows.append("")
-            rows[-1] += (sep if rows[-1] else "") + part
-        head = head[:head.rindex("   ")] + "".join("\n  " + ln for r in rows for ln in wrap(r, width - 2))
+    brand = bold(rgb(CYAN, "COMPUTAI")) if theme().get("flat") else bold("ComputAI")
+    # 標頭三段：品牌和時間／總結列（現在有沒有事）／每個額度和今天的用量價值（在「·」之間換行）
+    head = "%s %s  %s\n%s" % (rgb(CYAN, led()), brand,
+                              dim(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))),
+                              verdict_line(verdict(st), width))
+    sep, rows = dim(sym(" \u00b7 ", " | ")), [""]
+    for part in header_parts(st):
+        if rows[-1] and vlen(rows[-1] + sep + part) > width - 1:
+            rows.append("")
+        rows[-1] += (sep if rows[-1] else "") + part
+    head += "".join("\n " + ln for r in rows for ln in wrap(r, width - 1))
     two = width >= 150
     col = (width - 2) // 2 if two else width
     errors = {a["machine"]: a for a in st["alerts"] if a["kind"] == "machine_unreachable"}

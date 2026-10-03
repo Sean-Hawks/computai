@@ -1,6 +1,7 @@
 ◉ ComputAI  2026-09-21 14:13:20
-  Claude 5-hour limit 42% used · Codex weekly limit 93% used (resets in 8h20m)
-  today's usage worth $11.50
+ [WATCH] Codex weekly limit is 93% used - resets in 8h20m
+ Claude 5-hour limit 42% used · Codex weekly limit 93% used (resets in 8h20m)
+ today's usage worth $11.50
 
  COMPUTE  2 machines · drawing 431 W now ······█▂█▂█▂ · GPU avg 56%
 ╭── MACHINES ─────────────────────────────────── compact: enlarge the window for details ╮

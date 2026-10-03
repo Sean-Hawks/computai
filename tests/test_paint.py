@@ -18,12 +18,18 @@ class Paint(unittest.TestCase):
     def test_cyber_theme(self):
         m = self.m
         m.set_style(color=False, theme="cyber")
-        self.assertEqual(m.heat(0), (0, 240, 255))
-        self.assertEqual(m.heat(100), (255, 42, 109))
-        self.assertEqual(m.gradbar(50, 4), "\u25b0\u25b0\u25b1\u25b1")
-        rows = m.panel("NODE", "x", ["a"], 20)
-        self.assertTrue(rows[0].startswith("\u250f\u2501\u2501\u252b NODE \u2523"))
+        self.assertEqual(m.heat(0), m.heat(100))                    # 沒有熱度漸層，一律品牌青
+        self.assertEqual(m.gradbar(50, 4), "\u2501\u2501\u2500\u2500")
+        self.assertEqual(m.limit_level(42), "brand")
+        self.assertEqual(m.limit_level(85), "warn")
+        self.assertEqual(m.limit_level(100), "fail")
+        self.assertEqual(m.temp_color(70), m.MAG)
+        self.assertEqual(m.temp_color(92), m.RED)
+        rows = m.panel("NODE", "x", ["a"], 20, foot="SSH")
+        self.assertTrue(rows[0].startswith("\u250c\u2500\u2500 NODE "))
+        self.assertTrue(rows[-1].startswith("\u2514\u2500\u2500 SSH "))  # 來源寫在下框線
         self.assertTrue(all(m.vlen(r) == 20 for r in rows))
+        self.assertEqual(m.badge("fail", "ALERT"), "[ALERT]")         # 沒有顏色時用方括號
         m.set_style(theme="classic")
 
     def test_heat_endpoints(self):
