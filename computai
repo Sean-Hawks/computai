@@ -4328,7 +4328,7 @@ def wait_key(timeout):
 # ---- 網頁（--web）
 
 WEB_HTML = """<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="cyber">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -4338,7 +4338,7 @@ WEB_HTML = """<!doctype html>
 </head>
 <body>
 <header>
-  <div class="brand">COMPUTAI<span id="tagline">where your compute and AI money goes</span></div>
+  <div class="brand"><b class="glitch" data-text="COMPUTAI">COMPUTAI</b><span id="tagline">where your compute and AI money goes</span></div>
   <div id="line"></div>
   <div id="clock"></div>
 </header>
@@ -4427,6 +4427,58 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
   .gpu { grid-template-columns:28px minmax(0,1fr) 42px; } .gpu > :nth-child(4), .gpu > :nth-child(5) { display:none; }
   main { padding:8px; } header { padding:8px; } .tile .v { font-size:18px; }
   .brand span { display:none; } #line { order:3; flex-basis:100%; } #clock { margin-left:auto; } }
+
+/* ---- cyberpunk 主題（預設；[general] theme = classic 換回上面的樣式） ---- */
+html[data-theme="cyber"] { color-scheme: dark; --bg:#07040f; --panel:rgba(16,9,34,.88); --line:#2c1d52;
+  --text:#e4f9ff; --dim:#8f84bd; --accent:#00f0ff; --mag:#ff00aa; --warn:#fcee0a; --red:#ff2a6d; --ok:#39ff14; }
+html[data-theme="cyber"] body { background-color:var(--bg);
+  background-image:linear-gradient(rgba(0,240,255,.045) 1px, transparent 1px),
+                   linear-gradient(90deg, rgba(255,0,170,.035) 1px, transparent 1px),
+                   radial-gradient(ellipse at top, rgba(130,90,255,.18), transparent 60%);
+  background-size:32px 32px, 32px 32px, 100% 100%; }
+html[data-theme="cyber"] body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:50;
+  background:repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px); }
+html[data-theme="cyber"] header { border-bottom:1px solid var(--mag);
+  box-shadow:0 1px 0 rgba(0,240,255,.35), 0 6px 24px -12px var(--mag); background:rgba(7,4,15,.7); }
+html[data-theme="cyber"] .brand { letter-spacing:.3em; }
+html[data-theme="cyber"] .brand b { color:var(--accent); text-shadow:0 0 6px var(--accent), 0 0 18px rgba(0,240,255,.6); }
+html[data-theme="cyber"] .brand span { color:var(--mag); letter-spacing:.08em; }
+html[data-theme="cyber"] #line { color:var(--warn); text-shadow:0 0 8px rgba(252,238,10,.35); }
+html[data-theme="cyber"] h2.sec { color:var(--mag); letter-spacing:.3em; text-shadow:0 0 8px rgba(255,0,170,.5); }
+html[data-theme="cyber"] h2.sec::before { content:"// "; color:var(--accent); }
+html[data-theme="cyber"] .card, html[data-theme="cyber"] .tile {
+  border:1px solid rgba(0,240,255,.4); border-radius:0;
+  clip-path:polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+  box-shadow:inset 0 0 22px rgba(0,240,255,.08), inset 0 0 1px rgba(255,0,170,.6); }
+html[data-theme="cyber"] .tile .k { color:var(--mag); text-transform:uppercase; letter-spacing:.15em; }
+html[data-theme="cyber"] .tile .v { color:var(--accent); text-shadow:0 0 10px rgba(0,240,255,.55); }
+html[data-theme="cyber"] .card h3 { text-transform:uppercase; letter-spacing:.12em; }
+html[data-theme="cyber"] .led { border-radius:0; transform:rotate(45deg); box-shadow:0 0 8px currentColor; }
+html[data-theme="cyber"] .tag { border-radius:0; border-color:var(--mag); color:var(--mag); }
+html[data-theme="cyber"] .tag.ai { color:#05010d; background:var(--ok); box-shadow:0 0 10px var(--ok); }
+html[data-theme="cyber"] .bar { border-radius:0; height:9px; background:rgba(44,29,82,.7);
+  -webkit-mask-image:repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 9px);
+  mask-image:repeating-linear-gradient(90deg, #000 0 7px, transparent 7px 9px); }
+html[data-theme="cyber"] .bar > i { border-radius:0; box-shadow:0 0 10px currentColor; }
+html[data-theme="cyber"] .alert { border-left-width:3px; border-radius:0; box-shadow:0 0 14px rgba(252,238,10,.15); }
+html[data-theme="cyber"] .alert.red { box-shadow:0 0 16px rgba(255,42,109,.25); }
+html[data-theme="cyber"] .svc .k { color:var(--mag); text-shadow:0 0 6px rgba(255,0,170,.45); }
+html[data-theme="cyber"] .src .cost { text-shadow:0 0 8px rgba(0,240,255,.5); }
+html[data-theme="cyber"] .gpu, html[data-theme="cyber"] .svc { border-top-color:rgba(255,0,170,.25); }
+html[data-theme="cyber"] footer { color:var(--dim); letter-spacing:.1em; }
+.glitch { position:relative; display:inline-block; }
+html[data-theme="cyber"] .glitch::before, html[data-theme="cyber"] .glitch::after {
+  content:attr(data-text); position:absolute; left:0; top:0; width:100%; overflow:hidden; }
+html[data-theme="cyber"] .glitch::before { color:var(--mag); text-shadow:none; animation:glitch-a 3.2s infinite steps(1); }
+html[data-theme="cyber"] .glitch::after { color:#7df9ff; text-shadow:none; animation:glitch-b 2.7s infinite steps(1); }
+@keyframes glitch-a { 0%, 92%, 100% { clip-path:inset(0 0 100% 0); transform:none; }
+  93% { clip-path:inset(10% 0 55% 0); transform:translate(-2px, -1px); }
+  96% { clip-path:inset(60% 0 8% 0); transform:translate(2px, 1px); } }
+@keyframes glitch-b { 0%, 88%, 100% { clip-path:inset(0 0 100% 0); transform:none; }
+  89% { clip-path:inset(40% 0 35% 0); transform:translate(2px, 0); }
+  94% { clip-path:inset(75% 0 2% 0); transform:translate(-2px, 1px); } }
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme="cyber"] .glitch::before, html[data-theme="cyber"] .glitch::after { animation:none; display:none; } }
 """
 
 WEB_JS = r"""
@@ -4441,10 +4493,20 @@ function el(tag, attrs, ...kids) {
   for (const k of kids) if (k !== null && k !== undefined && k !== false) e.append(k instanceof Node ? k : String(k));
   return e;
 }
+const STOPS = {classic: [[0, [46, 204, 113]], [60, [241, 196, 15]], [100, [231, 76, 60]]],
+               cyber: [[0, [0, 240, 255]], [45, [130, 90, 255]], [75, [255, 0, 170]], [100, [255, 42, 109]]]};
 function heat(p) {
   p = Math.max(0, Math.min(100, p || 0));
-  const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
-  const c = p <= 60 ? mix([46, 204, 113], [241, 196, 15], p / 60) : mix([241, 196, 15], [231, 76, 60], (p - 60) / 40);
+  const stops = STOPS[document.documentElement.dataset.theme] || STOPS.classic;
+  for (let i = 1; i < stops.length; i++) {
+    const [p0, c0] = stops[i - 1], [p1, c1] = stops[i];
+    if (p <= p1) {
+      const t = (p - p0) / (p1 - p0);
+      const c = c0.map((x, j) => Math.round(x + (c1[j] - x) * t));
+      return `rgb(${c[0]},${c[1]},${c[2]})`;
+    }
+  }
+  const c = stops[stops.length - 1][1];
   return `rgb(${c[0]},${c[1]},${c[2]})`;
 }
 const dash = (v, f) => (v === null || v === undefined) ? "-" : f(v);
@@ -4460,7 +4522,12 @@ function dur(s) {
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
   return d ? `${d}d${h}h` : h ? `${h}h${String(m).padStart(2, "0")}m` : m ? `${m}m` : `${s}s`;
 }
-function bar(p) { return el("div", {class: "bar"}, el("i", {style: `width:${Math.max(0, Math.min(100, p || 0))}%;background:${heat(p)}`})); }
+function bar(p) {
+  const w = Math.max(0, Math.min(100, p || 0));
+  const fill = document.documentElement.dataset.theme === "cyber"
+    ? `linear-gradient(90deg, ${heat(0)}, ${heat(w)})` : heat(p);
+  return el("div", {class: "bar"}, el("i", {style: `width:${w}%;background:${fill};color:${heat(p)}`}));
+}
 function spark(vals, w, h, opts) {
   opts = opts || {};
   const NS = "http://www.w3.org/2000/svg";
@@ -4605,6 +4672,7 @@ function cloudCard(st) {
 
 function render(st) {
   t = st.ui || t;
+  document.documentElement.dataset.theme = st.theme || "classic";
   document.documentElement.lang = st.lang === "zh" ? "zh-Hant" : "en";
   $("#h-compute").textContent = t.w_compute; $("#h-usage").textContent = t.w_usage;
   $("#tagline").textContent = t.w_tagline;
