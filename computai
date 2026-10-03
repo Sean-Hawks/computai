@@ -4695,13 +4695,16 @@ UI = {
         "h_busy": "%d machine(s) generating", "h_power": "POWER NOW (W)", "h_online": "%d/%d NODES ONLINE", "hud_tag": "AI COMPUTE LEDGER",
         "q_title": "LIMITS", "q_wait": "resets in %s",
         "q_eta": "at this pace it runs out in %s (resets in %s)", "q_proj": "at this pace about %(pct)d%% by the reset in %(reset)s",
-        "q_unlinked": "limits not connected yet: install and log in to the claude CLI (read every 10 minutes), or set Claude Code's statusLine to `computai --statusline`",
+        "q_unlinked": "limits not connected yet: install and log in to the claude CLI and they are read automatically, or set Claude Code's statusLine to `computai --statusline`",
+        "q_unlinked_codex": "limits not connected yet: install and log in to the codex CLI and they are read automatically",
+        "q_none": "no limits yet: install and log in to the claude or codex CLI and they are read automatically",
         "q_foot": "\u2503 = time left in the window; a bar shorter than it is burning faster than time",
         "q_foot_used": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
         "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
         "h_limits": "LIMITS", "hm_today": "TODAY", "hm_month": "THIS MONTH", "h_local": "LOCAL INFERENCE", "hm_power": "POWER",
         "h_nodes": "MACHINES", "h_attention": "NEEDS ATTENTION", "h_mix": "USAGE MIX", "h_fail": "CRITICAL", "h_warn": "WARNING",
-        "h_tip": "TIP", "h_more_tips": "+%d more tips in tab 5", "h_link": "install and log in to the claude CLI; computai reads it every 10 minutes",
+        "h_tip": "TIP", "h_more_tips": "+%d more tips in tab 5", "h_link_claude": "install and log in to the claude CLI; computai reads it on its own",
+        "h_link_codex": "install and log in to the codex CLI; computai reads it on its own",
         "h_api_value": "usage value at API prices", "h_worth": "worth", "h_per_mo": "/mo", "h_payback": "PAYBACK",
         "h_month_kwh": "%.2f kWh this month", "h_machines_n": "%d machines", "h_state": "STATE", "h_node": "MACHINE",
         "h_mem": "MEM", "h_model": "MODEL", "h_down": "DOWN", "hm_online": "%d/%d ONLINE", "h_open": "%d OPEN",
@@ -4891,13 +4894,16 @@ UI = {
         "h_busy": "%d 台正在推論", "h_power": "目前功耗 (W)", "h_online": "%d/%d 台在線", "hud_tag": "AI 算力總帳",
         "q_title": "額度", "q_wait": "%s 後重置",
         "q_eta": "照目前速度 %s 後用完（%s 後才重置）", "q_proj": "照目前速度，%(reset)s 後重置時約 %(pct)d%%",
-        "q_unlinked": "額度還沒接上：裝好並登入 claude 程式（每 10 分鐘自動讀一次），或把 Claude Code 的 statusLine 設成 computai --statusline",
+        "q_unlinked": "額度還沒接上：裝好並登入 claude 程式就會自動讀，或把 Claude Code 的 statusLine 設成 computai --statusline",
+        "q_unlinked_codex": "額度還沒接上：裝好並登入 codex 程式就會自動讀",
+        "q_none": "還沒有額度資料：裝好並登入 claude 或 codex 程式就會自動讀",
         "q_foot": "\u2503 標出這個週期還剩多少時間；長條比它短，代表用得比時間快",
         "q_foot_used": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
         "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
         "h_limits": "額度", "hm_today": "今天", "hm_month": "本月", "h_local": "本地推論", "hm_power": "功耗",
         "h_nodes": "機器", "h_attention": "需要處理", "h_mix": "用量組成", "h_fail": "故障", "h_warn": "注意",
-        "h_tip": "建議", "h_more_tips": "還有 %d 條建議在分頁 5", "h_link": "裝好並登入 claude 程式，每 10 分鐘會自動讀一次",
+        "h_tip": "建議", "h_more_tips": "還有 %d 條建議在分頁 5", "h_link_claude": "裝好並登入 claude 程式，computai 會自己讀",
+        "h_link_codex": "裝好並登入 codex 程式，computai 會自己讀",
         "h_api_value": "照 API 價格算的用量價值", "h_worth": "用量價值", "h_per_mo": "/月", "h_payback": "回本",
         "h_month_kwh": "本月 %.2f 度", "h_machines_n": "%d 台機器", "h_state": "狀態", "h_node": "機器",
         "h_mem": "記憶體", "h_model": "模型", "h_down": "斷線", "hm_online": "%d/%d 在線", "h_open": "%d 件",
@@ -5124,6 +5130,11 @@ def machine_panel(m, width, energy=None, error=None):
     return panel(left, right, lines, width, load, foot=foot)
 
 
+def unlinked_hint(source):
+    """這個訂閱的額度還沒接上時，一句話說怎麼接。"""
+    return T("q_unlinked_codex") if source == "codex" else T("q_unlinked")
+
+
 def limit_label(name):
     """額度視窗的白話名稱：5h -> 5 小時額度、week -> 每週額度、week:Fable -> 每週額度（Fable）。"""
     if name.startswith("week:"):
@@ -5227,7 +5238,7 @@ def hero_panel(st, width, frame=0):
     for x in st["sources"]:
         if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
             name = T("src").get(x["source"], x["source"])
-            for i, ln in enumerate(wrap(T("q_unlinked"), max(20, width - vlen(name) - 6))):
+            for i, ln in enumerate(wrap(unlinked_hint(x["source"]), max(20, width - vlen(name) - 6))):
                 lines.append(" %s  %s" % (bold(name) if i == 0 else " " * vlen(name), dim(ln)))
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
@@ -5267,7 +5278,7 @@ def quota_panel(st, width):
             lines.append(" " * (name_w + 2) + note)
     for x in st["sources"]:
         if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
-            lines.append(" %s %s" % (cell(T("src").get(x["source"], x["source"]), name_w), dim(T("q_unlinked"))))
+            lines.append(" %s %s" % (cell(T("src").get(x["source"], x["source"]), name_w), dim(unlinked_hint(x["source"]))))
     if not lines:
         return []
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
@@ -5760,7 +5771,7 @@ def render_limits_hud(st, width):
         if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
             d = dial(0, 26, 10, GREY, GREY, "--", "", None)
             side = ["", tag(T("src").get(x["source"], x["source"]).upper(), GREY), "",
-                    rgb(AMBER, "NO SIGNAL"), ""] + [dim(ln) for ln in wrap(T("q_unlinked"), max(20, col - 40))]
+                    rgb(AMBER, "NO SIGNAL"), ""] + [dim(ln) for ln in wrap(unlinked_hint(x["source"]), max(20, col - 40))]
             cards.append(side_by_side_many([d, side], 3))
     if not cards:
         return hud_frame("LIMITS", [dim("-")], width)
@@ -5973,14 +5984,14 @@ def render_mission(st, width, height, frame):
         body += side_by_side_many([[pad(x, cw) for x in g] for g in grp], 3) if len(grp) > 1 else grp[0]
     for x in unl:
         body.append(("" if not body else "") and "")
-        body.append(dim(cell(T("src").get(x["source"], x["source"]), 14)) + dim(T("m_unlinked") + " \u2014 " + T("h_link")))
+        body.append(dim(cell(T("src").get(x["source"], x["source"]), 14)) + dim(T("m_unlinked") + " \u2014 " + T("h_link_" + x["source"])))
     body = [ln for k, ln in enumerate(body) if not (ln == "" and (k == 0 or body[k - 1] == ""))]
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     early = sum(1 for r in limits if r.get("eta_full") and (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else \
         rgb(AMBER, T("h_early")) if early else rgb(GREEN, T("m_ok"))
-    out += mpanel(tag(T("h_limits")), body or [dim(T("q_unlinked"))], width, state, level="fail" if full else None)
+    out += mpanel(tag(T("h_limits")), body or [dim(T("q_none"))], width, state, level="fail" if full else None)
     # ── 四塊數字卡 ──
     n = 4 if width >= 100 else 2
     tw = (width - (n - 1)) // n
