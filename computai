@@ -178,6 +178,11 @@ warn_left = 10
 # strict = yes also refuses to launch new subagents while that is the case (the agent is told why).
 strict = no
 
+[cursor]
+# Cursor keeps no usage log on your computer; export it from cursor.com/dashboard (Usage, Export CSV) and either
+# run computai --import-cursor FILE, or point this at where the exports land, e.g. ~/Downloads/usage-events*.csv.
+exports =
+
 [team]
 # A leaderboard with friends, totals only (computai --team). repo: a local clone of a git repo you all can push
 # to (a private repo or a GitHub Gist). handle: your name on the board. Nothing is published until you run
@@ -1293,6 +1298,75 @@ def sync_opencode(db):
 
 
 SOURCES.append(("opencode", sync_opencode))
+
+
+# ---- Cursor：沒有本機 log，只有帳號頁（cursor.com/dashboard → Usage → Export）匯出的 CSV
+#
+# 欄位照標題名稱找（不同版本的匯出欄位會變）：Date、Kind、Model、Input (w/ Cache Write)、Input (w/o Cache Write)、
+# Cache Read、Output Tokens、Cost。標題來自第三方的解析程式，還沒用真的匯出檔對過。同一份檔案重複匯入不會重複計算。
+
+def cursor_col(header, *names):
+    low = [h.strip().lower() for h in header]
+    for n in names:
+        if n in low:
+            return low.index(n)
+    return None
+
+
+def parse_cursor_csv(path, cursor=None):
+    import csv
+    import hashlib
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.reader(f))
+    except (OSError, UnicodeDecodeError) as e:
+        warn("cannot read %s: %s" % (path, e))
+        return []
+    if not rows:
+        return []
+    h = rows[0]
+    col = {"date": cursor_col(h, "date"), "kind": cursor_col(h, "kind"), "model": cursor_col(h, "model"),
+           "cw": cursor_col(h, "input (w/ cache write)"), "in": cursor_col(h, "input (w/o cache write)", "input"),
+           "cr": cursor_col(h, "cache read"), "out": cursor_col(h, "output tokens", "output"), "cost": cursor_col(h, "cost")}
+    if col["date"] is None or col["model"] is None:
+        warn("%s does not look like a Cursor usage export (no Date or Model column)" % path)
+        return []
+    get = lambda r, k: (r[col[k]].strip() if col[k] is not None and col[k] < len(r) else "")
+    num = lambda v: _int(v.replace(",", "")) if v else 0
+    out = []
+    for r in rows[1:]:
+        kind = get(r, "kind").lower()
+        if "errored" in kind or "no charge" in kind:
+            continue
+        ts = iso_ts(get(r, "date"))
+        if ts is None:
+            continue
+        row = {"source": "cursor", "ts": int(ts), "model": normalize_model(get(r, "model")),
+               "input": num(get(r, "in")), "cache_write_5m": num(get(r, "cw")), "cache_read": num(get(r, "cr")),
+               "output": num(get(r, "out"))}
+        try:
+            cost = float(get(r, "cost").replace("$", "").replace(",", ""))
+            row["cost_usd"] = cost if cost > 0 else None
+        except ValueError:
+            row["cost_usd"] = None   # 「Included」之類：用價目表換算
+        # 匯出檔沒有每筆的 id：用內容做一個，同一筆重複匯入（下一份匯出檔又包含它）只算一次
+        row["uid"] = hashlib.sha1(("|".join(r)).encode("utf-8")).hexdigest()[:20]
+        out.append(row)
+    return out
+
+
+def cursor_exports(cp=None):
+    import glob
+    cp = cp or load_config()
+    pat = (cp.get("cursor", "exports", fallback="") or "").strip()
+    return sorted(glob.glob(os.path.expanduser(pat))) if pat else []
+
+
+def sync_cursor(db):
+    return import_files(db, "cursor", cursor_exports(), lambda p, c=None: parse_cursor_csv(p))
+
+
+SOURCES.append(("cursor", sync_cursor))
 
 
 # ---- 多台電腦：交換只有用量欄位的匯出檔（共用資料夾或 SSH 拉取，docs/MULTI-DEVICE.md）
@@ -11671,6 +11745,7 @@ def parse_args(argv=None):
                         "(HTTPS, your devices only); the server itself stays on 127.0.0.1")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--import-cursor", metavar="CSV", help="import a Cursor usage export (cursor.com/dashboard, Usage, Export)")
     p.add_argument("--team", nargs="?", const="show", choices=["show", "publish", "leave"],
                    help="leaderboard with friends, totals only: show (default), publish (shows the JSON first), leave")
     p.add_argument("--yes", action="store_true", help="with --team publish/leave: don't ask")
@@ -11814,7 +11889,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -11876,6 +11951,12 @@ def run(args, db):
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
         return 0
+    if args.import_cursor:
+        rows = parse_cursor_csv(args.import_cursor)
+        n = add_usage(db, rows)
+        db.commit()
+        print("computai: %d Cursor rows read, %d new" % (len(rows), n))
+        return 0 if rows else 1
     if args.team:
         if args.team == "publish":
             if not args.no_sync:

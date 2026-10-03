@@ -71,5 +71,30 @@ class OpenCode(unittest.TestCase):
             self.assertNotIn(secret, dump)
 
 
+class Cursor(unittest.TestCase):
+    def test_csv_export(self):
+        m = helpers.load()
+        rows = m.parse_cursor_csv(helpers.fixture("cursor", "usage-events-2026-09.csv"))
+        self.assertEqual(len(rows), 3)                                       # 出錯不收費的那筆不算
+        a, b, c = rows
+        self.assertEqual((a["model"], a["input"], a["cache_write_5m"], a["cache_read"], a["output"], a["cost_usd"]),
+                         ("claude-4.6-sonnet-medium-thinking", 300, 1200, 8000, 450, None))
+        self.assertEqual((b["cost_usd"], c["input"]), (0.04, 1500))              # 有千分位逗號也讀得懂
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        r = sb.run("--import-cursor", helpers.fixture("cursor", "usage-events-2026-09.csv"))
+        self.assertIn("3 Cursor rows read, 3 new", r.stdout)
+        r = sb.run("--import-cursor", helpers.fixture("cursor", "usage-events-2026-09.csv"))
+        self.assertIn("0 new", r.stdout)                                     # 重複匯入不重複計算
+
+    def test_not_a_cursor_file(self):
+        import tempfile
+        m = helpers.load()
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
+            f.write("a,b\n1,2\n")
+        self.addCleanup(os.remove, f.name)
+        self.assertEqual(m.parse_cursor_csv(f.name), [])
+
+
 if __name__ == "__main__":
     unittest.main()
