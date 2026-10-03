@@ -79,6 +79,7 @@ computai --summary --month        # 這個月；--since 2026-09-01、--by projec
 computai --line                   # Claude 42%｜Codex 100% (1d0h)｜today $6.9
 computai --analyze                # 預測、方案建議、快取浪費、電費
 computai --web                    # http://127.0.0.1:8765/（手機排版）和 /metrics
+computai --tailscale              # 同一個網頁，用 Tailscale 安全地開到你自己的手機和電腦（HTTPS）
 computai --report --month 2026-09 --html september.html
 computai --sample                 # 讀一次 [machines] 裡的每台機器
 computai --cloud                  # RunPod / Vast.ai / Lambda

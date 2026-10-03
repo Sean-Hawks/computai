@@ -307,9 +307,21 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 
   It refreshes every `-n` seconds. `--once` prints it once; it falls back to ASCII when the terminal
   can't draw block characters.
-- `--web`: open `http://127.0.0.1:8765/`. To see it on a phone, keep it on loopback and use an
-  SSH tunnel (`ssh -L 8765:127.0.0.1:8765 host`) or `tailscale serve 8765`. `--web 0.0.0.0:8765`
-  exposes your usage, project names and machines to the network and prints a warning.
+- `--web`: open `http://127.0.0.1:8765/`. `--web 0.0.0.0:8765` exposes your usage, project names and
+  machines to the network and prints a warning; to see it from a phone or another computer, use one of these instead.
+  - `computai --web --tailscale` (or just `computai --tailscale`): the server stays on 127.0.0.1 and
+    `tailscale serve` forwards it over HTTPS to your tailnet only. It prints a link like
+    `https://my-mac.tail1234.ts.net/` and turns the forwarding off when it stops (Ctrl-C, closing the
+    terminal, or the service stopping). It never takes over a port another `tailscale serve` already uses:
+    if 443 is taken it uses 8443 or 10000. Without Tailscale it says how to install it and does not fall back
+    to `0.0.0.0`. `computai --install-watch --tailscale` keeps it running in the background (the service runs
+    `--web --tailscale`, which also keeps the ledger fresh and sends notifications).
+  - An SSH tunnel: `ssh -L 8765:127.0.0.1:8765 host`.
+  - *Cloudflare Tunnel (not built in yet; planned as an advanced option)*: a public hostname reaches
+    anyone on the internet, so ComputAI will only open one when the hostname is behind
+    [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/) (an identity check
+    before any request reaches you), and will refuse with that reason otherwise. If you set one up by hand, put
+    an Access policy in front of it first and point the tunnel at `http://127.0.0.1:8765`.
 - `/metrics`: gauges prefixed `computai_` (month cost and tokens per source, limit use, machine
   CPU/GPU/power, cloud price and GPU use, forecast, alerts by kind).
 - `--report --html FILE`: a single HTML file you can keep or send.

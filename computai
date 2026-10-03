@@ -3429,9 +3429,10 @@ def is_loopback(host):
     return host in ("localhost", "::1") or host.startswith("127.")
 
 
-def host_header_ok(header, bind):
+def host_header_ok(header, bind, extra=()):
     """只聽本機時，Host 標頭也必須是本機的名字；擋掉 DNS rebinding（別的網站把自己的網域
-    指到 127.0.0.1，瀏覽器就會把它當成同一個來源）。寫法移植自 slurmtop 84cd35d。"""
+    指到 127.0.0.1，瀏覽器就會把它當成同一個來源）。寫法移植自 slurmtop 84cd35d。
+    extra：另外允許的名字（--tailscale 時是這台的 <機器>.<tailnet>.ts.net）。"""
     if not is_loopback(bind):
         return True
     host = (header or "").strip()
@@ -3439,7 +3440,7 @@ def host_header_ok(header, bind):
         name = host[1:].split("]", 1)[0]
     else:
         name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
-    return is_loopback(name)
+    return is_loopback(name) or name.lower() in extra
 
 
 def serve_proxy(listen, upstream, machine, sample_every=60, inject=True, ledger=None):
@@ -7393,7 +7394,7 @@ setInterval(tick, REFRESH_MS);
 """
 
 
-def web_handler(state, bind, interval):
+def web_handler(state, bind, interval, extra_hosts=()):
     """移植自 slurmtop 84cd35d 的 web_handler：安全標頭、只聽本機時檢查 Host 擋 DNS rebinding。"""
     import http.server
     js = WEB_JS.replace("REFRESH_MS", str(int(max(interval, 1) * 1000)))
@@ -7420,7 +7421,7 @@ def web_handler(state, bind, interval):
                 self.wfile.write(data)
 
         def do_GET(self):
-            if not host_header_ok(self.headers.get("Host"), bind):
+            if not host_header_ok(self.headers.get("Host"), bind, extra_hosts):
                 return self.send(403, "forbidden host\n", "text/plain; charset=utf-8")
             path = self.path.split("?", 1)[0]
             with state["lock"]:
@@ -7448,10 +7449,69 @@ def web_handler(state, bind, interval):
     return Handler
 
 
-def serve_web(listen, interval, sample_every):
+TAILSCALE_HELP = ("Tailscale isn't installed or isn't logged in. Install it from https://tailscale.com/download, "
+                  "run `tailscale up`, and try again. ComputAI won't fall back to listening on every network.")
+
+
+def tailscale_exe():
+    """tailscale 指令：COMPUTAI_TAILSCALE 指定的（none = 當作沒有），PATH 上的，或 macOS App 裡附的。"""
+    forced = os.environ.get("COMPUTAI_TAILSCALE")
+    if forced:
+        return None if forced == "none" else forced
+    exe = shutil.which("tailscale")
+    app = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+    return exe or (app if sys.platform == "darwin" and os.path.exists(app) else None)
+
+
+def tailscale_name(exe):
+    """這台在 tailnet 上的名字（<機器>.<tailnet>.ts.net）；沒登入或沒在跑就是 None。"""
+    try:
+        st = json.loads(run_cmd([exe, "status", "--json"], timeout=10) or "{}")
+    except ValueError:
+        return None
+    if st.get("BackendState") not in (None, "Running"):
+        return None
+    name = ((st.get("Self") or {}).get("DNSName") or "").rstrip(".").lower()
+    return name or None
+
+
+def tailscale_open(port):
+    """用 tailscale serve 把 127.0.0.1:<port> 安全地轉到 tailnet（HTTPS，只有自己 tailnet 裡的裝置連得到）。
+    回傳 (網址, 名字, 關掉的函式)；沒有 tailscale 或沒登入時 SystemExit 並說明怎麼裝，不會改聽 0.0.0.0。"""
+    exe = tailscale_exe()
+    name = tailscale_name(exe) if exe else None
+    if not name:
+        raise SystemExit("computai: " + TAILSCALE_HELP)
+    # 已經有東西在用的 HTTPS 埠不碰（tailscale serve 會直接蓋掉別人的設定）；tailnet 的 HTTPS 只能用這三個埠
+    try:
+        used = set((json.loads(run_cmd([exe, "serve", "status", "--json"], timeout=10) or "{}").get("TCP") or {}).keys())
+    except (ValueError, AttributeError):
+        used = set()
+    free = [p for p in (443, 8443, 10000) if str(p) not in used]
+    if not free:
+        raise SystemExit("computai: tailscale serve already uses ports 443, 8443 and 10000 on this machine; "
+                         "free one with `tailscale serve --https=PORT off`")
+    https = free[0]
+    err = []
+    run_cmd([exe, "serve", "--bg", "--https=%d" % https, str(int(port))], timeout=30, errors=err)
+    if err:
+        raise SystemExit("computai: tailscale serve failed: %s" % err[0])
+    done = []
+
+    def close():
+        if not done:   # 只關一次（finally 和 atexit 都會叫）
+            done.append(1)
+            run_cmd([exe, "serve", "--https=%d" % https, "off"], timeout=30)
+    return "https://%s%s/" % (name, "" if https == 443 else ":%d" % https), name, close
+
+
+def serve_web(listen, interval, sample_every, tailscale=False):
     import http.server
     state = {"lock": threading.Lock(), "state": None, "metrics": None}
     host, port = parse_listen(listen, 8765)
+    if tailscale and not is_loopback(host):
+        raise SystemExit("computai: --tailscale keeps the dashboard on 127.0.0.1; drop the address or use 127.0.0.1")
+    extra = set()
 
     class Server(http.server.ThreadingHTTPServer):
         daemon_threads = True
@@ -7462,9 +7522,24 @@ def serve_web(listen, interval, sample_every):
             if not isinstance(err, (ConnectionError, socket.timeout)):
                 warn("request failed: %r" % (err,))
     try:
-        httpd = Server((host, port), web_handler(state, host, interval))
+        httpd = Server((host, port), web_handler(state, host, interval, extra))
     except OSError as e:
         raise SystemExit("computai: cannot serve on %s:%d: %s" % (host, port, e.strerror or e))
+    close_ts = None
+    if tailscale:
+        try:
+            url, name, close_ts = tailscale_open(httpd.server_address[1])
+        except SystemExit:
+            httpd.server_close()
+            raise
+        extra.add(name)   # tailscale serve 轉過來的請求，Host 是這台的 ts.net 名字
+        import atexit
+        import signal
+        atexit.register(close_ts)
+        # Ctrl-C、關掉終端機、launchd／systemd 停服務：都要關掉 serve（背景執行時 SIGINT 可能被設成忽略，自己接）
+        for sig in ("SIGINT", "SIGTERM", "SIGHUP"):
+            if hasattr(signal, sig):
+                signal.signal(getattr(signal, sig), lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
 
     def on_state(st):
         text = prometheus(st)
@@ -7475,8 +7550,11 @@ def serve_web(listen, interval, sample_every):
     shown = "[%s]" % host if ":" in host else host
     print("computai: dashboard on http://%s:%d/  (metrics at /metrics)" % (shown, httpd.server_address[1]),
           flush=True)
-    if is_loopback(host):
-        print("  only this computer can open it. From a phone, use an SSH tunnel or Tailscale serve.", flush=True)
+    if close_ts:
+        print("  on your tailnet: %s  (only your own Tailscale devices can open it; Ctrl-C turns it off)" % url,
+              flush=True)
+    elif is_loopback(host):
+        print("  only this computer can open it. From a phone: computai --web --tailscale", flush=True)
     else:
         print("  WARNING: anyone who can reach this address sees your usage, project names and machines.",
               flush=True)
@@ -7487,6 +7565,8 @@ def serve_web(listen, interval, sample_every):
     finally:
         upd.stop.set()
         httpd.server_close()
+        if close_ts:
+            close_ts()
     return 0
 
 
@@ -7952,9 +8032,11 @@ def run_watch(interval, sample_every):
 WATCH_LABEL = "com.computai.watch"
 
 
-def watch_service(install=True):
+def watch_service(install=True, tailscale=False):
     """讓 --watch 登入後自動在背景跑：macOS launchd、Linux systemd --user、Windows 工作排程器。
+    tailscale=True 時跑的是 --web --tailscale（一樣會更新帳本和通知，另外把網頁常駐在 tailnet 上）。
     回傳 (做了什麼, 檔案或工作名稱)。移除時 install=False。"""
+    mode = ["--web", "--tailscale"] if tailscale else ["--watch"]
     script = os.path.abspath(sys.argv[0])
     py = sys.executable
     log = os.path.join(data_dir(), "watch.log")
@@ -7973,10 +8055,11 @@ def watch_service(install=True):
             f.write('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
                     '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n'
                     '<key>Label</key><string>%s</string>\n<key>ProgramArguments</key><array>'
-                    '<string>%s</string><string>%s</string><string>--watch</string></array>\n'
+                    '<string>%s</string><string>%s</string>%s</array>\n'
                     '<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n'
                     '<key>StandardOutPath</key><string>%s</string>\n<key>StandardErrorPath</key><string>%s</string>\n'
-                    '</dict></plist>\n' % (WATCH_LABEL, x(py), x(script), x(log), x(log)))
+                    '</dict></plist>\n' % (WATCH_LABEL, x(py), x(script), "".join("<string>%s</string>" % a for a in mode),
+                                           x(log), x(log)))
         err = []
         run_cmd(["launchctl", "bootstrap", "gui/" + uid, path], timeout=15, errors=err)
         return ("installed" if not err else "written (launchctl: %s)" % err[0]), path
@@ -7986,7 +8069,7 @@ def watch_service(install=True):
             run_cmd(["schtasks", "/Delete", "/TN", name, "/F"], timeout=30)
             return "removed", name
         pyw = os.path.join(os.path.dirname(py), "pythonw.exe")
-        cmd = '"%s" "%s" --watch' % (pyw if os.path.exists(pyw) else py, script)
+        cmd = '"%s" "%s" %s' % (pyw if os.path.exists(pyw) else py, script, " ".join(mode))
         err = []
         run_cmd(["schtasks", "/Create", "/SC", "ONLOGON", "/TN", name, "/TR", cmd, "/F"], timeout=30, errors=err)
         return ("installed" if not err else "failed: %s" % err[0]), name
@@ -7999,8 +8082,8 @@ def watch_service(install=True):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         f.write("[Unit]\nDescription=ComputAI: notify about AI limits, machines and alerts\n\n[Service]\n"
-                "ExecStart=%s %s --watch\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n"
-                % (shlex_quote(py), shlex_quote(script)))
+                "ExecStart=%s %s %s\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n"
+                % (shlex_quote(py), shlex_quote(script), " ".join(mode)))
     err = []
     run_cmd(["systemctl", "--user", "daemon-reload"], timeout=30)
     run_cmd(["systemctl", "--user", "enable", "--now", "computai-watch.service"], timeout=30, errors=err)
@@ -10319,6 +10402,9 @@ def parse_args(argv=None):
                    help="refresh interval for --live and --web (default 5)")
     p.add_argument("--web", nargs="?", const="127.0.0.1:8765", metavar="[HOST:]PORT",
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
+    p.add_argument("--tailscale", action="store_true",
+                   help="with --web or --install-watch: open the dashboard on your tailnet through `tailscale serve` "
+                        "(HTTPS, your devices only); the server itself stays on 127.0.0.1")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
     p.add_argument("--export-usage", nargs="?", const="0", metavar="SINCE",
@@ -10471,6 +10557,8 @@ def run(args, db):
         print("computai: %s %s" % ("updated" if changed else "no change to", os.path.join(config_dir(), "config.ini")))
         return 0
     set_lang(args.lang or config_lang())
+    if args.tailscale and not (args.web or args.install_watch or args.uninstall_watch):
+        args.web = "127.0.0.1:8765"   # computai --tailscale 就是 --web --tailscale
     asked = (args.payback is not None or any(getattr(args, a) for a in ACTIONS) or args.json
              or args.html or args.month is not None or args.since or args.until or args.by != "model")
     if not asked and sys.stdout.isatty() and sys.stdin.isatty():
@@ -10500,7 +10588,7 @@ def run(args, db):
         return run_live(args.interval, args.sample_every, intro)
     if args.web:
         db.close()
-        return serve_web(args.web, args.interval, args.sample_every)
+        return serve_web(args.web, args.interval, args.sample_every, tailscale=args.tailscale)
     if args.watch:
         db.close()
         return run_watch(args.interval, args.sample_every)
@@ -10561,7 +10649,11 @@ def run(args, db):
         print("computai: sent (%s)" % ", ".join(k for k, v in settings.items() if v))
         return 0
     if args.install_watch or args.uninstall_watch:
-        what, where = watch_service(install=bool(args.install_watch))
+        if args.install_watch and args.tailscale:   # 先確認 tailscale 能用，不要裝一個一啟動就失敗的服務
+            exe = tailscale_exe()
+            if not exe or not tailscale_name(exe):
+                raise SystemExit("computai: " + TAILSCALE_HELP)
+        what, where = watch_service(install=bool(args.install_watch), tailscale=args.tailscale)
         print("computai: --watch %s: %s" % (what, where))
         return 0
     if args.proxy:
