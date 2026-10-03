@@ -127,6 +127,14 @@ idle_alert_minutes = 15
 # Warn when this month's forecast spend goes over this many USD (0 = no budget).
 monthly_usd = 0
 
+[notify]
+# Tell me when something changes, once per change: a limit reaches 80% or runs out, a limit resets
+# (you can use it again), a machine stops answering, a model holds memory unused, a cloud GPU idles
+# while billing. Runs inside computai, --web and --watch (computai --install-watch keeps it running).
+desktop = yes
+# Also post to Discord / Telegram (DISCORD_WEBHOOK_URL, TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in secrets.ini).
+chat = no
+
 [cloud]
 # API keys come from RUNPOD_API_KEY, VAST_API_KEY, LAMBDA_API_KEY (environment, or a
 # chmod-600 secrets.ini next to this file with a [secrets] section). Only read-only calls are made.
@@ -3925,7 +3933,8 @@ def insights(db, t=None):
 class Updater:
     """背景更新帳本：log、機器、雲端各有自己的間隔。"""
 
-    def __init__(self, sample_every=60, cloud_every=300, sync_every=30):
+    def __init__(self, sample_every=60, cloud_every=300, sync_every=30, notify=True):
+        self.notify = notify
         self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300}
         self.last = {k: 0.0 for k in self.every}
         self.insights = []
@@ -3954,7 +3963,10 @@ class Updater:
                     if time.monotonic() - self.last["insights"] >= self.every["insights"]:
                         self.last["insights"] = time.monotonic()
                         self.insights = insights(db)
-                    on_state(dict(dashboard_state(db), insights=self.insights))
+                    st = dict(dashboard_state(db), insights=self.insights)
+                    if self.notify:
+                        notify_tick(db, st)
+                    on_state(st)
                 except Exception as e:  # 更新失敗不能讓畫面或伺服器停掉
                     warn("update failed: %r" % (e,))
                 self.stop.wait(max(0.5, interval - (time.monotonic() - t0)))
@@ -4043,7 +4055,11 @@ UI = {
         "a_idle": "%s: %s is loaded but has not been used for %s%s - stop it or let it unload to free the memory",
         "a_cloud_unknown": "%s %s is billing %s/h but its GPU use is unknown (set [cloud] ssh_user to read it)",
         "a_cloud_idle": "%s %s: the GPU has been idle for %s but is still billing %s/h (%s so far) - stop it if you are done",
-        "sampled": "read %s ago", "n_used_up": "%d used up", "n_high": "%d nearly used up", "q_title": "LIMITS", "q_wait": "resets in %s",
+        "sampled": "read %s ago", "n_used_up": "%d used up", "n_high": "%d nearly used up", "nt_reset": "%s %s has reset - you can use it again",
+        "nt_full": "%s %s is used up - resets in %s.", "nt_alt": "%s still has %d%% left.",
+        "nt_high": "%s %s is %d%% used.", "nt_pace": "At this pace it runs out in %s.",
+        "nt_test": "Notifications work. You will hear from ComputAI when a limit runs low, runs out or resets.",
+        "q_title": "LIMITS", "q_wait": "resets in %s",
         "q_eta": "at this pace it runs out in %s (resets in %s)", "q_proj": "at this pace about %(pct)d%% by the reset in %(reset)s",
         "q_unlinked": "limits not connected: set Claude Code's statusLine to `computai --statusline`",
         "q_foot": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
@@ -4141,7 +4157,11 @@ UI = {
         "a_idle": "%s：%s 已經載入，但 %s 沒有被用到%s，關掉或讓它卸載就能釋放記憶體",
         "a_cloud_unknown": "%s %s 每小時計費 %s，但看不到 GPU 有沒有在用（設定 [cloud] ssh_user 才讀得到）",
         "a_cloud_idle": "%s %s：GPU 已經閒置 %s，還在以每小時 %s 計費（目前多花 %s），用完了就關掉",
-        "sampled": "%s 前讀取", "n_used_up": "%d 個額度用完", "n_high": "%d 個額度快用完", "q_title": "額度", "q_wait": "%s 後重置",
+        "sampled": "%s 前讀取", "n_used_up": "%d 個額度用完", "n_high": "%d 個額度快用完", "nt_reset": "%s %s重置了，可以繼續用",
+        "nt_full": "%s %s用完了，%s 後重置。", "nt_alt": "%s 還剩 %d%%。",
+        "nt_high": "%s %s已用 %d%%。", "nt_pace": "照目前速度 %s 後用完。",
+        "nt_test": "通知可以用了。額度快用完、用完、重置的時候，ComputAI 會告訴你。",
+        "q_title": "額度", "q_wait": "%s 後重置",
         "q_eta": "照目前速度 %s 後用完（%s 後才重置）", "q_proj": "照目前速度，%(reset)s 後重置時約 %(pct)d%%",
         "q_unlinked": "額度還沒接上：把 Claude Code 的 statusLine 設成 computai --statusline",
         "q_foot": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
@@ -5514,6 +5534,185 @@ def send_report(text):
     return out
 
 
+# ---- 通知：有事時主動告訴你（狀態改變才送一次）
+
+def notify_settings(cp=None):
+    cp = cp or load_config()
+    yes = lambda k, d: (cp.get("notify", k, fallback=d) or d).strip().lower() in ("yes", "true", "1", "on")
+    return {"desktop": yes("desktop", "yes"), "chat": yes("chat", "no")}
+
+
+def notify_events(db, st):
+    """跟上次比，哪些事情變了：額度到 80%、用完、重置（又可以用了）、新的警示。
+    狀態存在帳本的 meta（notify_state），所以重開程式不會重講；同時跑好幾個 computai 也只會有一個講。
+    第一次執行只記下現況，不通知。回傳 [(等級, 白話句子)]。"""
+    db.commit()
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        row = db.execute("SELECT value FROM meta WHERE key = 'notify_state'").fetchone()
+        first = row is None
+        old = json.loads(row["value"]) if row else {}
+        new, out = {}, []
+        worst = {}
+        for r in st["limits"]:
+            worst[r["source"]] = max(worst.get(r["source"], 0.0), r["used_percent"] or 0.0)
+        for r in st["limits"]:
+            key = "limit:%s:%s" % (r["source"], r["name"])
+            used = r["used_percent"] or 0.0
+            lv = "full" if used >= LIMIT_FAIL else "high" if used >= LIMIT_WARN else "ok"
+            new[key] = [lv, r["resets_at"]]
+            was = old.get(key)
+            if not was:
+                continue
+            src, win = T("src").get(r["source"], r["source"]), limit_label(r["name"])
+            reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else "?"
+            if was[0] != "ok" and lv == "ok" and (r.get("stale") or r["resets_at"] != was[1]):
+                out.append(("ok", T("nt_reset") % (src, win)))
+            elif lv == "full" and was[0] != "full":
+                alt = sorted((u, s_) for s_, u in worst.items() if s_ != r["source"] and u <= 90)
+                more = (" " + T("nt_alt") % (T("src").get(alt[0][1], alt[0][1]), round(100 - alt[0][0]))) if alt else ""
+                out.append(("fail", T("nt_full") % (src, win, reset) + more))
+            elif lv == "high" and was[0] == "ok":
+                pace = (" " + T("nt_pace") % fmt_dur(r["eta_full"])) if r.get("eta_full") else ""
+                out.append(("warn", T("nt_high") % (src, win, round(used)) + pace))
+        for a in st["alerts"]:
+            key = "alert:%s:%s" % (a["kind"], a.get("machine") or a.get("id") or "")
+            new[key] = 1
+            if not first and key not in old:
+                out.append((alert_level(a), a["message"]))
+        if (st.get("forecast") or {}).get("over_budget"):
+            new["budget"] = 1
+            if not first and "budget" not in old:
+                f = st["forecast"]
+                out.append(("fail", T("v_budget") % (fmt_usd(f["projected_usd"]), fmt_usd(f["budget_usd"]))))
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('notify_state', ?)", (json.dumps(new),))
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return out
+
+
+def notify_desktop(title, text):
+    """系統通知。文字一律當參數或環境變數傳，不拼進指令碼（避免被名稱裡的引號注入）。"""
+    if os.environ.get("COMPUTAI_FIXTURES"):  # 測試和示範資料不跳真的通知
+        return
+    if sys.platform == "darwin":
+        run_cmd(["osascript", "-e", "on run argv", "-e",
+                 "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run",
+                 title, text], timeout=10)
+    elif os.name == "nt":
+        ps = ("Add-Type -AssemblyName System.Windows.Forms; $n = New-Object System.Windows.Forms.NotifyIcon; "
+              "$n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; "
+              "$n.ShowBalloonTip(10000, $env:COMPUTAI_NT, $env:COMPUTAI_NX, 'Info'); Start-Sleep 11; $n.Dispose()")
+        try:
+            subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+                             env=dict(os.environ, COMPUTAI_NT=title, COMPUTAI_NX=text),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
+    elif shutil.which("notify-send"):
+        run_cmd(["notify-send", "--app-name=ComputAI", title, text], timeout=10)
+
+
+def deliver(events, settings=None):
+    """把事情送出去：桌面通知（每件一則），聊天（合成一則）。回傳送了幾件。"""
+    if not events:
+        return 0
+    settings = settings or notify_settings()
+    mark = {"ok": "\u2713", "warn": "\u26a0", "fail": "\u26a0"}
+    if settings["desktop"]:
+        for lv, text in events[:5]:  # 一次很多件時只跳前五則，避免洗版
+            notify_desktop("ComputAI " + mark.get(lv, ""), text)
+    if settings["chat"]:
+        send_report("\n".join("%s %s" % (mark.get(lv, "-"), text) for lv, text in events))
+    return len(events)
+
+
+def notify_tick(db, st):
+    """Updater 每一輪呼叫：有變化就送。通知失敗不影響畫面。"""
+    settings = notify_settings()
+    if not (settings["desktop"] or settings["chat"]):
+        return []
+    try:
+        events = notify_events(db, st)
+        deliver(events, settings)
+        return events
+    except Exception as e:
+        warn("notify failed: %r" % (e,))
+        return []
+
+
+def run_watch(interval, sample_every):
+    """不開畫面，只在背景更新帳本並通知（--watch；--install-watch 讓它開機自動跑）。"""
+    print("computai: watching limits, machines and alerts; notifications: %s (Ctrl-C to stop)"
+          % ", ".join(k for k, v in notify_settings().items() if v) or "off")
+    upd = Updater(sample_every=sample_every)
+    try:
+        upd.run(lambda st: None, max(30.0, interval))
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+WATCH_LABEL = "com.computai.watch"
+
+
+def watch_service(install=True):
+    """讓 --watch 登入後自動在背景跑：macOS launchd、Linux systemd --user、Windows 工作排程器。
+    回傳 (做了什麼, 檔案或工作名稱)。移除時 install=False。"""
+    script = os.path.abspath(sys.argv[0])
+    py = sys.executable
+    log = os.path.join(data_dir(), "watch.log")
+    if sys.platform == "darwin":
+        path = os.path.expanduser("~/Library/LaunchAgents/%s.plist" % WATCH_LABEL)
+        uid = str(os.getuid())
+        run_cmd(["launchctl", "bootout", "gui/%s/%s" % (uid, WATCH_LABEL)], timeout=15)
+        if not install:
+            if os.path.exists(path):
+                os.remove(path)
+            return "removed", path
+        from xml.sax.saxutils import escape as x
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(data_dir(), exist_ok=True)
+        with open(path, "w") as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                    '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>\n'
+                    '<key>Label</key><string>%s</string>\n<key>ProgramArguments</key><array>'
+                    '<string>%s</string><string>%s</string><string>--watch</string></array>\n'
+                    '<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n'
+                    '<key>StandardOutPath</key><string>%s</string>\n<key>StandardErrorPath</key><string>%s</string>\n'
+                    '</dict></plist>\n' % (WATCH_LABEL, x(py), x(script), x(log), x(log)))
+        err = []
+        run_cmd(["launchctl", "bootstrap", "gui/" + uid, path], timeout=15, errors=err)
+        return ("installed" if not err else "written (launchctl: %s)" % err[0]), path
+    if os.name == "nt":
+        name = "ComputAI watch"
+        if not install:
+            run_cmd(["schtasks", "/Delete", "/TN", name, "/F"], timeout=30)
+            return "removed", name
+        pyw = os.path.join(os.path.dirname(py), "pythonw.exe")
+        cmd = '"%s" "%s" --watch' % (pyw if os.path.exists(pyw) else py, script)
+        err = []
+        run_cmd(["schtasks", "/Create", "/SC", "ONLOGON", "/TN", name, "/TR", cmd, "/F"], timeout=30, errors=err)
+        return ("installed" if not err else "failed: %s" % err[0]), name
+    path = os.path.expanduser("~/.config/systemd/user/computai-watch.service")
+    if not install:
+        run_cmd(["systemctl", "--user", "disable", "--now", "computai-watch.service"], timeout=30)
+        if os.path.exists(path):
+            os.remove(path)
+        return "removed", path
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write("[Unit]\nDescription=ComputAI: notify about AI limits, machines and alerts\n\n[Service]\n"
+                "ExecStart=%s %s --watch\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n"
+                % (shlex_quote(py), shlex_quote(script)))
+    err = []
+    run_cmd(["systemctl", "--user", "daemon-reload"], timeout=30)
+    run_cmd(["systemctl", "--user", "enable", "--now", "computai-watch.service"], timeout=30, errors=err)
+    return ("installed" if not err else "written (systemctl: %s)" % err[0]), path
+
+
 # ---- 年度回顧（--recap）
 
 def recap(db, year):
@@ -6361,6 +6560,12 @@ def parse_args(argv=None):
                    help="refresh interval for --live and --web (default 5)")
     p.add_argument("--web", nargs="?", const="127.0.0.1:8765", metavar="[HOST:]PORT",
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
+    p.add_argument("--watch", action="store_true",
+                   help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--notify-test", action="store_true", help="send a test notification ([notify] in config.ini)")
+    p.add_argument("--install-watch", action="store_true",
+                   help="start --watch automatically when you log in (launchd / systemd --user / Task Scheduler)")
+    p.add_argument("--uninstall-watch", action="store_true", help="undo --install-watch")
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
     p.add_argument("--html", metavar="FILE", help="with --report or --recap: write an HTML page")
@@ -6438,6 +6643,7 @@ def local_hostname():
 
 
 ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+           "watch", "notify_test", "install_watch", "uninstall_watch",
            "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
 
 
@@ -6481,6 +6687,21 @@ def run(args, db):
     if args.web:
         db.close()
         return serve_web(args.web, args.interval, args.sample_every)
+    if args.watch:
+        db.close()
+        return run_watch(args.interval, args.sample_every)
+    if args.notify_test:
+        settings = notify_settings()
+        if not (settings["desktop"] or settings["chat"]):
+            print("computai: notifications are off ([notify] desktop / chat in config.ini)")
+            return 1
+        deliver([("ok", T("nt_test"))], settings)
+        print("computai: sent (%s)" % ", ".join(k for k, v in settings.items() if v))
+        return 0
+    if args.install_watch or args.uninstall_watch:
+        what, where = watch_service(install=bool(args.install_watch))
+        print("computai: --watch %s: %s" % (what, where))
+        return 0
     if args.proxy:
         db.close()
         return serve_proxy(args.listen, args.upstream, args.machine or default_machine(),
