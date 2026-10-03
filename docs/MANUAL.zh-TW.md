@@ -299,7 +299,12 @@ repo = ~/你的個人頁repo/assets
 push = yes
 ```
 
-`computai`、`--web` 或 `--watch` 每天會重寫一次那兩張卡片並 commit。推之前會先接上機器人推的 commit。
+`computai`、`--web` 或 `--watch` 每天會重寫一次那兩張卡片並 commit。
+
+- `style` 選外觀：`computai`、`amber`、`matrix`、`synthwave`、`mono`；`colors = #起, #迄` 可以自訂漸層。
+- `handle` 是標題上的名字，預設用 repo 的 GitHub 帳號。
+- `lang` 是卡片的語言。
+- `--setup` 會一項一項問，也會自動找到本機的個人頁 repo。推之前會先接上機器人推的 commit。
 
 ## 本地模型跑分
 

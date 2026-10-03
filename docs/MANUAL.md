@@ -328,7 +328,12 @@ repo = ~/path/to/your-profile-repo/assets
 push = yes
 ```
 
-Once a day, `computai`, `--web` or `--watch` rewrites the two card SVGs there and commits them. Before pushing it rebases onto any commit a bot pushed in the meantime.
+Once a day, `computai`, `--web` or `--watch` rewrites the two card SVGs there and commits them.
+
+- `style` picks the look: `computai`, `amber`, `matrix`, `synthwave` or `mono`. `colors = #from, #to` sets your own gradient.
+- `handle` sets the title; it defaults to the repo's GitHub account.
+- `lang` sets the card's language.
+- `--setup` asks for all of this and finds the profile repo on disk. Before pushing it rebases onto any commit a bot pushed in the meantime.
 
 ## Local model benchmark
 
