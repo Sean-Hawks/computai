@@ -1,4 +1,6 @@
 import os
+import shutil
+import subprocess
 import time
 import unittest
 import xml.etree.ElementTree as ET
@@ -90,3 +92,87 @@ class Card(unittest.TestCase):
         self.assertNotEqual(sb.run("--card", "--period", "week", "--no-sync").returncode, 0)
         r = sb.run("--card", "--no-sync")                                 # 不指定檔案就印到標準輸出
         self.assertTrue(r.stdout.startswith("<svg"))
+
+
+def git_env(root):
+    """測試用的 git 環境：不讀使用者自己的設定（簽章、hook 等），身分固定。"""
+    empty = os.path.join(root, "gitconfig")
+    open(empty, "w").close()
+    return dict(GIT_CONFIG_GLOBAL=empty, GIT_CONFIG_NOSYSTEM="1", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
+                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com")
+
+
+@unittest.skipUnless(shutil.which("git"), "git is not installed")
+class Publish(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        self.addCleanup(self.sb.close)
+        self.env = git_env(self.sb.root)
+        self.repo = os.path.join(self.sb.root, "profile")
+        self.remote = os.path.join(self.sb.root, "remote.git")
+        os.makedirs(self.repo)
+        os.makedirs(self.remote)
+        self.git("init", "-q", cwd=self.repo)
+        self.git("init", "-q", "--bare", self.remote)
+        self.git("remote", "add", "origin", self.remote, cwd=self.repo)
+        with open(os.path.join(self.repo, "README.md"), "w") as f:
+            f.write("hi\n")
+        self.git("add", "README.md", cwd=self.repo)
+        self.git("commit", "-q", "-m", "init", cwd=self.repo)
+        self.branch = self.git("rev-parse", "--abbrev-ref", "HEAD", cwd=self.repo).stdout.strip()
+
+    def git(self, *a, cwd=None):
+        e = dict(os.environ)
+        e.update(self.env)
+        return subprocess.run(["git"] + list(a), cwd=cwd or self.remote, env=e, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, universal_newlines=True, check=True)
+
+    def publish(self, *extra):
+        return self.sb.run("--card", "--publish", self.repo, "--no-sync", *extra, **self.env)
+
+    def test_commits_both_cards_and_does_not_push(self):
+        r = self.publish()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for want in ("wrote", "computai-card.svg", "computai-card-light.svg", "committed", "did not push"):
+            self.assertIn(want, r.stdout)
+        files = self.git("show", "--name-only", "--format=%s", "HEAD", cwd=self.repo).stdout
+        self.assertIn("Update ComputAI card", files)
+        self.assertIn("computai-card.svg", files)
+        self.assertIn("computai-card-light.svg", files)
+        self.assertEqual(self.git("rev-list", "--count", "HEAD", cwd=self.repo).stdout.strip(), "2")
+        self.assertEqual(self.git("branch", "-a", cwd=self.remote).stdout.strip(), "")     # 遠端什麼都沒有
+        self.assertEqual(self.git("status", "--porcelain", cwd=self.repo).stdout.strip(), "")
+
+    def test_second_run_without_changes_makes_no_commit(self):
+        self.publish()
+        r = self.publish()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("nothing was committed", r.stdout)
+        self.assertEqual(self.git("rev-list", "--count", "HEAD", cwd=self.repo).stdout.strip(), "2")
+
+    def test_leaves_other_staged_files_alone(self):
+        with open(os.path.join(self.repo, "other.txt"), "w") as f:
+            f.write("x\n")
+        self.git("add", "other.txt", cwd=self.repo)
+        self.publish()
+        self.assertNotIn("other.txt", self.git("show", "--name-only", "--format=", "HEAD", cwd=self.repo).stdout)
+        self.assertIn("other.txt", self.git("diff", "--cached", "--name-only", cwd=self.repo).stdout)
+
+    def test_push_only_with_flag(self):
+        self.git("config", "branch.%s.remote" % self.branch, "origin", cwd=self.repo)      # 一般的個人頁 repo 都有 upstream
+        self.git("config", "branch.%s.merge" % self.branch, "refs/heads/" + self.branch, cwd=self.repo)
+        r = self.publish("--push")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("pushed", r.stdout)
+        self.assertIn(self.branch, self.git("branch", cwd=self.remote).stdout)
+
+    def test_errors(self):
+        plain = os.path.join(self.sb.root, "plain")
+        os.makedirs(plain)
+        r = self.sb.run("--card", "--publish", plain, "--no-sync", **self.env)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("not a git repository", r.stderr)
+        r = self.sb.run("--card", "--publish", os.path.join(self.sb.root, "nope"), "--no-sync", **self.env)
+        self.assertIn("not a folder", r.stderr)
+        r = self.sb.run("--card", "--push", "--no-sync", **self.env)
+        self.assertIn("--push only works", r.stderr)

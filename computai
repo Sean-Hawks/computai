@@ -6604,6 +6604,53 @@ def render_card_svg(c, theme="dark"):
     return "".join(out)
 
 
+def publish_card(db, period, path, push=False, prices=None, plan_table=None):
+    """把深色和淺色兩張卡片寫進本機的 git repo（例如 <帳號>/<帳號> 那個個人頁 repo）並 commit。
+    不加 --push 就絕對不會推出去。回傳要印給使用者看的每一行；失敗丟 SystemExit。"""
+    root = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isdir(root):
+        raise SystemExit("computai: %s is not a folder" % root)
+    if not shutil.which("git"):
+        raise SystemExit("computai: git is not installed")
+
+    def git(*a):
+        return subprocess.run(["git", "-C", root] + list(a), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True)
+
+    def fail(what, r):
+        lines = [x for x in (r.stderr or r.stdout or "").strip().splitlines() if x.strip()]
+        raise SystemExit("computai: %s failed: %s" % (what, lines[-1] if lines else "exit %d" % r.returncode))
+
+    if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
+        raise SystemExit("computai: %s is not a git repository" % root)
+    c = card_data(db, period, prices, plan_table)
+    names = [CARD_FILES["dark"], CARD_FILES["light"]]
+    lines = []
+    for theme, name in (("dark", names[0]), ("light", names[1])):
+        with open(os.path.join(root, name), "w", encoding="utf-8") as f:
+            f.write(render_card_svg(c, theme))
+        lines.append("wrote %s" % os.path.join(root, name))
+    r = git("add", "--", *names)
+    if r.returncode:
+        fail("git add", r)
+    if git("diff", "--cached", "--quiet", "--", *names).returncode == 0:
+        lines.append("the cards did not change, so nothing was committed")
+    else:
+        msg = "Update ComputAI card (%s)" % T("cd_" + period)
+        r = git("commit", "-q", "-m", msg, "--", *names)
+        if r.returncode:
+            fail("git commit", r)
+        lines.append("committed %s in %s: %s" % (git("rev-parse", "--short", "HEAD").stdout.strip(), root, msg))
+    if push:
+        r = git("push")
+        if r.returncode:
+            fail("git push", r)
+        lines.append("pushed with `git push`")
+    else:
+        lines.append("did not push (add --push to push)")
+    return lines
+
+
 # ---- 實驗室彙總（--totals 匯出、--lab 合併）
 #
 # 每個人匯出自己的月總額（只有來源、模型的金額和 token，沒有專案、session、機器以外的名稱），
@@ -7378,6 +7425,10 @@ def parse_args(argv=None):
                    help="a small SVG card for your GitHub profile README (use with --svg FILE; see --period, --card-theme)")
     p.add_argument("--period", choices=CARD_PERIODS, default="30d",
                    help="with --card: the last 30 days (default), this month, this year or all time")
+    p.add_argument("--publish", metavar="PATH",
+                   help="with --card: write computai-card.svg and computai-card-light.svg into the git repo at PATH "
+                        "and commit them there (never pushes unless --push is also given)")
+    p.add_argument("--push", action="store_true", help="with --card --publish: also run `git push` in that repo")
     p.add_argument("--card-theme", choices=sorted(CARD_THEMES), default="dark", help="with --card --svg: dark (default) or light")
     p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
     p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
@@ -7614,7 +7665,14 @@ def run(args, db):
     if args.card:
         if not args.no_sync:
             sync(db, quiet=True)
+        if args.push and not args.publish:
+            raise SystemExit("computai: --push only works together with --card --publish PATH")
         c = card_data(db, args.period)
+        if args.publish:
+            for line in publish_card(db, args.period, args.publish, args.push):
+                print("computai: " + line)
+            if not args.svg:
+                return 0
         if args.svg:
             with open(args.svg, "w", encoding="utf-8") as f:
                 f.write(render_card_svg(c, args.card_theme))
