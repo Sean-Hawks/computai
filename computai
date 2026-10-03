@@ -1461,6 +1461,9 @@ def remote_script(services):
             cmd += " | head -c 400000"
         lines.append(cmd)
         lines.append("echo")  # 回應最後沒有換行時，下一段的標題才不會黏上去
+        if kind == "ollama":  # Ollama 前面有 computai --proxy 時，proxy 在同一個埠提供 token 累計數
+            lines += ["echo '@@svcmetrics %s %d'" % (kind, port),
+                      "get http://127.0.0.1:%d/metrics | grep -E '^computai_proxy:' | head -n 200" % port, "echo"]
         if kind == "llamacpp":  # llama.cpp 的 metrics 沒有模型名稱，另外問 /v1/models
             lines += ["echo '@@svcinfo %s %d'" % (kind, port),
                       "get http://127.0.0.1:%d/v1/models | head -c 20000" % port, "echo"]
@@ -1761,6 +1764,9 @@ def snapshot(host, services):
                 if name and list(svc["counters"]) == [kind]:   # 計數器沒有標模型時換成真正的名稱
                     svc["counters"] = {name: svc["counters"][kind]}
                     svc["models"] = [{"name": name, "vram_mb": None}]
+                for (short, model), v in parse_prom(secs.get("svcmetrics %s %s" % (kind, port))).items():
+                    if short in ("prompt", "generation"):   # proxy 的累計數，跟 vLLM 一樣用差值記成用量
+                        svc["counters"].setdefault(model or kind, {})[short] = v
                 d["services"].append(svc)
     return d
 
@@ -2519,7 +2525,7 @@ def prepare_request(body, path, inject=True):
     return body, model
 
 
-def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1"):
+def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1", ledger=True):
     import http.client
     import http.server
     import urllib.parse
@@ -2529,8 +2535,17 @@ def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1"):
     up_port = up.port or (443 if up.scheme == "https" else 80)
     lock = threading.Lock()
     db_holder = {"db": open_ledger(db_path, shared=True)}
+    # 累計計數（像 vLLM 的 /metrics）：取樣時透過 SSH 讀，遠端機器上的 Ollama 也算得到
+    totals = db_holder["totals"] = {}
 
     def record(model, meter):
+        name = normalize_model(model or "?")
+        with lock:
+            t = totals.setdefault(name, [0, 0])
+            t[0] += meter.prompt
+            t[1] += meter.completion
+        if not ledger:  # 這台機器有被 ComputAI 取樣：交給取樣用計數算，這裡不記，免得算兩次
+            return
         row = {"source": "local", "uid": "proxy:%s:%d:%s" % (machine, time.time() * 1e6, os.urandom(4).hex()),
                "ts": int(now()), "model": normalize_model(model or "?"), "project": machine,
                "session": "proxy", "input": max(meter.prompt - meter.cached, 0),
@@ -2561,7 +2576,23 @@ def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1"):
             n = _int(self.headers.get("Content-Length"))
             return self.rfile.read(n) if n > 0 else b""
 
+        def _metrics(self):
+            with lock:
+                lines = []
+                for name, (pr, gen) in sorted(totals.items()):
+                    label = name.replace("\\", "").replace('"', "")
+                    lines.append('computai_proxy:prompt_tokens_total{model_name="%s"} %d' % (label, pr))
+                    lines.append('computai_proxy:generation_tokens_total{model_name="%s"} %d' % (label, gen))
+            data = ("\n".join(lines) + "\n").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; version=0.0.4")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def _forward(self):
+            if self.command == "GET" and self.path == "/metrics":  # Ollama 自己沒有 /metrics，這條是 proxy 的
+                return self._metrics()
             if not host_header_ok(self.headers.get("Host"), bind):
                 # 直接轉給 Ollama 的話，Ollama 自己會擋；我們改寫了 Host，所以要替它擋
                 self.send_error(403, "forbidden host")
@@ -2670,12 +2701,14 @@ def host_header_ok(header, bind):
     return is_loopback(name)
 
 
-def serve_proxy(listen, upstream, machine, sample_every=60, inject=True):
+def serve_proxy(listen, upstream, machine, sample_every=60, inject=True, ledger=None):
     import http.server
     host, port = parse_listen(listen, 11435)
     if not is_loopback(host):
         warn("listening on %s: anyone who can reach this port can use your models through it" % host)
-    Handler, holder = make_proxy(upstream, machine, inject=inject, bind=host)
+    if ledger is None:  # 這台機器已經在 [machines] 裡被取樣：只交計數，不直接記帳
+        ledger = machine not in {m["name"] for m in machines()}
+    Handler, holder = make_proxy(upstream, machine, inject=inject, bind=host, ledger=ledger)
 
     class Server(http.server.ThreadingHTTPServer):
         daemon_threads = True

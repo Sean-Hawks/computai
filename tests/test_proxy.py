@@ -162,6 +162,33 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(sent["stream_options"], {"include_usage": True})
         self.assertEqual(auth, "Bearer local-key")                  # 金鑰照樣轉給上游
 
+    def test_metrics_counters(self):
+        self.post("/api/chat", {"model": "qwen3:0.6b", "messages": []})
+        self.post("/api/generate", {"model": "qwen3:0.6b", "prompt": "x", "stream": False})
+        with urllib.request.urlopen(self.base + "/metrics", timeout=10) as r:
+            text = r.read().decode()
+        vals = self.m.parse_prom(text)                              # 取樣端用同一個解析器讀
+        self.assertEqual(vals[("prompt", "qwen3:0.6b")], 23)
+        self.assertEqual(vals[("generation", "qwen3:0.6b")], 30)
+
+    def test_counters_only_when_machine_is_sampled(self):
+        handler, holder = self.m.make_proxy("http://127.0.0.1:%d" % self.up.server_port, "box", ledger=False)
+        px = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=px.serve_forever, daemon=True).start()
+        try:
+            req = urllib.request.Request("http://127.0.0.1:%d/api/chat" % px.server_port,
+                                         data=json.dumps({"model": "qwen3:0.6b", "messages": []}).encode(),
+                                         headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=10).read()
+            self.assertEqual(holder["totals"], {"qwen3:0.6b": [11, 10]})
+            db = self.m.open_ledger()
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM usage").fetchone()[0], 0)   # 不重複記帳
+            db.close()
+        finally:
+            px.shutdown()
+            px.server_close()
+            holder["db"].close()
+
     def test_rebinding_host_rejected(self):
         import http.client
         c = http.client.HTTPConnection("127.0.0.1", self.px.server_port, timeout=10)

@@ -385,3 +385,28 @@ class PowerSuggest(unittest.TestCase):
 
     def test_script_reads_host(self):
         self.assertIn("echo '@@host'", self.m.remote_script([]))
+
+
+class ProxyCounters(unittest.TestCase):
+    def test_ollama_behind_proxy_has_counters(self):
+        import tempfile
+        m = helpers.load()
+        base = open(helpers.fixture("machines", "node", "mac.txt")).read()
+        extra = ("\n@@svcmetrics ollama 11434\n"
+                 'computai_proxy:prompt_tokens_total{model_name="qwen3:0.6b"} 120\n'
+                 'computai_proxy:generation_tokens_total{model_name="qwen3:0.6b"} 900\n')
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "node"))
+            with open(os.path.join(d, "node", "mac.txt"), "w") as f:
+                f.write(base + extra)
+            old = os.environ.get("COMPUTAI_FIXTURES")
+            os.environ["COMPUTAI_FIXTURES"] = d
+            try:
+                snap = m.snapshot("mac", [("ollama", 11434)])
+            finally:
+                if old is None:
+                    del os.environ["COMPUTAI_FIXTURES"]
+                else:
+                    os.environ["COMPUTAI_FIXTURES"] = old
+        svc = [s for s in snap["services"] if s["kind"] == "ollama"][0]
+        self.assertEqual(svc["counters"], {"qwen3:0.6b": {"prompt": 120.0, "generation": 900.0}})
