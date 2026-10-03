@@ -168,6 +168,7 @@ class Sampling(unittest.TestCase):
     def test_estimate_power(self):
         e = self.m.estimate_power
         self.assertEqual(e({"base_watts": 50}, 200.0, 90, 10), 250.0)
+        self.assertEqual(e({"base_watts": 50, "cpu_watts": 100}, 200.0, 90, 40), 290.0)
         self.assertEqual(e({"idle_watts": 10, "max_watts": 110}, None, 50, 20), 60.0)
         self.assertEqual(e({"idle_watts": 10}, None, 50, 20), 10)
         self.assertIsNone(e({}, None, 50, 20))

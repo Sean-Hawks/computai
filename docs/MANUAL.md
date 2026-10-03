@@ -98,6 +98,7 @@ gpubox = gpubox.tailnet
 [machine.gpubox]
 services = ollama:11434, vllm:8000
 base_watts = 80          ; rest of the machine, on top of measured GPU power
+cpu_watts = 90           ; extra power at 100% CPU, scaled by CPU use (CPU inference, builds)
 [machine.this-computer]
 idle_watts = 6           ; when GPU power can't be read (Macs): interpolate idle..max by load
 max_watts = 30

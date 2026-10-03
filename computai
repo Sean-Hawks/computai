@@ -87,6 +87,7 @@ codex = Plus 20 x1, Pro 200 x20
 # Optional per-machine settings go in a [machine.<name>] section:
 #   services   = ollama:11434, vllm:8000   inference servers to probe (default: common ports)
 #   base_watts = 60    the rest of the machine, added on top of measured GPU power
+#   cpu_watts  = 90    extra power when the CPU is fully busy, scaled by CPU use
 #   idle_watts = 8     whole machine at idle, used when GPU power can't be read (e.g. Macs)
 #   max_watts  = 45    whole machine at full load
 this-computer = local
@@ -1706,6 +1707,7 @@ def machines(cp=None):
         out.append({"name": name, "host": host.strip() or "local",
                     "services": service_list(get("services", DEFAULT_SERVICES)),
                     "base_watts": _float(get("base_watts"), 0.0),
+                    "cpu_watts": _float(get("cpu_watts"), 0.0),
                     "idle_watts": _float(get("idle_watts")),
                     "max_watts": _float(get("max_watts"))})
     return out
@@ -1746,7 +1748,8 @@ def estimate_power(m, gpu_power, util, cpu):
     """整台機器的功耗（W）。讀得到 GPU 功耗就用「GPU + 其他部分」，
     讀不到（Mac、Jetson）就用設定的閒置／滿載功耗按負載內插；都沒設定回傳 None。"""
     if gpu_power is not None:
-        return gpu_power + (m.get("base_watts") or 0.0)
+        # cpu_watts：CPU 從閒置到全速多出來的功耗（CPU 推論、編譯時 GPU 功耗看不到這部分）
+        return gpu_power + (m.get("base_watts") or 0.0) + (m.get("cpu_watts") or 0.0) * (cpu or 0.0) / 100.0
     lo, hi = m.get("idle_watts"), m.get("max_watts")
     if hi is None:
         return lo
