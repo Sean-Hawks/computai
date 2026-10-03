@@ -330,6 +330,80 @@ def load_config():
     return cp
 
 
+# ---- 改設定檔（--set、--unset、--setup 都用這個）
+#
+# 只改到要改的那一行，使用者寫的註解、空行、順序都保留。configparser 寫回去會把註解全部丟掉，所以不用它寫。
+
+SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+
+
+def edit_ini(text, section, key, value=None):
+    """在 INI 文字裡設定（value 不是 None）或刪除（value 是 None）一個值，回傳新的文字。
+    段落不存在就加在最後；鍵不存在就加在那一段最後一個值的後面。"""
+    lines = text.splitlines()
+    start = end = None
+    for i, ln in enumerate(lines):
+        m = SECTION_RE.match(ln)
+        if m:
+            if start is not None and end is None:
+                end = i
+            if m.group(1).strip() == section:
+                start, end = i, None
+    if start is None:
+        if value is None:
+            return text
+        body = (text.rstrip("\n") + "\n\n") if text.strip() else ""
+        return body + "[%s]\n%s = %s\n" % (section, key, value)
+    end = len(lines) if end is None else end
+    key_re = re.compile(r"^\s*%s\s*[=:]" % re.escape(key))
+    last_value = start
+    for i in range(start + 1, end):
+        ln = lines[i]
+        if key_re.match(ln):
+            if value is None:
+                del lines[i]
+            else:
+                lines[i] = "%s = %s" % (key, value)
+            return "\n".join(lines) + "\n"
+        if ln.strip() and not ln.lstrip().startswith(("#", ";")):
+            last_value = i
+    if value is None:
+        return text
+    lines.insert(last_value + 1, "%s = %s" % (key, value))
+    return "\n".join(lines) + "\n"
+
+
+def write_config(changes, path=None):
+    """changes：[(section, key, value 或 None)]。改之前先備份成 config.ini.bak。"""
+    path = path or os.path.join(config_dir(), "config.ini")
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        text = DEFAULT_CONFIG
+    new = text
+    for sec, key, value in changes:
+        new = edit_ini(new, sec, key, value)
+    if new != text:
+        if os.path.exists(path):
+            shutil.copyfile(path, path + ".bak")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new)
+    return new != text
+
+
+def parse_assignment(s):
+    """`plans.claude=Max 5x, 100` -> ("plans", "claude", "Max 5x, 100")；段落名稱可以有點（machine.wsl.mac）。"""
+    if "=" not in s:
+        raise SystemExit("computai: expected SECTION.KEY=VALUE, got %r" % s)
+    left, value = s.split("=", 1)
+    if "." not in left:
+        raise SystemExit("computai: expected SECTION.KEY=VALUE, got %r" % s)
+    sec, key = left.rsplit(".", 1)
+    return sec.strip(), key.strip(), value.strip()
+
+
 def plans(cp=None):
     """{source: {"name", "usd", "checked"}}，格式錯的那行略過。"""
     cp = cp or load_config()
@@ -5054,6 +5128,11 @@ def parse_args(argv=None):
                    help="Claude Code statusLine command: records Claude's limits from stdin, prints --line")
     p.add_argument("--sep", default="\uff5c", help="separator for --line (default: \uff5c)")
     p.add_argument("--lang", choices=sorted(UI), help="language of the live and web dashboards (default: [general] lang)")
+    p.add_argument("--set", action="append", metavar="SECTION.KEY=VALUE", default=[],
+                   help="change a setting in config.ini, keeping its comments (repeatable), "
+                        "e.g. --set 'plans.claude=Max 5x, 100'")
+    p.add_argument("--unset", action="append", metavar="SECTION.KEY", default=[],
+                   help="remove a setting from config.ini (repeatable)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     group_help(p)
@@ -5103,11 +5182,21 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
 
 
 def run(args, db):
+    if args.set or args.unset:
+        changes = [parse_assignment(a) for a in args.set]
+        for a in args.unset:
+            if "." not in a:
+                raise SystemExit("computai: expected SECTION.KEY, got %r" % a)
+            sec, key = a.rsplit(".", 1)
+            changes.append((sec.strip(), key.strip(), None))
+        changed = write_config(changes)
+        print("computai: %s %s" % ("updated" if changed else "no change to", os.path.join(config_dir(), "config.ini")))
+        return 0
     set_lang(args.lang or config_lang())
     asked = (args.payback is not None or any(getattr(args, a) for a in ACTIONS) or args.json
              or args.html or args.month is not None or args.since or args.until or args.by != "model")
