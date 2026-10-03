@@ -63,6 +63,27 @@ powershell -ExecutionPolicy Bypass -File install.ps1    # Windows
 
 Or just copy the single `computai` file anywhere on your `PATH`.
 
+## Make it yours (two minutes)
+
+```sh
+computai --setup      # step by step: your plans, Claude limits, machines, power, electricity, keys
+computai --doctor     # what is detected, what is missing, and the exact command to fix each gap
+computai              # the dashboard
+```
+
+Claude Code and Codex usage needs no setup at all. `--setup` asks one thing at a time, shows the
+current or suggested value (Enter accepts it, `s` skips), detects your plan from the logs where it can,
+finds machines in `~/.ssh/config` and Tailscale, suggests power settings from the hardware it sees
+(laptop or desktop, Apple tier, measured GPU power), and only writes after you confirm, keeping a backup.
+
+Everything stays editable by hand in `~/.config/computai/config.ini`, or from scripts:
+
+```sh
+computai --set 'plans.claude=Claude Max 5x, 100, 2026-10-03' --set machine.wsl.base_watts=60
+computai --unset plans.codex
+computai --discover --add             # add every reachable machine with suggested power
+```
+
 ## Use
 
 ```sh

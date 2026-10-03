@@ -45,6 +45,26 @@ powershell -ExecutionPolicy Bypass -File install.ps1    # Windows
 
 或者直接把 `computai` 這個檔案放到 `PATH` 裡任何地方。
 
+## 設定成你自己的（兩分鐘）
+
+```sh
+computai --setup      # 一步一步：你的方案、Claude 額度、機器、功耗、電價、金鑰
+computai --doctor     # 偵測到什麼、缺什麼，以及每一項要下的指令
+computai              # 總帳畫面
+```
+
+Claude Code 和 Codex 的用量完全不用設定。`--setup` 一次問一件事，顯示目前的值或建議值（Enter 接受、`s` 跳過），
+能從 log 判斷你的方案就先幫你選好，從 `~/.ssh/config` 和 Tailscale 找機器，依看到的硬體
+（筆電或桌機、Apple 晶片等級、GPU 實測功耗）給功耗建議值，最後確認才寫入，而且會先備份。
+
+所有設定都可以自己改 `~/.config/computai/config.ini`，或用指令改（不會弄丟註解）：
+
+```sh
+computai --set 'plans.claude=Claude Max 5x, 100, 2026-10-03' --set machine.wsl.base_watts=60
+computai --unset plans.codex
+computai --discover --add             # 把連得上的機器都加進來，附上功耗建議值
+```
+
 ## 使用
 
 ```sh

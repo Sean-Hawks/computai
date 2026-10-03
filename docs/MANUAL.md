@@ -17,6 +17,14 @@ numbers are worked out. 中文版：[MANUAL.zh-TW.md](MANUAL.zh-TW.md).
 - [How the numbers are worked out](#how-the-numbers-are-worked-out)
 - [Troubleshooting](#troubleshooting)
 
+## Getting set up
+
+`computai --setup` walks through everything below one question at a time and writes `config.ini` only
+after you confirm (the previous file is kept as `config.ini.bak`). `computai --doctor` checks every source
+and machine and prints the command that fixes each gap. `computai --set SECTION.KEY=VALUE` and
+`--unset SECTION.KEY` change single settings without touching your comments. `computai --discover --add`
+adds every reachable machine with power settings suggested from its hardware.
+
 ## Where things live
 
 | What | Default | Override |
