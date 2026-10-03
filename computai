@@ -66,6 +66,8 @@ DEFAULT_CONFIG = """\
 [general]
 # Shown next to USD totals. Set to 0 to hide.
 usd_to_local = 0
+# Language of the live and web dashboards: en or zh (Traditional Chinese).
+lang = en
 local_currency = TWD
 
 [plans]
@@ -3227,7 +3229,7 @@ def dashboard_state(db):
     today = summary(db, ts, te, plan_table={})
     line = line_parts(db)
     energy = machine_report(db, start, end)
-    return {"version": __version__, "time": int(t), "month": label,
+    return {"version": __version__, "time": int(t), "month": label, "lang": _lang, "ui": UI[_lang],
             "line": line, "line_text": render_line(line, " | "),
             "today_usd": round(today["total_cost_usd"], 2),
             "sources": [{"source": x["source"], "cost_usd": round(x["cost_usd"], 2),
@@ -3324,6 +3326,71 @@ class Updater:
 
 # ---- 終端機
 
+# ---- 介面文字（--lang，或 config.ini 的 [general] lang）
+
+UI = {
+    "en": {
+        "node": "NODE", "local": "LOCAL", "ssh": "SSH", "ago": "%s ago", "load": "load %.1f",
+        "kwh_month": "%.2f kWh this month, AI %s", "busy": "busy", "idle": "idle",
+        "no_model": "no model loaded", "rate": "%d req in 5 min, %s tok/s over the last minute",
+        "no_server": "no inference server found", "usage": "AI USAGE", "api_equiv": "API-equivalent",
+        "resets": "resets in %s", "d14": "14d", "today_x": "today %s", "tok_req": "%s tokens, %s requests",
+        "no_usage": "no usage yet - run computai --sync", "today": "today", "month": "month",
+        "forecast": "forecast", "cloud": "CLOUD", "alerts": "ALERTS", "clear": "all clear",
+        "compute": "COMPUTE", "machines_n": "%d machines", "machine_1": "1 machine", "machines": "MACHINES",
+        "compact": "compact: enlarge the window for details", "no_gpu": "no GPU",
+        "no_machines": "no machines yet: add them under [machines] in config.ini",
+        "foot": ["q quit", "-n SEC refresh", "computai --web for the browser", "--analyze for advice"],
+        "gpus_n": "%d GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "local": "Local models",
+                                     "cloud": "Cloud GPUs", "anthropic-api": "Anthropic API",
+                                     "openai-api": "OpenAI API"},
+        "w_today": "Today", "w_month": "This month", "w_forecast": "Forecast", "w_days_left": "%d days left",
+        "w_power": "Power", "w_compute": "Compute", "w_usage": "AI usage", "w_last14": "last 14 days",
+        "w_no_machines": "No machines yet. Add them under [machines] in config.ini.",
+        "w_no_usage": "No usage yet.", "w_requests": "requests", "w_tokens": "tokens",
+        "w_kwh_month": "kWh this month", "w_cloud": "Cloud GPUs", "w_cols": ["Instance", "GPU", "Status", "GPU use", "Price"],
+        "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
+    },
+    "zh": {
+        "node": "節點", "local": "本機", "ssh": "SSH", "ago": "%s 前", "load": "負載 %.1f",
+        "kwh_month": "本月 %.2f 度，AI 佔 %s", "busy": "推論中", "idle": "閒置",
+        "no_model": "沒有載入模型", "rate": "5 分鐘內 %d 個請求，最近一分鐘 %s tok/s",
+        "no_server": "沒有找到推論服務", "usage": "AI 用量", "api_equiv": "等值 API 花費",
+        "resets": "%s 後重置", "d14": "14天", "today_x": "今天 %s", "tok_req": "%s token、%s 個請求",
+        "no_usage": "還沒有用量，先跑 computai --sync", "today": "今天", "month": "本月",
+        "forecast": "月底預估", "cloud": "雲端", "alerts": "警示", "clear": "一切正常",
+        "compute": "算力", "machines_n": "%d 台機器", "machine_1": "1 台機器", "machines": "機器",
+        "compact": "精簡模式：視窗放大可以看細節", "no_gpu": "無 GPU",
+        "no_machines": "還沒有機器：在 config.ini 的 [machines] 加上去",
+        "foot": ["q 離開", "-n 秒數 更新間隔", "computai --web 開網頁版", "--analyze 看建議"],
+        "gpus_n": "%d 張 GPU", "src": {"claude": "Claude Code", "codex": "Codex", "local": "本地模型",
+                                      "cloud": "雲端 GPU", "anthropic-api": "Anthropic API",
+                                      "openai-api": "OpenAI API"},
+        "w_today": "今天", "w_month": "本月", "w_forecast": "月底預估", "w_days_left": "還有 %d 天",
+        "w_power": "功耗", "w_compute": "算力", "w_usage": "AI 用量", "w_last14": "最近 14 天",
+        "w_no_machines": "還沒有機器。在 config.ini 的 [machines] 加上去。",
+        "w_no_usage": "還沒有用量。", "w_requests": "個請求", "w_tokens": "token",
+        "w_kwh_month": "本月度數", "w_cloud": "雲端 GPU", "w_cols": ["機器", "GPU", "狀態", "GPU 使用率", "價格"],
+        "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
+    },
+}
+_lang = "en"
+
+
+def set_lang(lang):
+    global _lang
+    _lang = lang if lang in UI else "en"
+
+
+def T(key):
+    return UI[_lang].get(key, UI["en"][key])
+
+
+def config_lang(cp=None):
+    cp = cp or load_config()
+    return (cp.get("general", "lang", fallback="en") or "en").strip().lower()[:2]
+
+
 def use_color(stream=None):
     stream = stream or sys.stdout
     return stream.isatty() and not os.environ.get("NO_COLOR") and os.environ.get("TERM") != "dumb"
@@ -3331,10 +3398,6 @@ def use_color(stream=None):
 
 def _num(v, fmt, none="-"):
     return none if v is None else fmt % v
-
-
-SOURCE_NAMES = {"claude": "Claude Code", "codex": "Codex", "local": "Local models", "cloud": "Cloud GPUs",
-                "anthropic-api": "Anthropic API", "openai-api": "OpenAI API"}
 
 
 def machine_compact(m, width):
@@ -3350,7 +3413,7 @@ def machine_compact(m, width):
     line = " %s %s %s %s %s %s %s %s" % (
         led, bold(cell(m["machine"], 14)), dim("CPU"), gradbar(m["cpu_pct"] or 0, 8),
         _num(m["cpu_pct"], "%3.0f%%", "  -"), dim("GPU"),
-        gradbar(gu or 0, 8) + _num(gu, "%4.0f%%", "   -") if gpus else dim(cell("no GPU", 15)),
+        gradbar(gu or 0, 8) + _num(gu, "%4.0f%%", "   -") if gpus else dim(cell(T("no_gpu"), 15)),
         rgb(MAG, _num(m["power_w"], "%4.0fW", "     ")))
     return clip(line + " " + svc, width)
 
@@ -3365,14 +3428,14 @@ def machine_panel(m, width, energy=None, error=None):
         return panel(title, "", ["  " + rgb(RED, error["message"].split(": ", 1)[-1])], width, 100)
     gpus = m.get("gpus") or []
     load = (m["gpu_util"] if m["gpu_util"] is not None else m["cpu_pct"]) or 0.0
-    where = "LOCAL" if m.get("host") == "local" else "SSH"
+    where = T("local") if m.get("host") == "local" else T("ssh")
     ai = " " + rgb(GREEN, "AI") if m["ai_active"] else ""
-    stale = (" " + rgb(AMBER, "%s ago" % fmt_dur(m["age"]))) if m["age"] > 300 else ""
-    left = "%s %s %s %s%s%s" % (dim("NODE"), bold(rgb(CYAN, m["machine"])), rgb(heat(load), led), dim(where), ai, stale)
+    stale = (" " + rgb(AMBER, T("ago") % fmt_dur(m["age"]))) if m["age"] > 300 else ""
+    left = "%s %s %s %s%s%s" % (dim(T("node")), bold(rgb(CYAN, m["machine"])), rgb(heat(load), led), dim(where), ai, stale)
     bits = []
     if gpus:
         names = sorted({g.get("model") or g.get("vendor") or "GPU" for g in gpus})
-        bits.append("%dx %s" % (len(gpus), names[0]) if len(names) == 1 else "%d GPUs" % len(gpus))
+        bits.append("%dx %s" % (len(gpus), names[0]) if len(names) == 1 else T("gpus_n") % len(gpus))
     if m["power_w"] is not None:
         bits.append(rgb(MAG, "%.0f W" % m["power_w"]))
     temps = [g["temp"] for g in gpus if g.get("temp") is not None]
@@ -3384,7 +3447,7 @@ def machine_panel(m, width, energy=None, error=None):
     ld = m.get("load")
     lines.append(" %s %s %s %s %s" % (rgb(CYAN, "CPU"), gradbar(cpu or 0), _num(cpu, "%5.1f%%", "    -"),
                                        spark(m["history"]["cpu"], sp_w),
-                                       dim("load %.1f" % ld[0]) if ld else ""))
+                                       dim(T("load") % ld[0]) if ld else ""))
     if m.get("mem_total"):
         mp = 100.0 * (m["mem_used"] or 0) / m["mem_total"]
         lines.append(" %s %s %5.1f%% %s" % (rgb(CYAN, "MEM"), gradbar(mp), mp,
@@ -3404,7 +3467,7 @@ def machine_panel(m, width, energy=None, error=None):
         top = max(ph + [1.0])
         extra = ""
         if energy and energy.get("kwh"):
-            extra = dim("  %.2f kWh this month, AI %s" % (
+            extra = dim("  " + T("kwh_month") % (
                 energy["kwh"], "-" if energy["ai_share"] is None else "%d%%" % round(100 * energy["ai_share"])))
         lines.append(" %s %s %s%s" % (rgb(CYAN, "PWR"), rgb(MAG, "%5.0f W" % (m["power_w"] or 0)),
                                        spark(ph, sp_w + 6, top=top), extra))
@@ -3414,15 +3477,15 @@ def machine_panel(m, width, energy=None, error=None):
     for svc in m.get("services") or []:
         key = (svc["kind"], svc["port"])
         models = by_svc.pop(key, [])
-        state = rgb(GREEN, sym("\u25cf", "*") + " busy") if m["ai_active"] else dim(sym("\u25cb", "o") + " idle")
+        state = rgb(GREEN, sym("\u25cf", "*") + " " + T("busy")) if m["ai_active"] else dim(sym("\u25cb", "o") + " " + T("idle"))
         names = ", ".join("%s%s" % (x["name"], dim(" %s MB" % format(x["vram_mb"], ",")) if x.get("vram_mb") else "")
-                          for x in models) or dim("no model loaded")
+                          for x in models) or dim(T("no_model"))
         rate = ""
         if m["recent"]["requests"]:
-            rate = dim("  %d req in 5 min, %s tok/s over the last minute" % (m["recent"]["requests"], m["recent"]["tok_s"]))
+            rate = dim("  " + T("rate") % (m["recent"]["requests"], m["recent"]["tok_s"]))
         lines.append(" %s %s %s%s" % (rgb(MAG, "%s:%s" % key), state, names, rate))
     if not m.get("services"):
-        lines.append(dim(" no inference server found"))
+        lines.append(dim(" " + T("no_server")))
     return panel(left, right, lines, width, load)
 
 
@@ -3435,7 +3498,7 @@ def usage_panel(st, width):
     daily = st.get("daily") or {"days": [], "sources": {}}
     bar_w = 16 if width >= 70 else 10
     for x in st["sources"]:
-        name = SOURCE_NAMES.get(x["source"], x["source"])
+        name = T("src").get(x["source"], x["source"])
         plan = x.get("plan")
         tail = ""
         if plan:
@@ -3444,28 +3507,28 @@ def usage_panel(st, width):
             tail = dim("  %s %s -> " % (plan["name"], fmt_usd(plan["fee_in_range"]))) + rgb(col, "%.1fx" % ratio)
         lines.append(" %s %s%s" % (bold(cell(name, 14)), rgb(CYAN, "%9s" % fmt_usd(x["cost_usd"])), tail))
         for r in sorted(lim.pop(x["source"], []), key=lambda r: r["window_minutes"] or 0):
-            when = dim("resets in %s" % fmt_dur(r["resets_in"])) if r["resets_in"] is not None else ""
+            when = dim(T("resets") % fmt_dur(r["resets_in"])) if r["resets_in"] is not None else ""
             lines.append("   %s %s %3.0f%%  %s" % (dim(cell(r["name"], 5)), gradbar(r["used_percent"], bar_w),
                                                  r["used_percent"], when))
         series = daily["sources"].get(x["source"])
         if series and any(series):
-            lines.append("   %s %s %s" % (dim(cell("14d", 5)), spark(series, len(series), top=max(series)),
-                                           dim("today %s" % fmt_usd(series[-1]))))
+            lines.append("   %s %s %s" % (dim(cell(T("d14"), 5)), spark(series, len(series), top=max(series)),
+                                           dim(T("today_x") % fmt_usd(series[-1]))))
         if x["source"] == "local" and x["tokens"]:
-            lines.append(dim("   %s tokens, %s requests" % (fmt_tok(x["tokens"]), fmt_tok(x["requests"]))))
+            lines.append(dim("   " + T("tok_req") % (fmt_tok(x["tokens"]), fmt_tok(x["requests"]))))
     for src, rows in lim.items():  # 有額度但這個月還沒有用量的來源
         for r in rows:
-            lines.append(" %s %s %3.0f%%" % (bold(cell(SOURCE_NAMES.get(src, src), 14)),
+            lines.append(" %s %s %3.0f%%" % (bold(cell(T("src").get(src, src), 14)),
                                             gradbar(r["used_percent"], bar_w), r["used_percent"]))
     if not lines:
-        lines.append(dim(" no usage yet - run computai --sync"))
+        lines.append(dim(" " + T("no_usage")))
     f = st["forecast"]
     lines.append("")
-    lines.append(" %s %s   %s %s   %s %s" % (dim("today"), bold(fmt_usd(st["today_usd"])), dim("month"),
-                                           bold(fmt_usd(st["total_cost_usd"])), dim("forecast"),
+    lines.append(" %s %s   %s %s   %s %s" % (dim(T("today")), bold(fmt_usd(st["today_usd"])), dim(T("month")),
+                                           bold(fmt_usd(st["total_cost_usd"])), dim(T("forecast")),
                                            bold(rgb(RED if f.get("over_budget") else CYAN,
                                                     fmt_usd(f["projected_usd"])))))
-    return panel(bold("AI USAGE") + " " + dim(st["month"]), dim("API-equivalent"), lines, width, 0)
+    return panel(bold(T("usage")) + " " + dim(st["month"]), dim(T("api_equiv")), lines, width, 0)
 
 
 def cloud_panel(st, width):
@@ -3476,13 +3539,13 @@ def cloud_panel(st, width):
                                           cell("%s x%d" % (c["gpu"], c["gpu_count"] or 1), 16),
                                           gradbar(u or 0, 8), _num(u, "%3.0f%%", "  ?"),
                                           rgb(MAG, fmt_usd(c["usd_per_hour"]) + "/h") if c["billing"] else dim(c["status"])))
-    return panel(bold("CLOUD"), "", lines, width, max([c["gpu_util"] or 0 for c in st["cloud"]] or [0]))
+    return panel(bold(T("cloud")), "", lines, width, max([c["gpu_util"] or 0 for c in st["cloud"]] or [0]))
 
 
 def alerts_panel(st, width):
     warn_ = "!" if _ascii else "⚠"
-    lines = [" %s %s" % (rgb(RED, warn_), a["message"]) for a in st["alerts"]] or [dim(" all clear")]
-    return panel(bold("ALERTS"), dim("%d" % len(st["alerts"])) if st["alerts"] else "", lines, width,
+    lines = [" %s %s" % (rgb(RED, warn_), a["message"]) for a in st["alerts"]] or [dim(" " + T("clear"))]
+    return panel(bold(T("alerts")), dim("%d" % len(st["alerts"])) if st["alerts"] else "", lines, width,
                  100 if st["alerts"] else 0)
 
 
@@ -3513,16 +3576,16 @@ def render_live(st, width=100, color=False, ascii_=False, height=None):
         rows = [machine_compact(m, col - 2) for m in st["machines"]]
         rows += [" %s %s" % (rgb(RED, sym("\u25c9", "o")), e["message"]) for n, e in errors.items()
                  if n not in {m["machine"] for m in st["machines"]}]
-        left = panel(bold("MACHINES"), dim("compact: enlarge the window for details"), rows, col,
+        left = panel(bold(T("machines")), dim(T("compact")), rows, col,
                      max([m["gpu_util"] or 0 for m in st["machines"]] or [0]))
         if st["cloud"]:
             left += cloud_panel(st, col)
     if not left:
-        left = panel(bold("COMPUTE"), "", [dim(" no machines yet: add them under [machines] in config.ini")], col)
+        left = panel(bold(T("compute")), "", [dim(" " + T("no_machines"))], col)
     else:
         watts = sum(m["power_w"] or 0 for m in st["machines"])
         billing = sum(c["usd_per_hour"] or 0 for c in st["cloud"] if c["billing"])
-        bits = ["%d machine%s" % (len(st["machines"]), "" if len(st["machines"]) == 1 else "s")]
+        bits = [T("machine_1") if len(st["machines"]) == 1 else T("machines_n") % len(st["machines"])]
         if watts:
             # 全部機器的功耗走勢：各台的歷史從最新一筆往回對齊加總
             n = max(len(m["history"]["power"]) for m in st["machines"])
@@ -3538,10 +3601,9 @@ def render_live(st, width=100, color=False, ascii_=False, height=None):
             bits.append(rgb(GREEN, "%s tok/s" % rate))
         if st["cloud"]:
             bits.append("cloud " + rgb(MAG, fmt_usd(billing) + "/h"))
-        left = [" " + bold("COMPUTE") + "  " + dim(sym(" \u00b7 ", " | ")).join(bits)] + left
+        left = [" " + bold(T("compute")) + "  " + dim(sym(" \u00b7 ", " | ")).join(bits)] + left
     body = side_by_side(left, right) if two else left + right
-    foot = dim(sym(" \u00b7 ", " | ").join(["q quit", "-n SEC refresh", "computai --web for the browser",
-                                            "--analyze for advice"]))
+    foot = dim(sym(" \u00b7 ", " | ").join(T("foot")))
     return "\n".join([head, ""] + body + [foot])
 
 
@@ -3640,7 +3702,7 @@ WEB_HTML = """<!doctype html>
 </head>
 <body>
 <header>
-  <div class="brand">COMPUTAI<span>where your compute and AI money goes</span></div>
+  <div class="brand">COMPUTAI<span id="tagline">where your compute and AI money goes</span></div>
   <div id="line"></div>
   <div id="clock"></div>
 </header>
@@ -3649,12 +3711,12 @@ WEB_HTML = """<!doctype html>
   <div id="alerts"></div>
   <section class="cols">
     <div>
-      <h2 class="sec">Compute</h2>
+      <h2 class="sec" id="h-compute">Compute</h2>
       <div id="machines" class="nodes"></div>
       <div id="cloud"></div>
     </div>
     <div>
-      <h2 class="sec">AI usage</h2>
+      <h2 class="sec" id="h-usage">AI usage</h2>
       <div id="usage"></div>
     </div>
   </section>
@@ -3807,20 +3869,20 @@ function tile(k, v, sub, color) {
             el("div", {class: "v", style: color ? `color:${color}` : ""}, v), sub ? el("div", {class: "k"}, sub) : null);
 }
 function rowBar(lab, p, num) { return el("div", {class: "row"}, el("span", {class: "lab"}, lab), bar(p), el("span", {class: "num"}, num)); }
-const NAMES = {claude: "Claude Code", codex: "Codex", local: "Local models", cloud: "Cloud GPUs",
-               "anthropic-api": "Anthropic API", "openai-api": "OpenAI API"};
+let t = {src: {}};
+const fmt = (s, ...a) => { let i = 0; return s.replace(/%(\.\d)?[sdf]/g, (m, p) => { const v = a[i++]; return p && typeof v === "number" ? v.toFixed(+p.slice(1)) : String(v); }); };
 
 function machineCard(m, energy) {
   const load = m.gpu_util !== null ? m.gpu_util : (m.cpu_pct || 0);
   const temps = m.gpus.map((g) => g.temp).filter((t) => t !== null && t !== undefined);
-  const sub = [m.gpus.length ? `${m.gpus.length}× ${m.gpus[0].model || m.gpus[0].vendor}` : "no GPU",
+  const sub = [m.gpus.length ? `${m.gpus.length}× ${m.gpus[0].model || m.gpus[0].vendor}` : t.no_gpu,
                m.power_w !== null ? Math.round(m.power_w) + " W" : null,
                temps.length ? Math.max(...temps).toFixed(0) + "°C" : null].filter(Boolean).join(" · ");
   const card = el("div", {class: "card", style: `border-color:${heat(load)}55`},
     el("h3", {}, el("span", {class: "led", style: `background:${heat(load)}`}), m.machine,
-       el("span", {class: "tag"}, m.host === "local" ? "LOCAL" : "SSH"),
+       el("span", {class: "tag"}, m.host === "local" ? t.local : t.ssh),
        m.ai_active ? el("span", {class: "tag ai"}, "AI") : null,
-       m.age > 300 ? el("span", {class: "tag stale"}, dur(m.age) + " ago") : null,
+       m.age > 300 ? el("span", {class: "tag stale"}, fmt(t.ago, dur(m.age))) : null,
        el("span", {class: "sub"}, sub)));
   card.append(rowBar("CPU", m.cpu_pct, pct(m.cpu_pct)), spark(m.history.cpu, 300, 22));
   if (m.mem_total) {
@@ -3841,18 +3903,18 @@ function machineCard(m, energy) {
       spark(ph, 200, 18, {top: Math.max(...ph, 1), color: "var(--mag)"}),
       el("span", {class: "num", style: "color:var(--mag)"}, Math.round(m.power_w || 0) + " W")));
     if (energy && energy.kwh) card.append(el("div", {class: "muted"},
-      `${energy.kwh.toFixed(energy.kwh < 0.1 ? 3 : 2)} kWh this month · AI ${energy.ai_share === null ? "-" : Math.round(energy.ai_share * 100) + "%"}` +
+      fmt(t.kwh_month, energy.kwh, energy.ai_share === null ? "-" : Math.round(energy.ai_share * 100) + "%") +
       (energy.j_per_token ? ` · ${energy.j_per_token.toFixed(2)} J/token` : "")));
   }
   for (const s of m.services) {
     const loaded = m.loaded.filter((x) => x.service === s.kind && (x.port === undefined || x.port === s.port));
     const models = loaded.map((x) => x.name + (x.vram_mb ? ` (${x.vram_mb.toLocaleString()} MB)` : "")).join(", ");
     card.append(el("div", {class: "svc"}, el("span", {class: "k"}, `${s.kind}:${s.port}`),
-      el("span", {class: m.ai_active ? "ok" : "muted"}, m.ai_active ? "● busy" : "○ idle"),
-      el("span", {class: "m"}, models || "no model loaded"),
-      m.recent.requests ? el("span", {class: "muted"}, `${m.recent.requests} req in 5 min · ${m.recent.tok_s} tok/s last minute`) : null));
+      el("span", {class: m.ai_active ? "ok" : "muted"}, m.ai_active ? "● " + t.busy : "○ " + t.idle),
+      el("span", {class: "m"}, models || t.no_model),
+      m.recent.requests ? el("span", {class: "muted"}, fmt(t.rate, m.recent.requests, m.recent.tok_s)) : null));
   }
-  if (!m.services.length) card.append(el("div", {class: "muted"}, "no inference server found"));
+  if (!m.services.length) card.append(el("div", {class: "muted"}, t.no_server));
   return card;
 }
 
@@ -3862,24 +3924,24 @@ function usageCard(st) {
   for (const l of st.limits) (lim[l.source] = lim[l.source] || []).push(l);
   for (const s of st.sources) {
     const p = s.plan;
-    const box = el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, NAMES[s.source] || s.source),
+    const box = el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, t.src[s.source] || s.source),
       el("span", {class: "cost"}, usd(s.cost_usd)),
       p ? el("span", {class: "muted", style: `color:${(p.value_ratio || 0) >= 1 ? "var(--ok)" : "var(--warn)"}`},
              `${p.name} ${usd(p.fee_in_range)} → ${(p.value_ratio || 0).toFixed(1)}×`) : null));
     for (const l of (lim[s.source] || []).sort((a, b) => (a.window_minutes || 0) - (b.window_minutes || 0)))
       box.append(rowBar(l.name, l.used_percent, pct(l.used_percent)),
-                 l.resets_in !== null ? el("div", {class: "legend"}, `resets in ${dur(l.resets_in)}`) : null);
+                 l.resets_in !== null ? el("div", {class: "legend"}, fmt(t.resets, dur(l.resets_in))) : null);
     delete lim[s.source];
     const series = (st.daily.sources || {})[s.source];
     if (series && series.some((x) => x > 0))
-      box.append(bars(series, 280, 34, st.daily.days), el("div", {class: "legend"}, `last 14 days · today ${usd(series[series.length - 1])}`));
-    box.append(el("div", {class: "legend"}, `${tok(s.tokens)} tokens · ${tok(s.requests)} requests`));
+      box.append(bars(series, 280, 34, st.daily.days), el("div", {class: "legend"}, `${t.w_last14} · ${fmt(t.today_x, usd(series[series.length - 1]))}`));
+    box.append(el("div", {class: "legend"}, fmt(t.tok_req, tok(s.tokens), tok(s.requests))));
     card.append(box);
   }
   for (const [src, rows] of Object.entries(lim))
-    for (const l of rows) card.append(el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, NAMES[src] || src)),
+    for (const l of rows) card.append(el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, t.src[src] || src)),
                                       rowBar(l.name, l.used_percent, pct(l.used_percent))));
-  if (!st.sources.length && !st.limits.length) card.append(el("div", {class: "muted"}, "No usage yet."));
+  if (!st.sources.length && !st.limits.length) card.append(el("div", {class: "muted"}, t.w_no_usage));
   return card;
 }
 
@@ -3888,30 +3950,34 @@ function cloudCard(st) {
   const rows = st.cloud.map((c) => el("tr", {}, el("td", {}, `${c.provider}/${c.name}`), el("td", {}, `${c.gpu} ×${c.gpu_count || 1}`),
     el("td", {}, c.status), el("td", {style: c.gpu_util !== null ? `color:${heat(c.gpu_util)}` : ""}, pct(c.gpu_util)),
     el("td", {}, c.billing ? usd(c.usd_per_hour) + "/h" : "-")));
-  return el("div", {class: "card"}, el("h3", {}, "Cloud GPUs"), el("div", {class: "tablewrap"},
-    el("table", {}, el("thead", {}, el("tr", {}, ...["Instance", "GPU", "Status", "GPU use", "Price"].map((h) => el("th", {}, h)))),
+  return el("div", {class: "card"}, el("h3", {}, t.w_cloud), el("div", {class: "tablewrap"},
+    el("table", {}, el("thead", {}, el("tr", {}, ...t.w_cols.map((h) => el("th", {}, h)))),
        el("tbody", {}, ...rows))));
 }
 
 function render(st) {
+  t = st.ui || t;
+  document.documentElement.lang = st.lang === "zh" ? "zh-Hant" : "en";
+  $("#h-compute").textContent = t.w_compute; $("#h-usage").textContent = t.w_usage;
+  $("#tagline").textContent = t.w_tagline;
   $("#line").textContent = st.line_text;
   $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString();
   const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
   const f = st.forecast;
-  const tiles = [tile("Today", usd(st.today_usd)), tile("This month", usd(st.total_cost_usd), "API-equivalent"),
-                 tile("Forecast", usd(f.projected_usd), `${f.days_left.toFixed(0)} days left`, f.over_budget ? "var(--red)" : null)];
+  const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.api_equiv),
+                 tile(t.w_forecast, usd(f.projected_usd), fmt(t.w_days_left, Math.round(f.days_left)), f.over_budget ? "var(--red)" : null)];
   for (const l of st.line.limits) tiles.push(tile(`${l.label} ${l.window}`, pct(l.used_percent),
-    l.resets_in !== null ? `resets in ${dur(l.resets_in)}` : "", heat(l.used_percent)));
-  if (st.machines.length) tiles.push(tile("Power", Math.round(watts) + " W", `${st.machines.length} machines`));
+    l.resets_in !== null ? fmt(t.resets, dur(l.resets_in)) : "", heat(l.used_percent)));
+  if (st.machines.length) tiles.push(tile(t.w_power, Math.round(watts) + " W", st.machines.length === 1 ? t.machine_1 : fmt(t.machines_n, st.machines.length)));
   $("#tiles").replaceChildren(...tiles);
   $("#alerts").replaceChildren(...st.alerts.map((a) => el("div", {class: "alert" + (a.kind.startsWith("cloud") || a.kind === "machine_unreachable" ? " red" : "")}, "⚠ " + a.message)));
   const energy = Object.fromEntries(st.energy.map((e) => [e.machine, e]));
   $("#machines").replaceChildren(...(st.machines.length ? st.machines.map((m) => machineCard(m, energy[m.machine]))
-    : [el("div", {class: "card muted"}, "No machines yet. Add them under [machines] in config.ini.")]));
+    : [el("div", {class: "card muted"}, t.w_no_machines)]));
   const cc = cloudCard(st);
   $("#cloud").replaceChildren(...(cc ? [cc] : []));
   $("#usage").replaceChildren(usageCard(st));
-  $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · prices from prices.ini`;
+  $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
   document.title = `${st.line_text} · ComputAI`;
 }
 async function tick() {
@@ -4255,6 +4321,7 @@ def parse_args(argv=None):
     p.add_argument("--statusline", action="store_true",
                    help="Claude Code statusLine command: records Claude's limits from stdin, prints --line")
     p.add_argument("--sep", default="\uff5c", help="separator for --line (default: \uff5c)")
+    p.add_argument("--lang", choices=sorted(UI), help="language of the live and web dashboards (default: [general] lang)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     return p.parse_args(argv)
@@ -4308,6 +4375,7 @@ ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", 
 
 
 def run(args, db):
+    set_lang(args.lang or config_lang())
     asked = (args.payback is not None or any(getattr(args, a) for a in ACTIONS) or args.json
              or args.html or args.month is not None or args.since or args.until or args.by != "model")
     if not asked and sys.stdout.isatty() and sys.stdin.isatty():
