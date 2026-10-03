@@ -277,6 +277,9 @@ class Hud(unittest.TestCase):
         self.assertNotEqual(a, b)
         self.assertIn("wsl generating 296 tok/s", a)
         self.assertTrue(self.m.vlen(a) <= 60 and self.m.vlen(b) <= 60)
+        wide = self.m.ticker(self.st, 400, 3)                    # 比一圈還寬：接縫不能重複或缺字
+        self.assertNotIn("wswsl", wide)
+        self.assertNotIn("ww", wide.replace("worth", ""))
 
     def test_boot_reveals_real_checks(self):
         partial = self.m.render_boot(self.st, 80, 30, 2)

@@ -4770,9 +4770,10 @@ def ticker(st, width, frame=0):
     chars = list(text)
     k = frame % len(chars) if chars else 0
     chars = chars[k:] + chars[:k]
-    line = "".join(chars)
+    loop = "".join(chars)   # 旋轉過的一整圈；不夠寬就整圈重複，接縫才會對
+    line = loop
     while vlen(line) < width - 3:
-        line += text
+        line += loop
     return rgb(CYAN, sym("\u25b6 ", "> ")) + clip(line, width - 3)
 
 
