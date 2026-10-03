@@ -7327,7 +7327,7 @@ def publish_card(db, period, path, push=False, prices=None, plan_table=None):
     if git("diff", "--cached", "--quiet", "--", *names).returncode == 0:
         lines.append("the cards did not change, so nothing was committed")
     else:
-        msg = "Update ComputAI card (%s)" % T("cd_" + period)
+        msg = "Update ComputAI card (%s)" % CARD_TXT["en"]["all_p" if period == "all" else period].lower()  # 個人頁 repo 的 commit 一律英文
         r = git("commit", "-q", "-m", msg, "--", *names)
         if r.returncode:
             fail("git commit", r)
