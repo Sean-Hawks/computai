@@ -39,7 +39,7 @@ class Mcp(unittest.TestCase):
         self.assertEqual([x.get("id") for x in r], [1, 2, 3, 4, 5, 6, None])   # 通知沒有回應
         self.assertEqual(r[0]["result"]["serverInfo"]["name"], "computai")
         self.assertEqual({t["name"] for t in r[1]["result"]["tools"]},
-                         {"usage_summary", "limits", "budget", "machines", "advice"})
+                         {"usage_summary", "limits", "budget", "machines", "advice", "pick"})
         data = json.loads(r[2]["result"]["content"][0]["text"])
         self.assertEqual(data["month"], "2026-09")
         self.assertEqual({x["source"] for x in data["sources"]}, {"claude", "codex"})
@@ -47,6 +47,13 @@ class Mcp(unittest.TestCase):
         self.assertEqual(r[4]["error"]["code"], -32602)
         self.assertEqual(r[5]["error"]["code"], -32601)
         self.assertEqual(r[6]["error"]["code"], -32700)
+
+    def test_pick_tool(self):
+        r = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "pick", "arguments": {"task": "light"}}},
+                      {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "pick", "arguments": {"task": "x"}}})
+        data = json.loads(r[0]["result"]["content"][0]["text"])
+        self.assertEqual(set(data), {"tool", "command", "reason", "ranked"})
+        self.assertTrue(r[1]["result"]["isError"])
 
     def test_bad_month_is_tool_error(self):
         r = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/call",

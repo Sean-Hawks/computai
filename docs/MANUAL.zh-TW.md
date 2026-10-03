@@ -398,11 +398,33 @@ git -C ~/Documents/你的個人頁repo push      # 或是在上面的指令加 -
 
 卡片是當下的快照，要更新就再跑一次指令（可以放進 cron）。
 
+## 現在用哪個 agent（`--pick`）
+
+ComputAI 知道每個額度還剩多少、多久重置、本地模型有沒有空，所以可以替你決定：
+
+```sh
+$(computai --pick) "幫我整理這個 PR"              # 跑 claude、codex 或本地模型
+computai --pick --task light                      # 輕量任務可以丟給本地模型
+computai --pick --json                            # 工具、指令、理由和完整排序
+```
+
+stdout 只有指令（`claude`、`codex`、`ollama run 模型`，別台機器上的是 `ssh 主機 ollama run 模型`），
+一行理由印在 stderr。規則照順序：
+
+1. 快重置（剩不到 1 小時，或週期的最後 15 %）而且還剩 ≥ 20 % 的額度：現在用掉，重置後就浪費了。
+2. 輕量任務：本地的 Ollama 模型，不花額度。
+3. 剩最多、照目前速度不會提早用完的訂閱。
+4. 會提早用完的訂閱。
+5. 重的任務最後才退到本地模型。用完的額度永遠不選。
+
+只讀帳本（不連網、不 SSH），放在 `$(...)` 裡也夠快。首頁的建議也會在額度快重置又還剩很多時提醒；
+agent 可以透過 MCP 的 `pick` 工具問同一個問題。
+
 ## MCP server（給 agent 用）
 
 `computai --mcp` 在標準輸入輸出上說 Model Context Protocol，讓 agent 在做花錢的事之前自己查預算。
 工具有：`usage_summary`（某個月每個來源、每個模型的花費）、`limits`（額度）、`budget`（月底預估和今天）、
-`machines`（GPU 使用率、載入的模型、還放得下多大的模型）、`advice`（建議）。全部唯讀。
+`machines`（GPU 使用率、載入的模型、還放得下多大的模型）、`advice`（建議）、`pick`（這個子任務該丟給誰，見上一節）。全部唯讀。
 在 agent 裡把它註冊成 stdio server，指令是 `computai --mcp`（Claude Code 大概是
 `claude mcp add computai -- computai --mcp`；Codex 是在設定加一段 `[mcp_servers.computai]`，
 `command = "computai"`、`args = ["--mcp"]`）。

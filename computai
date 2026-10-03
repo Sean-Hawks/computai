@@ -4895,6 +4895,101 @@ def prometheus(st):
     return "\n".join(lines) + "\n"
 
 
+# ---- --pick：照額度決定現在用哪個 agent
+
+PICK_EXPIRING_LEFT = 20.0   # 快重置的額度至少還剩這麼多 % 才值得「趁現在用掉」
+
+
+def expiring_soon(w):
+    """這個視窗快重置了嗎：剩不到 1 小時，或剩不到週期的 15 %（5 小時額度是 45 分鐘、每週是一天）。"""
+    left = w.get("resets_in")
+    span = (w.get("window_minutes") or 0) * 60
+    return left is not None and left <= max(3600, 0.15 * span)
+
+
+def pick_agent(subs, local, task="heavy"):
+    """決定現在最適合用哪個工具。純函式，方便用表格測。
+    subs：{"claude": [視窗...], "codex": [...]}，視窗有 name、used_percent、resets_in、eta_full、window_minutes；
+          值是 None 表示沒裝或沒登入。
+    local：[{"model", "machine", "command", "busy"}]，只放有指令可以叫的本地模型（Ollama）。
+    task：light（簡單、可以給小模型）或 heavy。
+    回傳 {"tool", "command", "why", "args", "ranked"}；tool 是 claude、codex、local:<模型> 或 None。
+    規則照順序：
+      1. 快重置、還剩 ≥ 20 % 的額度先用（重置後就浪費了）
+      2. 輕量任務優先用本地模型（不花額度）
+      3. 剩最多、照速度不會提早用完的訂閱
+      4. 照速度會提早用完的訂閱
+      5. 重的任務最後才退到本地模型
+    用完的額度永遠不選。"""
+    cands = []
+    for src in ("claude", "codex"):
+        ws = subs.get(src)
+        if ws is None:
+            continue
+        ws = [w for w in ws if w.get("used_percent") is not None]
+        if any(w["used_percent"] >= LIMIT_FAIL for w in ws):
+            continue
+        left = min([100.0 - w["used_percent"] for w in ws] or [100.0])
+        early = [w for w in ws if w.get("eta_full") is not None and w.get("resets_in") and w["eta_full"] < w["resets_in"]]
+        expiring = [w for w in ws if expiring_soon(w) and 100.0 - w["used_percent"] >= PICK_EXPIRING_LEFT]
+        rank = 0 if expiring else (2 if not early else 3)
+        why, args = ("expiring", {"src": src, "win": expiring[0]["name"], "left": 100.0 - expiring[0]["used_percent"],
+                                  "reset": expiring[0]["resets_in"]}) if expiring else \
+            ("early", {"src": src, "win": early[0]["name"], "eta": early[0]["eta_full"]}) if early else \
+            ("headroom", {"src": src, "left": left})
+        cands.append({"tool": src, "command": src, "rank": rank, "score": left, "why": why, "args": args})
+    for x in local:
+        cands.append({"tool": "local:" + x["model"], "command": x["command"], "rank": 1 if task == "light" else 4,
+                      "score": 0.0 if x.get("busy") else 1.0,
+                      "why": "local_light" if task == "light" else "local_fallback",
+                      "args": {"model": x["model"], "machine": x["machine"]}})
+    cands.sort(key=lambda c: (c["rank"], -c["score"]))
+    if not cands:
+        return {"tool": None, "command": None, "why": "none", "args": {}, "ranked": []}
+    best = cands[0]
+    return {"tool": best["tool"], "command": best["command"], "why": best["why"], "args": best["args"],
+            "ranked": [c["tool"] for c in cands]}
+
+
+def pick_inputs(db, t=None):
+    """--pick 要的資料：帳本裡每個訂閱目前的額度視窗，和 10 分鐘內看到、載入在 Ollama 上的本地模型。不連網、不 SSH。"""
+    t = now() if t is None else t
+    subs = {}
+    for r in current_limits(db, t):
+        subs.setdefault(r["source"], []).append(r)
+    for src in ("claude", "codex"):   # 沒有額度資料，但程式裝著：還是可以選，只是不知道剩多少
+        if src not in subs and shutil.which(src):
+            subs[src] = []
+    hosts = {m["name"]: m["host"] for m in machines()}
+    local = []
+    for m in latest_samples(db):
+        if m["age"] > 600:
+            continue
+        for x in m["loaded"]:
+            if x.get("service") != "ollama" or not x.get("name"):
+                continue
+            host = hosts.get(m["machine"], "local")
+            cmd = "ollama run %s" % x["name"] if host == "local" else "ssh %s ollama run %s" % (host, x["name"])
+            busy = any(svc.get("busy") for svc in m["services"] if svc.get("kind") == "ollama")
+            local.append({"model": x["name"], "machine": m["machine"], "command": cmd, "busy": busy})
+    return subs, local
+
+
+def pick_reason(p):
+    """一行理由，例如「Claude 5 小時額度 40m 後重置、還剩 60%，現在用最划算」。"""
+    a = dict(p["args"])
+    if "src" in a:
+        a["src"] = T("src").get(a["src"], a["src"])
+    if "win" in a:
+        a["win"] = limit_label(a["win"])
+    for k in ("reset", "eta"):
+        if k in a:
+            a[k] = fmt_dur(a[k])
+    if "left" in a:
+        a["left"] = "%d%%" % round(a["left"])
+    return T("pk_" + p["why"]) % a
+
+
 def insights(db, t=None):
     """給畫面用的幾句建議：方案、快取浪費、離峰。都是 --analyze 的摘要。"""
     t = now() if t is None else t
@@ -4931,6 +5026,10 @@ def insights(db, t=None):
                                                       else "i_plan_up") % args})
         if r.get("api_cheaper"):
             out.append({"kind": "api", "text": T("i_api") % {"src": src, "cost": fmt_usd(r["api_equivalent_usd"])}})
+    cur = current_limits(db, t)   # 快重置、還剩很多的額度：現在用最划算（跟 --pick 同一條規則）
+    for r in cur:
+        if not r["stale"] and expiring_soon(r) and 100 - (r["used_percent"] or 0) >= PICK_EXPIRING_LEFT:
+            out.append({"kind": "pick", "text": pick_reason(pick_agent({r["source"]: [r]}, [], "heavy"))})
     c = cache_report(db, start, end)
     if c["wasted_usd"] >= 1:
         out.append({"kind": "cache", "text": T("i_cache") % {"cost": fmt_usd(c["wasted_usd"]),
@@ -5128,6 +5227,12 @@ UI = {
         "win": {"5h": "5-hour limit", "week": "weekly limit"}, "used_up": "used up", "used_pct": "%d%% used",
         "today_worth": "today %s worth", "today_spent": "today %s",
         "sum_value": "Usage value: %s this month, %s today (at API prices)",
+        "pk_expiring": "%(src)s %(win)s resets in %(reset)s with %(left)s left - use it now or lose it",
+        "pk_headroom": "%(src)s has the most room left (%(left)s)",
+        "pk_early": "%(src)s %(win)s runs out in %(eta)s at this pace, but it's the best one left",
+        "pk_local_light": "a light task: %(model)s on %(machine)s uses no quota",
+        "pk_local_fallback": "the subscriptions are used up; %(model)s on %(machine)s still works",
+        "pk_none": "nothing to pick: the limits are used up and no local model is loaded",
         "dev_title": "Devices", "dev_n": "%d devices", "dev_n_stale": "%d stale", "dev_stale": "%s ago, stale", "dev_error": "its file is broken",
         "sum_pay": "You will actually pay about %s this month (plans + cloud + electricity)",
         "over_budget": "over the %s budget",
@@ -5338,6 +5443,12 @@ UI = {
         "win": {"5h": "5 小時額度", "week": "每週額度"}, "used_up": "已用完", "used_pct": "已用 %d%%",
         "today_worth": "今天價值 %s", "today_spent": "今天 %s",
         "sum_value": "用量價值：本月 %s、今天 %s（照 API 價格算）",
+        "pk_expiring": "%(src)s %(win)s %(reset)s 後重置、還剩 %(left)s，現在用最划算",
+        "pk_headroom": "%(src)s 剩最多（%(left)s）",
+        "pk_early": "%(src)s %(win)s照速度 %(eta)s 後用完，但已經是剩最多的",
+        "pk_local_light": "輕量任務：%(machine)s 上的 %(model)s 不花額度",
+        "pk_local_fallback": "訂閱額度都用完了，%(machine)s 上的 %(model)s 還能用",
+        "pk_none": "沒有可以選的：額度都用完了，也沒有載入的本地模型",
         "dev_title": "裝置", "dev_n": "%d 台裝置", "dev_n_stale": "%d 台過時", "dev_stale": "%s 前，過時", "dev_error": "匯出檔壞了",
         "sum_pay": "這個月實際約要付 %s（月費＋雲端＋電費）",
         "over_budget": "超過 %s 的預算",
@@ -9429,6 +9540,11 @@ MCP_TOOLS = [
      "a model still fits.", "inputSchema": {"type": "object", "properties": {}}},
     {"name": "advice", "description": "Short advice: plan changes, prompt-cache waste, off-peak savings.",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "pick", "description": "Which agent should take this (sub)task right now: claude, codex or a local model, "
+     "decided by remaining limits, what resets soon and what runs out early. Returns the tool, a shell command and "
+     "a one-line reason.",
+     "inputSchema": {"type": "object", "properties": {"task": {"type": "string", "enum": ["light", "heavy"],
+                                                               "description": "light tasks may go to a local model"}}}},
 ]
 
 
@@ -9452,6 +9568,13 @@ def mcp_call(db, name, args):
                 "alerts": [a["message"] for a in machine_alerts() + idle_alerts(db) + cloud_alerts(db)]}
     if name == "advice":
         return {"advice": [x["text"] for x in insights(db)]}
+    if name == "pick":
+        task = (args or {}).get("task") or "heavy"
+        if task not in ("light", "heavy"):
+            raise SystemExit("task must be light or heavy")
+        subs, local = pick_inputs(db)
+        p_ = pick_agent(subs, local, task)
+        return {"tool": p_["tool"], "command": p_["command"], "reason": pick_reason(p_), "ranked": p_["ranked"]}
     raise KeyError(name)
 
 
@@ -10407,6 +10530,11 @@ def parse_args(argv=None):
                         "(HTTPS, your devices only); the server itself stays on 127.0.0.1")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--pick", action="store_true",
+                   help="print the agent to use right now (claude, codex or a local model's command) and why; "
+                        "e.g. $(computai --pick) \"tidy up this PR\"")
+    p.add_argument("--task", choices=["light", "heavy"], default="heavy",
+                   help="with --pick: light tasks may go to a local model")
     p.add_argument("--export-usage", nargs="?", const="0", metavar="SINCE",
                    help="print this computer's Claude and Codex usage (usage numbers only) as JSONL for another "
                         "computer to merge; SINCE is an epoch second (used by [machine.X] usage = pull)")
@@ -10534,7 +10662,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -10596,6 +10724,17 @@ def run(args, db):
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
         return 0
+    if args.pick:   # 只讀帳本，不同步也不連網：要在 $(...) 裡夠快
+        subs, local = pick_inputs(db)
+        p_ = pick_agent(subs, local, args.task)
+        reason = pick_reason(p_)
+        if args.json:
+            print(json.dumps(dict(p_, reason=reason), ensure_ascii=False, indent=2))
+        else:
+            if p_["command"]:
+                print(p_["command"])
+            sys.stderr.write("computai: %s%s\n" % ((p_["tool"] + " - ") if p_["tool"] else "", reason))
+        return 0 if p_["tool"] else 1
     if args.export_usage is not None:
         if not args.no_sync:
             sync(db, only=[n for n in EXPORT_SOURCES], quiet=True)
