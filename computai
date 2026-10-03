@@ -153,6 +153,13 @@ poll_minutes = 10
 # poll_minutes), and once more 30 seconds after any window resets. fixed: always every poll_minutes.
 refresh = adaptive
 
+[guard]
+# Optional Claude Code hooks (computai --setup installs them): remind the agent, and you, when a limit has
+# less than warn_left percent left or this month's forecast is over [budget] monthly_usd.
+warn_left = 10
+# strict = yes also refuses to launch new subagents while that is the case (the agent is told why).
+strict = no
+
 [devices]
 # Combine Claude Code and Codex usage from your other computers (docs/MULTI-DEVICE.md).
 # folder: a folder every computer syncs (iCloud Drive, Dropbox, Syncthing, a private git repo). Each computer
@@ -1369,6 +1376,174 @@ def pull_devices(db):
     return added
 
 
+# ---- 額度護欄（Claude Code hook）
+#
+# hook 每次都要在 50ms 內回應，但載入整個 computai 要 100ms 以上（光是編譯這個檔案）。所以分兩半：
+# computai 每次同步時把「護欄狀態」寫進帳本 meta 的 guard_state；hook 跑的是 --setup 產生的小腳本，
+# 只讀那一列再用下面這段 GUARD_LOGIC 決定。這段程式碼只有一份：computai 自己 exec，小腳本也是從它產生。
+
+GUARD_LOGIC = r'''
+def guard_dur(sec):
+    sec = max(int(sec), 0)
+    d, h, m = sec // 86400, sec % 86400 // 3600, sec % 3600 // 60
+    return "%dd%dh" % (d, h) if d else "%dh%02dm" % (h, m) if h else "%dm" % m
+
+
+def guard_decide(state, event, tool, t):
+    """Claude Code hook 要輸出的 JSON。event：pretool 或 stop；tool：PreToolUse 的 tool_name。
+    狀態讀不到或太舊（30 分鐘）一律放行、不說話；只有 strict 而且要派新的 subagent 時才擋。
+    絕不回 permissionDecision = allow，使用者原本的權限設定照常運作。"""
+    if not isinstance(state, dict) or t - (state.get("ts") or 0) > 1800:
+        return {}
+    tx = state.get("text") or {}
+    low = [x for x in state.get("limits") or [] if (x.get("resets_at") or 0) > t and x.get("left", 100) < state.get("warn_left", 10)]
+    parts = [tx.get("limit", "%s: %d%% left, resets in %s") % (x["label"], max(0, round(x["left"])), guard_dur(x["resets_at"] - t))
+             for x in sorted(low, key=lambda x: x["left"])]
+    if state.get("over_budget"):
+        parts.append(tx.get("budget", "this month is heading for $%d, over the $%d budget") % (state["projected"], state["budget"]))
+    if not parts:
+        return {}
+    msg = "ComputAI: " + "; ".join(parts)
+    if event == "pretool":
+        if state.get("strict") and tool in ("Task", "Agent"):
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                           "permissionDecisionReason": msg + ". " + tx.get("strict", "")}}
+        return {"systemMessage": msg, "hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                                             "additionalContext": msg + ". " + tx.get("hint", "")}}
+    return {"systemMessage": msg}
+'''
+exec(GUARD_LOGIC)
+
+HOOK_SHIM = r'''#!/usr/bin/env python3
+# ComputAI 的 Claude Code hook（computai --setup 產生，可以刪掉；computai --setup 會重新產生）。
+# 只讀帳本裡的一列護欄狀態，不連網、不讀 prompt；出任何錯都放行。
+import json, os, sqlite3, sys, time
+LEDGER = %r
+%s
+
+def main():
+    out = {}
+    try:
+        try:
+            inp = json.load(sys.stdin)
+        except Exception:
+            inp = {}
+        tool = inp.get("tool_name") if isinstance(inp, dict) else None
+        if os.path.exists(LEDGER):
+            db = sqlite3.connect(LEDGER, timeout=0.2)
+            try:
+                row = db.execute("SELECT value FROM meta WHERE key = 'guard_state'").fetchone()
+            finally:
+                db.close()
+            out = guard_decide(json.loads(row[0]) if row else None, sys.argv[1] if len(sys.argv) > 1 else "stop",
+                               tool, time.time())
+    except Exception:
+        out = {}
+    sys.stdout.write(json.dumps(out) + "\n")
+
+main()
+'''
+
+
+def guard_settings(cp=None):
+    cp = cp or load_config()
+    return {"warn_left": _float(cp.get("guard", "warn_left", fallback="10"), 10.0),
+            "strict": (cp.get("guard", "strict", fallback="no") or "no").strip().lower() in ("yes", "true", "1", "on")}
+
+
+def write_guard_state(db, t=None):
+    """把護欄要的東西寫進 meta：每個額度剩幾 %、什麼時候重置、這個月會不會超過預算，和要用的句子（跟著介面語言）。"""
+    t = now() if t is None else t
+    g = guard_settings()
+    f = forecast(db)
+    state = {"ts": int(t), "warn_left": g["warn_left"], "strict": g["strict"],
+             "limits": [{"label": "%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])),
+                         "left": 100.0 - (r["used_percent"] or 0), "resets_at": r["resets_at"]}
+                        for r in current_limits(db, t) if r["resets_at"] and not r["stale"]],
+             "over_budget": bool(f.get("over_budget")), "projected": int(round(f.get("projected_usd") or 0)),
+             "budget": int(round(f.get("budget_usd") or 0)),
+             "text": {"limit": T("gd_limit"), "budget": T("gd_budget"), "hint": T("gd_hint"), "strict": T("gd_strict")}}
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('guard_state', ?)", (json.dumps(state, ensure_ascii=False),))
+    db.commit()
+    return state
+
+
+def hook_shim_path():
+    return os.path.join(data_dir(), "claude-hook.py")
+
+
+def write_hook_shim():
+    """產生 hook 用的小腳本（帳本路徑寫死在裡面），回傳路徑。"""
+    path = hook_shim_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(HOOK_SHIM % (ledger_path(), GUARD_LOGIC))
+    if os.name != "nt":
+        os.chmod(path, 0o755)
+    return path
+
+
+def guard_hooks_settings(d, cmd):
+    """在 Claude Code 的 settings 裡加上（或換掉舊的）ComputAI hook，其他 hook 原樣保留。回傳新的 dict。"""
+    d = json.loads(json.dumps(d if isinstance(d, dict) else {}))
+    hooks = d.setdefault("hooks", {})
+    mine = lambda h: "claude-hook.py" in (h.get("command") or "") or "--hook claude-" in (h.get("command") or "")
+    for event, matcher, arg in (("PreToolUse", "Task|Agent", "pretool"), ("Stop", None, "stop")):
+        groups = []
+        for grp in hooks.get(event) or []:
+            kept = [h for h in grp.get("hooks") or [] if not mine(h)]
+            if kept:
+                groups.append(dict(grp, hooks=kept))
+        entry = {"hooks": [{"type": "command", "command": "%s %s" % (cmd, arg), "timeout": 5}]}
+        if matcher:
+            entry = dict({"matcher": matcher}, **entry)
+        groups.append(entry)
+        hooks[event] = groups
+    return d
+
+
+def guard_hooks_diff(cmd):
+    """裝之前給使用者看的 diff：settings.json 會怎麼改。回傳 (diff 文字, 新的 dict)。"""
+    import difflib
+    path = claude_settings_path()
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        old = {}
+    new = guard_hooks_settings(old, cmd)
+    a = json.dumps(old, indent=2, ensure_ascii=False).splitlines()
+    b = json.dumps(new, indent=2, ensure_ascii=False).splitlines()
+    return "\n".join(difflib.unified_diff(a, b, path, path, lineterm="")), new
+
+
+def install_guard_hooks(new):
+    path = claude_settings_path()
+    if os.path.exists(path):
+        shutil.copyfile(path, path + ".computai.bak")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(new, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def run_hook(db, event):
+    """computai --hook claude-pretool|claude-stop：跟小腳本一樣的判斷（比較慢，給沒跑 --setup 的人）。出錯一律放行。"""
+    out = {}
+    try:
+        try:
+            inp = json.load(sys.stdin)
+        except ValueError:
+            inp = {}
+        row = db.execute("SELECT value FROM meta WHERE key = 'guard_state'").fetchone()
+        out = guard_decide(json.loads(row["value"]) if row else None, event,
+                           inp.get("tool_name") if isinstance(inp, dict) else None, now())
+    except Exception:
+        out = {}
+    sys.stdout.write(json.dumps(out) + "\n")
+    return 0
+
+
 def sync(db, only=None, quiet=False):
     added = {}
     for name, fn in SOURCES:
@@ -1382,6 +1557,10 @@ def sync(db, only=None, quiet=False):
         db.commit()
     db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('last_sync', ?)", (str(int(now())),))
     db.commit()
+    try:
+        write_guard_state(db)   # 給 Claude Code hook 讀
+    except Exception as e:
+        warn("guard state failed: %r" % (e,))
     if not quiet:
         for name, n in added.items():
             print("%-8s +%d" % (name, n))
@@ -5227,6 +5406,9 @@ UI = {
         "win": {"5h": "5-hour limit", "week": "weekly limit"}, "used_up": "used up", "used_pct": "%d%% used",
         "today_worth": "today %s worth", "today_spent": "today %s",
         "sum_value": "Usage value: %s this month, %s today (at API prices)",
+        "gd_limit": "%s: %d%% left, resets in %s", "gd_budget": "this month is heading for $%d, over the $%d budget",
+        "gd_hint": "Prefer fewer, smaller subagents and finish what is open.",
+        "gd_strict": "Strict mode: no new subagents until it resets. Finish in this session or check with the user.",
         "pk_expiring": "%(src)s %(win)s resets in %(reset)s with %(left)s left - use it now or lose it",
         "pk_headroom": "%(src)s has the most room left (%(left)s)",
         "pk_early": "%(src)s %(win)s runs out in %(eta)s at this pace, but it's the best one left",
@@ -5443,6 +5625,9 @@ UI = {
         "win": {"5h": "5 小時額度", "week": "每週額度"}, "used_up": "已用完", "used_pct": "已用 %d%%",
         "today_worth": "今天價值 %s", "today_spent": "今天 %s",
         "sum_value": "用量價值：本月 %s、今天 %s（照 API 價格算）",
+        "gd_limit": "%s 剩 %d%%，%s 後重置", "gd_budget": "這個月預估 $%d，超過預算 $%d",
+        "gd_hint": "少派、派小一點的 subagent，先把手上的做完。",
+        "gd_strict": "嚴格模式：重置前不再派新的 subagent。在這個 session 裡做完，或先問使用者。",
         "pk_expiring": "%(src)s %(win)s %(reset)s 後重置、還剩 %(left)s，現在用最划算",
         "pk_headroom": "%(src)s 剩最多（%(left)s）",
         "pk_early": "%(src)s %(win)s照速度 %(eta)s 後用完，但已經是剩最多的",
@@ -10530,6 +10715,9 @@ def parse_args(argv=None):
                         "(HTTPS, your devices only); the server itself stays on 127.0.0.1")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--hook", choices=["claude-pretool", "claude-stop"],
+                   help="answer a Claude Code hook (PreToolUse / Stop) from the ledger: remind or, in strict mode, "
+                        "stop new subagents when a limit or the budget runs low; any error lets it through")
     p.add_argument("--pick", action="store_true",
                    help="print the agent to use right now (claude, codex or a local model's command) and why; "
                         "e.g. $(computai --pick) \"tidy up this PR\"")
@@ -10662,7 +10850,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -10724,6 +10912,8 @@ def run(args, db):
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
         return 0
+    if args.hook:   # 只讀帳本，不同步、不連網
+        return run_hook(db, args.hook.split("-", 1)[1])
     if args.pick:   # 只讀帳本，不同步也不連網：要在 $(...) 裡夠快
         subs, local = pick_inputs(db)
         p_ = pick_agent(subs, local, args.task)
