@@ -1999,6 +1999,19 @@ def devices_report(db, start, end, t=None):
     return out
 
 
+def device_line(devs):
+    """一行講完每台電腦：「mac $12.30 · m1m $4.10（3h 前，過時）」。"""
+    parts = []
+    for d in devs:
+        txt = "%s %s" % (d["name"], fmt_usd(d["cost_usd"]))
+        if d["error"]:
+            txt += " (%s)" % T("dev_error")
+        elif d["stale"]:
+            txt += " (%s)" % (T("dev_stale") % (fmt_dur(d["age"]) if d["age"] is not None else "?"))
+        parts.append(rgb(AMBER, txt) if d["error"] or d["stale"] else txt)
+    return " \u00b7 ".join(parts)
+
+
 def render_devices(devs):
     lines = ["Devices            requests     tokens  API equiv  last report"]
     for d in devs:
@@ -4815,6 +4828,7 @@ def dashboard_state(db):
     st["verdict"] = verdict(st)
     st["local"] = local_overview(db, st["machines"], energy, t)
     st["ledger_empty"] = not st["sources"] and ledger_empty(db)
+    st["devices"] = devices_report(db, start, end, t)
     return st
 
 
@@ -5090,6 +5104,7 @@ UI = {
         "win": {"5h": "5-hour limit", "week": "weekly limit"}, "used_up": "used up", "used_pct": "%d%% used",
         "today_worth": "today %s worth", "today_spent": "today %s",
         "sum_value": "Usage value: %s this month, %s today (at API prices)",
+        "dev_title": "Devices", "dev_n": "%d devices", "dev_n_stale": "%d stale", "dev_stale": "%s ago, stale", "dev_error": "its file is broken",
         "sum_pay": "You will actually pay about %s this month (plans + cloud + electricity)",
         "over_budget": "over the %s budget",
         "hdr_limit": "%s %s %d%% used", "hdr_left": "%s %s %d%% left", "pct_left": "%d%% left",
@@ -5294,6 +5309,7 @@ UI = {
         "win": {"5h": "5 小時額度", "week": "每週額度"}, "used_up": "已用完", "used_pct": "已用 %d%%",
         "today_worth": "今天價值 %s", "today_spent": "今天 %s",
         "sum_value": "用量價值：本月 %s、今天 %s（照 API 價格算）",
+        "dev_title": "裝置", "dev_n": "%d 台裝置", "dev_n_stale": "%d 台過時", "dev_stale": "%s 前，過時", "dev_error": "匯出檔壞了",
         "sum_pay": "這個月實際約要付 %s（月費＋雲端＋電費）",
         "over_budget": "超過 %s 的預算",
         "hdr_limit": "%s %s已用 %d%%", "hdr_left": "%s %s剩 %d%%", "pct_left": "剩 %d%%",
@@ -5809,6 +5825,8 @@ def usage_panel(st, width):
         lines.append(dim(" " + (T("no_logs") % log_places() if st.get("ledger_empty") else T("no_usage"))))
     f = st["forecast"]
     lines.append("")
+    if st.get("devices"):   # 多台電腦：每台這個月用了多少、多久前回報
+        lines.append(" " + dim(T("dev_title")) + "  " + device_line(st["devices"]))
     lines.append(" " + T("sum_value") % (bold(fmt_usd(st["total_cost_usd"])), bold(fmt_usd(st["today_usd"]))))
     pay = bold(rgb(RED, fmt_usd(f["projected_usd"])) if f.get("over_budget") else
                fmt_usd(f["projected_usd"]) if theme().get("flat") else rgb(CYAN, fmt_usd(f["projected_usd"])))
@@ -6447,6 +6465,10 @@ def render_mission(st, width, height, frame):
             plans.append(cell(T("src").get(x["source"], x["source"]).split()[0], 7) + roi_meter(ratio, max(4, iw - 14)) +
                          " " + bold(rgb(GREEN if ratio >= 1 else AMBER, "%.1fx" % ratio)))
     month = fmt_usd(st["total_cost_usd"]).split(".")[0]
+    devs = st.get("devices") or []
+    if devs:   # 多台電腦合併：幾台、有沒有過時的
+        bad = sum(1 for d in devs if d["stale"] or d["error"])
+        plans = [dim(T("dev_n") % len(devs)) + (rgb(AMBER, " \u00b7 " + T("dev_n_stale") % bad) if bad else "")] + plans
     t2 = tile(T("hm_month"), big_num(month), (plans + [dim(T("h_api_value"))])[:2], tw,
               dim(T("m_pay") + " ") + bold(fmt_usd(f["projected_usd"]).split(".")[0]) + dim(T("h_per_mo")))
     rate = sum(m["recent"]["tok_s"] or 0 for m in ms)
@@ -7235,6 +7257,10 @@ function usageCard(st) {
     if (s.source !== "local") box.append(el("div", {class: "legend"}, s.requests ? fmt(t.tok_req, tok(s.tokens), tok(s.requests)) : fmt(t.tok_only, tok(s.tokens))));
     card.append(box);
   }
+  if ((st.devices || []).length)   // 多台電腦：每台這個月用了多少，過時或壞掉的標出來
+    card.append(el("div", {class: "legend"}, `${t.dev_title}: `, ...st.devices.flatMap((d, i) => [i ? " · " : "",
+      el("span", {class: d.error || d.stale ? "lv-warn" : ""}, `${d.name} ${usd(d.cost_usd)}` +
+         (d.error ? ` (${t.dev_error})` : d.stale ? ` (${fmt(t.dev_stale, d.age === null ? "?" : dur(d.age))})` : ""))])));
   if (!st.sources.length && !st.limits.length) card.append(el("div", {class: "muted"}, t.w_no_usage));
   else card.append(FLAT() ? ft(t.api_equiv) : el("div", {class: "legend"}, t.api_equiv));
   return card;
