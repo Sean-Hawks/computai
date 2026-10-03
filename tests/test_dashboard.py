@@ -258,3 +258,32 @@ class PerService(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old)
             sb.close()
+
+
+class Hud(unittest.TestCase):
+    def setUp(self):
+        self.m = helpers.load()
+        self.m.set_lang("en")
+        self.m.set_style(color=False, theme="cyber")
+        self.st = {"machines": [{"machine": "wsl", "ai_active": True, "recent": {"tok_s": 296, "requests": 3},
+                                 "gpus": [{"model": "RTX"}]}],
+                   "limits": [{"source": "codex", "name": "week", "used_percent": 100.0, "resets_in": 3600,
+                               "window_minutes": 10080}],
+                   "sources": [{"source": "codex", "tokens": 1000}], "alerts": [], "today_usd": 9.5,
+                   "forecast": {}}
+
+    def test_ticker_scrolls_and_fits(self):
+        a, b = self.m.ticker(self.st, 60, 0), self.m.ticker(self.st, 60, 5)
+        self.assertNotEqual(a, b)
+        self.assertIn("wsl generating 296 tok/s", a)
+        self.assertTrue(self.m.vlen(a) <= 60 and self.m.vlen(b) <= 60)
+
+    def test_boot_reveals_real_checks(self):
+        partial = self.m.render_boot(self.st, 80, 30, 2)
+        self.assertIn("LEDGER", partial)
+        self.assertNotIn("SYSTEM READY", partial)
+        done = self.m.render_boot(self.st, 80, 30, 99)
+        self.assertIn("GENERATING  RTX", done)
+        self.assertIn("DEPLETED", done)
+        self.assertIn("[ALERT]  SYSTEM READY", done)
+        self.assertIn("linking", self.m.render_boot(None, 80, 30, 0))

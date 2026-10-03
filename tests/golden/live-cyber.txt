@@ -45,4 +45,5 @@
 ┌── ◢05 ADVICE ────────────────────────────────────────────────────────────────────────────────────┐
 │ → Codex: example advice                                                                          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+▶ gpubox busy  ◆  Codex weekly limit 93% · resets in 8h20m  ◆  Claude Code 5-hour limit 42% · reset
 q quit · -n SEC refresh · computai --web for the browser · --analyze for advice

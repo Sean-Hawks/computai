@@ -70,6 +70,8 @@ usd_to_local = 0
 lang = auto
 # Look of the terminal and web dashboards: cyber (calm dark instrument, docs/DESIGN.md) or classic.
 theme = cyber
+# Play the short start-up animation of the live dashboard (cyber theme). --no-intro skips it once.
+intro = yes
 local_currency = TWD
 
 [plans]
@@ -4139,6 +4141,7 @@ UI = {
         "nt_full": "%s %s is used up - resets in %s.", "nt_alt": "%s still has %d%% left.",
         "nt_high": "%s %s is %d%% used.", "nt_pace": "At this pace it runs out in %s.",
         "nt_test": "Notifications work. You will hear from ComputAI when a limit runs low, runs out or resets.",
+        "t_gen": "generating %s tok/s", "b_linking": "linking logs and machines...", "b_ready": "SYSTEM READY",
         "h_today": "TODAY'S USAGE VALUE", "h_month": "this month %s", "h_rate": "LOCAL TOKENS/S",
         "h_busy": "%d machine(s) generating", "h_power": "POWER NOW (W)", "h_online": "%d/%d NODES ONLINE", "hud_tag": "AI COMPUTE LEDGER",
         "q_title": "LIMITS", "q_wait": "resets in %s",
@@ -4250,6 +4253,7 @@ UI = {
         "nt_full": "%s %s用完了，%s 後重置。", "nt_alt": "%s 還剩 %d%%。",
         "nt_high": "%s %s已用 %d%%。", "nt_pace": "照目前速度 %s 後用完。",
         "nt_test": "通知可以用了。額度快用完、用完、重置的時候，ComputAI 會告訴你。",
+        "t_gen": "推論中 %s tok/s", "b_linking": "正在連線 log 和機器…", "b_ready": "系統就緒",
         "h_today": "今天用量價值", "h_month": "本月 %s", "h_rate": "本地推論 tok/s",
         "h_busy": "%d 台正在推論", "h_power": "目前功耗 (W)", "h_online": "%d/%d 台在線", "hud_tag": "AI 算力總帳",
         "q_title": "額度", "q_wait": "%s 後重置",
@@ -4749,6 +4753,89 @@ def hud_header(st, width, clock, frame=0):
     return left + " " * gap + right if gap >= 2 else left
 
 
+def ticker(st, width, frame=0):
+    """底部跑馬燈：正在推論的機器、每個額度、今天的用量價值。frame 每加一就往左捲一格。"""
+    items = []
+    for m in st["machines"]:
+        if m["ai_active"]:
+            items.append("%s %s" % (m["machine"], T("t_gen") % m["recent"]["tok_s"] if m["recent"]["tok_s"] else T("busy")))
+    for r in sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0)):
+        txt = "%s %s %d%%" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]), round(r["used_percent"] or 0))
+        if r.get("resets_in") is not None:
+            txt += sym(" \u00b7 ", " - ") + T("resets") % fmt_dur(r["resets_in"])
+        items.append(txt)
+    items.append(T("hdr_today") % fmt_usd(st["today_usd"]))
+    sep = sym("  \u25c6  ", "  *  ")
+    text = sep.join(items) + sep
+    chars = list(text)
+    k = frame % len(chars) if chars else 0
+    chars = chars[k:] + chars[:k]
+    line = "".join(chars)
+    while vlen(line) < width - 3:
+        line += text
+    return rgb(CYAN, sym("\u25b6 ", "> ")) + clip(line, width - 3)
+
+
+LOGO = (("\u2584\u2580\u2580", "\u2588  ", "\u2580\u2584\u2584"),
+        ("\u2584\u2580\u2580\u2584", "\u2588  \u2588", "\u2580\u2584\u2584\u2580"),
+        ("\u2588\u2584 \u2584\u2588", "\u2588 \u2580 \u2588", "\u2588   \u2588"),
+        ("\u2588\u2580\u2580\u2584", "\u2588\u2584\u2584\u2580", "\u2588   "),
+        ("\u2588  \u2588", "\u2588  \u2588", "\u2580\u2584\u2584\u2580"),
+        ("\u2580\u2588\u2580", " \u2588 ", " \u2588 "),
+        ("\u2584\u2580\u2580\u2584", "\u2588\u2584\u2584\u2588", "\u2588  \u2588"),
+        ("\u2580\u2588\u2580", " \u2588 ", "\u2584\u2588\u2584"))
+
+
+def boot_checks(st):
+    """開機畫面的檢查清單，全部來自真的資料：(項目, 狀態, 等級)。"""
+    out = [("LEDGER", "OK", "ok")]
+    for x in st["sources"]:
+        out.append(("LINK  " + T("src").get(x["source"], x["source"]).upper(), fmt_tok(x["tokens"]) + " tok", "ok"))
+    for m in st["machines"]:
+        gpus = m.get("gpus") or []
+        hw = (gpus[0].get("model") or gpus[0].get("vendor") or "GPU") if gpus else "CPU"
+        out.append(("NODE  " + m["machine"], ("GENERATING" if m["ai_active"] else "ONLINE") + "  " + hw,
+                    "ok"))
+    for a in st["alerts"]:
+        if a["kind"] == "machine_unreachable":
+            out.append(("NODE  " + a["machine"], "OFFLINE", "fail"))
+    for r in st["limits"]:
+        used = r["used_percent"] or 0
+        out.append(("LIMIT %s %s" % (r["source"], r["name"]), "DEPLETED" if used >= LIMIT_FAIL else "%d%%" % round(used),
+                    limit_level(used) if used >= LIMIT_WARN else "ok"))
+    return out
+
+
+def render_boot(st, width, height, shown, frame=0):
+    """開機畫面：大字標誌、副標，檢查清單一項一項出現（點導引、狀態靠右），最後是準備好的訊息。
+    st 還沒來時顯示正在連線。"""
+    rows = []
+    logo = ["  ".join(L[r] for L in LOGO) for r in range(3)] if not _ascii else ["COMPUTAI", "", ""]
+    lw = vlen(logo[0])
+    left = max(0, (width - lw) // 2)
+    rows += [""] * max(1, height // 6)
+    rows += [" " * left + bold(rgb(CYAN, x)) for x in logo]
+    sub = T("hud_tag") + "  //  v" + __version__
+    rows += ["", " " * max(0, (width - vlen(sub)) // 2) + dim(sub), ""]
+    box = min(64, width - 4)
+    pad_ = " " * max(0, (width - box) // 2)
+    if st is None:
+        rows.append(pad_ + rgb(CYAN, spinner()) + " " + T("b_linking"))
+        return "\n".join(rows)
+    checks = boot_checks(st)
+    for name, state, lv in checks[:shown]:
+        dots = max(2, box - vlen(name) - vlen(state) - 2)
+        rows.append(pad_ + name + " " + rgb(GREY, sym("\u00b7", ".") * dots) + " " + bold(rgb(tone(lv), state)))
+    done = shown >= len(checks)
+    pct = min(100.0, 100.0 * shown / max(1, len(checks)))
+    rows += ["", pad_ + gauge(pct, box, "brand") + " " + dim("%d/%d" % (min(shown, len(checks)), len(checks)))]
+    if done:
+        v = verdict(st)
+        rows += ["", pad_ + (badge(v["level"], v["word"]) if v["level"] != "ok" else rgb(GREEN, sym("\u25cf ", "* ") + v["word"])) +
+                 "  " + bold(T("b_ready"))]
+    return "\n".join(rows)
+
+
 def verdict_line(v, width):
     """總結列：等級（正常是綠字；注意、警告是整個畫面唯一的反白色塊）＋最嚴重那件事＋還有幾件。"""
     if v["level"] == "ok":
@@ -4850,6 +4937,8 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
     quota = hero_panel(st, width, frame) if theme().get("flat") else quota_panel(st, width)
     body = quota + ([""] if quota else []) + body  # 額度最重要，放在最上面、整個寬度
     foot = dim(sym(" \u00b7 ", " | ").join(T("foot")))
+    if theme().get("flat"):
+        foot = ticker(st, width, frame) + "\n" + foot
     return "\n".join([head, ""] + body + [foot])
 
 
@@ -4874,8 +4963,9 @@ def clean_strings(obj):
     return obj
 
 
-def run_live(interval, sample_every):
-    """終端機 live 畫面：Ctrl-C 或 q 離開。"""
+def run_live(interval, sample_every, intro=True):
+    """終端機 live 畫面：q 或 Ctrl-C 離開。資料照 interval 更新，畫面每 0.25 秒重畫一次讓動畫（旋轉指示、
+    跑馬燈）會動；重畫時覆寫每一行而不是清畫面，所以不會閃。cyber 主題先播開機畫面，按任意鍵跳過。"""
     color = use_color()
     box = {"st": None}
     lock = threading.Lock()
@@ -4887,24 +4977,54 @@ def run_live(interval, sample_every):
     th = threading.Thread(target=upd.run, args=(on_state, interval), daemon=True)
     th.start()
     old_tty = None
+    tick = 0.25
+
+    def draw(text, rows):
+        lines = text.splitlines()[:rows - 1]
+        sys.stdout.write("\033[H" + "".join(ln + "\033[K\n" for ln in lines) + "\033[J")
+        sys.stdout.flush()
     try:
         if os.name != "nt" and sys.stdin.isatty():
             import termios
             import tty
             old_tty = termios.tcgetattr(sys.stdin)
             tty.setcbreak(sys.stdin.fileno())
-        sys.stdout.write("\033[?1049h\033[?25l")  # 換到另一個畫面、藏游標，離開時還原
+        sys.stdout.write("\033[?1049h\033[?25l\033[2J")  # 換到另一個畫面、藏游標，離開時還原
+        frame = 0
+        ascii_ = not can_draw_blocks()
+        if intro and config_theme() == "cyber":
+            set_style(color, ascii_, "cyber")
+            arrived, shown, end = None, 0, None
+            while True:
+                with lock:
+                    st = box["st"]
+                cols, rows = shutil.get_terminal_size((100, 40))
+                if st is not None and arrived is None:
+                    arrived = time.time()
+                if arrived is not None:
+                    shown = int((time.time() - arrived) / 0.12) + 1
+                    total = len(boot_checks(clean_strings(st)))
+                    if shown > total and end is None:
+                        end = time.time() + 0.9
+                draw(render_boot(clean_strings(st) if st else None, cols, rows, shown, frame), rows)
+                if end is not None and time.time() >= end:
+                    break
+                k = read_key(0.06)
+                if k in ("q", "Q"):
+                    return 0
+                if k:
+                    break
+                frame += 1
         while True:
             with lock:
                 st = box["st"]
             cols, rows = shutil.get_terminal_size((100, 40))
-            text = (render_live(clean_strings(st), cols, color, ascii_=not can_draw_blocks(), height=rows) if st
+            text = (render_live(clean_strings(st), cols, color, ascii_=ascii_, height=rows, frame=frame) if st
                     else "ComputAI: reading logs and machines...")
-            lines = text.splitlines()[:rows - 1]
-            sys.stdout.write("\033[H\033[2J" + "\n".join(lines) + "\n")
-            sys.stdout.flush()
-            if wait_key(1.0 if st is None else interval):
+            draw(text, rows)
+            if read_key(tick) in ("q", "Q"):
                 break
+            frame += 1
     except KeyboardInterrupt:
         pass
     finally:
@@ -4917,22 +5037,22 @@ def run_live(interval, sample_every):
     return 0
 
 
-def wait_key(timeout):
-    """等 timeout 秒；按了 q 回傳 True。"""
+def read_key(timeout):
+    """等 timeout 秒，回傳按下的鍵（沒按就是空字串）。"""
     if os.name == "nt":
         import msvcrt
         end = time.time() + timeout
         while time.time() < end:
-            if msvcrt.kbhit() and msvcrt.getwch() in ("q", "Q"):
-                return True
-            time.sleep(0.1)
-        return False
+            if msvcrt.kbhit():
+                return msvcrt.getwch()
+            time.sleep(0.03)
+        return ""
     if not sys.stdin.isatty():
         time.sleep(timeout)
-        return False
+        return ""
     import select
     r, _, _ = select.select([sys.stdin], [], [], timeout)
-    return bool(r) and sys.stdin.read(1) in ("q", "Q")
+    return sys.stdin.read(1) if r else ""
 
 
 # ---- 網頁（--web）
@@ -6913,6 +7033,7 @@ def parse_args(argv=None):
                    help="for --payback: cloud price per GPU-hour (default: your cloud history)")
     p.add_argument("--live", action="store_true",
                    help="live terminal dashboard: compute, AI usage, alerts (default on a terminal)")
+    p.add_argument("--no-intro", action="store_true", help="skip the start-up animation of the live dashboard")
     p.add_argument("--once", action="store_true",
                    help="print the live dashboard once and exit (after reading logs and machines)")
     p.add_argument("-n", "--interval", type=float, default=5.0, metavar="SEC",
@@ -7044,7 +7165,9 @@ def run(args, db):
         return 0
     if args.live:
         db.close()
-        return run_live(args.interval, args.sample_every)
+        intro = not args.no_intro and (load_config().get("general", "intro", fallback="yes") or "yes").strip().lower() \
+            not in ("no", "false", "0", "off")
+        return run_live(args.interval, args.sample_every, intro)
     if args.web:
         db.close()
         return serve_web(args.web, args.interval, args.sample_every)
