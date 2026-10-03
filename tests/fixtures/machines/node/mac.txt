@@ -12,6 +12,9 @@ PCT 20.9
       "PerformanceStatistics" = {"In use system memory (driver)"=0,"Alloc system memory"=7714422784,"Tiler Utilization %"=22,"recoveryCount"=0,"lastRecoveryTime"=0,"Renderer Utilization %"=22,"TiledSceneBytes"=819200,"Device Utilization %"=22,"SplitSceneCount"=0,"Allocated PB Size"=99352576,"In use system memory"=1832747008}
       "model" = "Apple M3"
       "gpu-core-count" = 10
+@@host
+model Mac15,3
+battery yes
 @@svc ollama 11434
 {"models":[{"name":"qwen3:0.6b","model":"qwen3:0.6b","size":1028598816,"digest":"7df6b6e09427a769808717c0a93cadc4ae99ed4eb8bf5ca557c90846becea435","details":{"parent_model":"","format":"gguf","family":"qwen3","families":["qwen3"],"parameter_size":"751.63M","quantization_level":"Q4_K_M"},"expires_at":"2026-10-03T01:12:00.434741+08:00","size_vram":1028598816,"context_length":4096}]}
 @@svc llamacpp 8080

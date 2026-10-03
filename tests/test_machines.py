@@ -362,3 +362,26 @@ class Wake(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old)
             sb.close()
+
+
+class PowerSuggest(unittest.TestCase):
+    def setUp(self):
+        os.environ["COMPUTAI_FIXTURES"] = FX
+        self.m = helpers.load()
+
+    def tearDown(self):
+        os.environ.pop("COMPUTAI_FIXTURES", None)
+
+    def test_host_section_and_suggestions(self):
+        mac = self.m.snapshot("mac", [])
+        self.assertEqual(mac["host"], {"model": "Mac15,3", "battery": "yes"})
+        self.assertEqual(self.m.suggest_power(mac), ({"idle_watts": 5, "max_watts": 30}, "Apple base laptop"))
+        box = self.m.snapshot("gpubox", [])
+        self.assertEqual(self.m.suggest_power(box)[0], {"base_watts": 60, "cpu_watts": 90})
+        studio = {"host": {}, "gpus": [{"vendor": "apple", "model": "Apple M2 Ultra 76-core"}]}
+        self.assertEqual(self.m.suggest_power(studio)[0], {"idle_watts": 20, "max_watts": 200})
+        self.assertEqual(self.m.suggest_power({"host": {"battery": "yes"}, "gpus": []})[0],
+                         {"idle_watts": 6, "max_watts": 35})
+
+    def test_script_reads_host(self):
+        self.assertIn("echo '@@host'", self.m.remote_script([]))

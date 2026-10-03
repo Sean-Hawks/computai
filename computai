@@ -1373,6 +1373,16 @@ echo '@@applegpu'
 command -v ioreg >/dev/null 2>&1 && \\
   ioreg -r -d 1 -w 0 -c IOAccelerator 2>/dev/null | \\
   grep -E '^\\+-o|"(model|PerformanceStatistics|gpu-core-count)"'
+echo '@@host'
+# 機型和有沒有電池（判斷筆電還是桌機，給功耗建議值用）
+if command -v sysctl >/dev/null 2>&1 && sysctl -n hw.model >/dev/null 2>&1; then
+  echo "model $(sysctl -n hw.model 2>/dev/null)"
+  pmset -g batt 2>/dev/null | grep -q InternalBattery && echo "battery yes"
+else
+  echo "model $(cat /sys/class/dmi/id/product_name 2>/dev/null | head -c 80)"
+  ls -d /sys/class/power_supply/BAT* >/dev/null 2>&1 && echo "battery yes"
+  [ -n "$WSL_DISTRO_NAME" ] || grep -qi microsoft /proc/version 2>/dev/null && echo "wsl yes"
+fi
 get() {
   if command -v curl >/dev/null 2>&1; then curl -fsS -m 2 "$1" 2>/dev/null
   elif command -v wget >/dev/null 2>&1; then wget -qO- -T 2 "$1" 2>/dev/null
@@ -1692,6 +1702,12 @@ def snapshot(host, services):
     gpus += parse_amdgpu(secs.get("amdgpu", ""), len(gpus))
     gpus += parse_ioreg(secs.get("applegpu", ""), d["mem_total"], len(gpus))
     d["gpus"] = gpus
+    host = {}
+    for ln in secs.get("host", "").splitlines():
+        k, _, v = ln.partition(" ")
+        if k in ("model", "battery", "wsl"):
+            host[k] = v.strip()
+    d["host"] = host
     d["services"] = []
     for key, body in secs.items():
         if key.startswith("svc "):
@@ -1927,6 +1943,31 @@ def wake(name, addr="255.255.255.255", port=9):
     finally:
         sock.close()
     return mac, addr
+
+
+def suggest_power(d):
+    """依取樣到的硬體給功耗設定的建議值（粗估；有智慧插座就用插座）。回傳 (設定 dict, 說明)。"""
+    host = d.get("host") or {}
+    laptop = host.get("battery") == "yes"
+    gpus = d.get("gpus") or []
+    apple = [g for g in gpus if g.get("vendor") == "apple"]
+    measured = [g for g in gpus if g.get("power") is not None]
+    if apple:
+        name = (apple[0].get("model") or "")
+        tier = "ultra" if "Ultra" in name else "max" if "Max" in name else "pro" if "Pro" in name else "base"
+        peak = {"base": 30, "pro": 55, "max": 90, "ultra": 180}[tier]
+        if laptop:
+            return {"idle_watts": 5, "max_watts": peak}, "Apple %s laptop" % tier
+        return {"idle_watts": 10 if tier in ("base", "pro") else 20, "max_watts": peak + 20}, "Apple %s desktop" % tier
+    if measured:
+        if host.get("wsl") == "yes" or not laptop:
+            base = 150 if len(gpus) > 2 else 60
+            return {"base_watts": base, "cpu_watts": 90}, "desktop with %d measured GPU%s" % (
+                len(gpus), "" if len(gpus) == 1 else "s")
+        return {"base_watts": 15, "cpu_watts": 30}, "laptop with a measured GPU"
+    if laptop:
+        return {"idle_watts": 6, "max_watts": 35}, "laptop"
+    return {"idle_watts": 25, "max_watts": 120}, "desktop or server without readable GPU power"
 
 
 def estimate_power(m, gpu_power, util, cpu):

@@ -10,6 +10,8 @@ cpu  1000 0 1000 8000 0 0 0 0 0 0
 1, GPU-bbbb, 0, 500, 81559, 35, 60.2
 @@amdgpu
 @@applegpu
+@@host
+model PowerEdge R750
 @@svc ollama 11434
 
 @@svc vllm 8000
