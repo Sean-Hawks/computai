@@ -78,6 +78,8 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--lang zh` | Traditional Chinese for the live and web dashboards and `--line` (or `[general] lang = zh`). The default `lang = auto` follows the system language; on macOS it uses the system's preferred language, because terminals such as cmux and Ghostty set `LANG=en_US` regardless. `COMPUTAI_LANG=en` or `lang = en` forces English. |
 | `--web [[HOST:]PORT]` | Browser dashboard (phone layout), `/api/state` JSON and `/metrics` for Prometheus. Default `127.0.0.1:8765`. |
 | `--recap [YEAR] [--html FILE]` | A year in review (tokens, value, active days, streak, busiest day, favourite models, local inference); the HTML card leaves out project and machine names so it can be shared. Plan fees are counted for each month with usage, at today's `[plans]` prices. |
+| `--wrapped [YYYY-MM\|YYYY] [--html FILE] [--svg FILE]` | Spotify-Wrapped-style recap of a month (default: this month so far) or a year: terminal text, a story page (`--html`) and a 1200x630 share card (`--svg`). Aggregates and model names only. See Wrapped. |
+| `--card [--period 30d\|month\|year\|all] [--card-theme dark\|light] [--svg FILE] [--publish PATH [--push]]` | Small SVG card for a GitHub profile README. See Profile card. |
 | `--weekly [--send]` | The last 7 days in a few lines; `--send` posts it to `DISCORD_WEBHOOK_URL` and/or Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`), read like other secrets. Run it from cron for a weekly message. |
 | `--totals FILE [--who NAME]` / `--lab DIR` | Lab mode: everyone writes their month's totals (cost and tokens per source and model, kWh; no project names) to a shared folder, and `--lab` combines the folder into one table. |
 | `--csv FILE` | Every usage record in the range (time, source, model, project, tokens, cost) as CSV; text starting with `= + - @` is prefixed with `'` so spreadsheets don't run it. |
@@ -306,6 +308,58 @@ out joules per token and the electricity per million tokens. It compares that wi
 price in `prices.ini`; hardware is not counted. Only usage fields are read from the answers.
 
 Macs need `idle_watts` / `max_watts` (or a smart plug) for the power columns.
+
+## Wrapped
+
+`computai --wrapped [YYYY-MM|YYYY]` is the shareable version of the numbers: tokens, API-equivalent value,
+how much your subscriptions paid back, active days and longest streak, busiest day and weekday, the hour you
+work in most (local time) with a persona (night owl 0-4h, early bird 5-8h, nine to five 9-17h, evening hacker
+18-23h), top 3 models by share of tokens, number of sessions and the size of the biggest one, what the prompt
+cache saved (cache-read tokens x (input price - cache-read price)), local-model tokens and kWh, the change
+against the previous equal period (a month still in progress is compared with the same number of days of the
+month before), and fun equivalences from output tokens (0.75 words per token: copies of The Lord of the Rings
+at 480,000 words, hours of reading at 250 words per minute; the constants are in `EQUIVALENTS` in the script).
+
+- `--html FILE` writes a full-screen story page: progress bars, one big number per slide, click or tap
+  (left third goes back), arrow keys or space, swipe on a phone, and a shareable summary card at the end.
+  One file, no network, no external fonts; it respects `prefers-reduced-motion`. Open `FILE#5` to start at
+  slide 5.
+- `--svg FILE` writes a 1200x630 share card.
+- `--json` prints the data (including the per-day values behind the charts).
+
+Privacy: only aggregates and model names. Project names, paths, session ids, machine names and prompts are
+never read into the page. Plan fees use today's `[plans]` prices times the months that had usage.
+
+## Profile card
+
+`computai --card --svg computai-card.svg` writes a 495x195 SVG in the style of github-readme-stats: tokens,
+API-equivalent value, top model, active days and streak, and a 14-day bar chart (12 months for `year` and
+`all`). `--period` picks the range: `30d` (default: the last 30 days, a rolling window so it is never empty on
+the 1st), `month`, `year` or `all`. `--card-theme light` writes the light variant. It is plain SVG with inline
+attributes, no scripts, no fonts, no images; all text is escaped. With neither `--svg` nor `--publish` the SVG
+goes to stdout.
+
+To show it on your GitHub profile, put the two files in your profile repo (the one named like your account):
+
+```sh
+computai --card --publish ~/Documents/you-profile-repo
+git -C ~/Documents/you-profile-repo push      # or add --push to the command above
+```
+
+`--publish PATH` writes `computai-card.svg` and `computai-card-light.svg` into the git repository at PATH and
+makes one commit with just those two files (nothing is committed when the cards did not change; other staged
+files stay untouched). It prints each step it took. It never pushes unless you also give `--push`, which runs a
+plain `git push` (so the branch needs an upstream). In the profile `README.md`:
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="computai-card.svg">
+  <source media="(prefers-color-scheme: light)" srcset="computai-card-light.svg">
+  <img alt="ComputAI card" src="computai-card.svg" width="495">
+</picture>
+```
+
+The card shows a snapshot; run the command again (for example from cron) to refresh it.
 
 ## MCP server (for agents)
 

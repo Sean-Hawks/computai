@@ -4170,6 +4170,34 @@ UI = {
         "i_api": "%(src)s: paying per use would have cost only %(cost)s over the last 30 days - less than the plan",
         "i_cache": "After a pause of more than 5 minutes (or an hour), the next message re-sends the whole conversation. That happened %(n)d times this month and used %(cost)s worth of extra quota. After a long break, a new conversation (or /compact) is cheaper.",
         "i_offpeak": "%(machine)s: running AI work at night or on weekends (off-peak) would have saved %(save).2f %(cur)s",
+        "wr_title": "COMPUTAI WRAPPED", "wr_intro_month": "Your month with AI, in numbers.",
+        "wr_intro_year": "Your year with AI, in numbers.", "wr_none": "No usage recorded in this period yet.",
+        "wr_tokens_k": "TOKENS", "wr_tokens_p": "tokens went through your AI tools. %s of them were written for you.",
+        "wr_value_k": "WORTH AT API PRICES", "wr_value_p": "What it would have cost if you paid per token.",
+        "wr_value_ratio": "Your subscriptions paid back %.1fx (%s used for %s in fees).",
+        "wr_words_k": "WORDS WRITTEN FOR YOU", "wr_words_big": "%s words",
+        "wr_words_p": "About %s copies of The Lord of the Rings, or %s hours of non-stop reading.",
+        "wr_days_k": "ACTIVE DAYS", "wr_days_big": "%d days", "wr_days_p": "Longest streak: %d days in a row.",
+        "wr_busy_k": "BUSIEST DAY", "wr_busy_p": "%s of API-equivalent usage in a single day.",
+        "wr_weekday_k": "FAVOURITE WEEKDAY", "wr_weekday_p": "The day you leaned on AI the most.",
+        "wr_wd": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        "wr_hour_k": "PEAK HOUR",
+        "wr_persona_night_owl": "Night owl: your best work starts after midnight.",
+        "wr_persona_early_bird": "Early bird: first prompt before the coffee.",
+        "wr_persona_nine_to_five": "Nine to five: steady office-hours engineer.",
+        "wr_persona_evening_hacker": "Evening hacker: the real project starts after dinner.",
+        "wr_models_k": "TOP MODELS", "wr_models_p": "Your most used models, by share of tokens.",
+        "wr_sessions_k": "SESSIONS", "wr_sessions_p": "The biggest one moved %s tokens over %s.",
+        "wr_cache_k": "SAVED BY PROMPT CACHE", "wr_cache_p": "Cache hits cost a fraction of normal input.",
+        "wr_local_k": "LOCAL MODELS", "wr_local_p": "Tokens on your own hardware, %.1f kWh measured.",
+        "wr_vs_month": "VS LAST MONTH", "wr_vs_year": "VS LAST YEAR", "wr_vs_p": "In tokens. The same stretch before had %s.",
+        "wr_vs_value": "Value: %s.", "wr_card_k": "YOUR WRAPPED",
+        "wr_hint": "click, tap or press space for the next one", "wr_replay": "replay",
+        "wr_tagline": "where your compute and AI money goes",
+        "wr_days_card": "%d days, streak %d",
+        "cd_30d": "last 30 days", "cd_month": "this month", "cd_year": "this year", "cd_all": "all time",
+        "cd_tokens": "Tokens", "cd_value": "API value", "cd_model": "Top model", "cd_days": "Active days",
+        "cd_bars_days": "last 14 days", "cd_bars_months": "last 12 months", "cd_none": "no usage yet",
     },
     "zh": {
         "node": "節點", "local": "本機", "ssh": "SSH", "ago": "%s 前", "load": "負載 %.1f",
@@ -4282,6 +4310,34 @@ UI = {
         "i_api": "%(src)s：過去 30 天如果改成用多少付多少，只要 %(cost)s，比月費便宜",
         "i_cache": "對話暫停超過 5 分鐘（或 1 小時）後，下一則訊息會把整段對話重新送一次。這個月發生 %(n)d 次，多用了價值 %(cost)s 的額度。休息很久之後，開新對話（或先 /compact）會比較省。",
         "i_offpeak": "%(machine)s：如果 AI 工作改在晚上或週末（離峰）跑，可以省 %(save).2f %(cur)s",
+        "wr_title": "COMPUTAI 回顧", "wr_intro_month": "你這個月和 AI 一起寫下的數字。",
+        "wr_intro_year": "你這一年和 AI 一起寫下的數字。", "wr_none": "這段期間還沒有用量紀錄。",
+        "wr_tokens_k": "TOKEN", "wr_tokens_p": "token 流過你的 AI 工具，其中 %s 是 AI 寫給你的。",
+        "wr_value_k": "照 API 價格算的價值", "wr_value_p": "如果每個 token 都付費，要花這麼多。",
+        "wr_value_ratio": "你的訂閱回本 %.1f 倍（用了 %s，月費共 %s）。",
+        "wr_words_k": "AI 為你寫的字數", "wr_words_big": "%s 字",
+        "wr_words_p": "大約是 %s 套《魔戒》，或是 %s 小時不間斷的閱讀量。",
+        "wr_days_k": "活躍天數", "wr_days_big": "%d 天", "wr_days_p": "最長連續 %d 天。",
+        "wr_busy_k": "最忙的一天", "wr_busy_p": "一天之內用掉價值 %s 的用量。",
+        "wr_weekday_k": "最愛的星期", "wr_weekday_p": "你最依賴 AI 的那一天。",
+        "wr_wd": ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
+        "wr_hour_k": "最忙的時段",
+        "wr_persona_night_owl": "夜貓子：最好的作品都在午夜之後。",
+        "wr_persona_early_bird": "早起的鳥：咖啡還沒喝，第一個 prompt 就送出去了。",
+        "wr_persona_nine_to_five": "朝九晚五：穩定的上班族工程師。",
+        "wr_persona_evening_hacker": "夜晚駭客：吃完晚餐，真正的專案才開始。",
+        "wr_models_k": "最常用的模型", "wr_models_p": "依 token 佔比排序。",
+        "wr_sessions_k": "對話數", "wr_sessions_p": "最大的一場用了 %s 個 token，歷時 %s。",
+        "wr_cache_k": "快取省下的錢", "wr_cache_p": "命中快取的輸入只要正常價格的一小部分。",
+        "wr_local_k": "本地模型", "wr_local_p": "個 token 跑在你自己的硬體上，實測 %.1f 度電。",
+        "wr_vs_month": "和上個月比", "wr_vs_year": "和去年比", "wr_vs_p": "以 token 計。上一段同樣長的時間是 %s。",
+        "wr_vs_value": "價值：%s。", "wr_card_k": "你的回顧",
+        "wr_hint": "點一下、輕觸或按空白鍵看下一張", "wr_replay": "重播",
+        "wr_tagline": "一眼看完你的算力和 AI 花費",
+        "wr_days_card": "%d 天，連續 %d 天",
+        "cd_30d": "近 30 天", "cd_month": "本月", "cd_year": "今年", "cd_all": "全部期間",
+        "cd_tokens": "Token", "cd_value": "API 價值", "cd_model": "最常用模型", "cd_days": "活躍天數",
+        "cd_bars_days": "近 14 天", "cd_bars_months": "近 12 個月", "cd_none": "還沒有用量",
     },
 }
 _lang = "en"
@@ -6295,6 +6351,626 @@ h1 { margin:0; font-size:15px; color:#56d3f0; letter-spacing:.12em; }
         "</style>", RECAP_CYBER_CSS + "</style>")
 
 
+# ---- 年度／月度回顧（--wrapped）
+#
+# 像 Spotify Wrapped 的回顧：一個月或一年的用量變成一組大數字和一句話。要拿去分享，
+# 所以只有彙總數字和模型名稱，不放專案、路徑、session id、機器名稱，也不碰 prompt 和回應。
+
+# 換算用的小常數（字數以 0.75 字/token 估，是英文的粗略值）。
+WORDS_PER_TOKEN = 0.75
+EQUIVALENTS = (
+    # (鍵, 一份有幾個字)
+    ("lotr", 480000),       # 魔戒三部曲，約 48 萬字
+    ("novel", 80000),       # 一本一般長度的小說
+)
+READING_WPM = 250           # 一般成人閱讀速度，字/分鐘
+
+# 一天裡最忙的那個小時 -> 人格標籤
+PERSONAS = (
+    (0, 4, "night_owl"),
+    (5, 8, "early_bird"),
+    (9, 17, "nine_to_five"),
+    (18, 23, "evening_hacker"),
+)
+
+
+def persona_for(hour):
+    for lo, hi, key in PERSONAS:
+        if lo <= hour <= hi:
+            return key
+    return "nine_to_five"
+
+
+def _ordinal(day):
+    return datetime.date(*(int(x) for x in day.split("-"))).toordinal()
+
+
+def longest_streak(days):
+    """連續有用量的最長天數；days 是 `YYYY-MM-DD` 字串的集合。"""
+    best = streak = 0
+    prev = None
+    for d in sorted(days):
+        o = _ordinal(d)
+        streak = streak + 1 if prev is not None and o == prev + 1 else 1
+        best = max(best, streak)
+        prev = o
+    return best
+
+
+def equivalents(output_tokens):
+    """輸出 token 換成有感的單位：字數、幾套魔戒、幾小時的閱讀量。"""
+    words = int(output_tokens * WORDS_PER_TOKEN)
+    out = {"words": words, "reading_hours": round(words / float(READING_WPM) / 60.0, 1)}
+    for key, size in EQUIVALENTS:
+        out[key] = round(words / float(size), 2)
+    return out
+
+
+def wrapped_period(arg=None):
+    """`YYYY-MM`、`YYYY`，沒給就是這個月到現在。回傳 (開始, 結束, 標籤, 種類)。"""
+    arg = (arg or "").strip()
+    if re.match(r"^\d{4}$", arg):
+        y = int(arg)
+        return local_ts(y, 1, 1), local_ts(y + 1, 1, 1), arg, "year"
+    if arg and not re.match(r"^\d{4}-\d{1,2}$", arg):
+        raise SystemExit("computai: bad period %r, expected YYYY-MM or YYYY" % arg)
+    start, end, label = month_range(arg or None)
+    return start, end, label, "month"
+
+
+def _previous_period(start, end, kind, t):
+    """上一個同樣長的期間；這一期還沒結束時，上一期也只取到同樣走過的長度。"""
+    lt = time.localtime(start)
+    if kind == "year":
+        ps = local_ts(lt.tm_year - 1, 1, 1)
+    else:
+        y, mo = (lt.tm_year - 1, 12) if lt.tm_mon == 1 else (lt.tm_year, lt.tm_mon - 1)
+        ps = local_ts(y, mo, 1)
+    elapsed = min(end, int(t) + 1) - start
+    return ps, min(start, ps + elapsed)
+
+
+def _pct_change(cur, prev):
+    return None if not prev else round(100.0 * (cur - prev) / prev)
+
+
+def wrapped(db, start, end, label, kind="month", prices=None, plan_table=None, compare=True, t=None):
+    """一段期間的回顧。回傳的字典也是 --json 的輸出。"""
+    prices = load_prices() if prices is None else prices
+    plan_table = plans() if plan_table is None else plan_table
+    t = now() if t is None else t
+    s = summary(db, start, end, prices, plan_table={})
+    real = [src for src in s["sources"] if src["source"] != "cloud"]
+    cols = ("input", "cache_read", "cache_write_5m", "cache_write_1h", "output")
+    tokens = sum(src["totals"][c] for src in real for c in cols)
+    output = sum(src["totals"]["output"] for src in real)
+    value = sum(src["cost_usd"] for src in real)
+    # 每天的金額、星期幾、最忙的一天
+    days, used = {}, set()
+    for g in breakdown(db, start, end, "day", prices):
+        if g["source"] != "cloud":
+            days[g["day"]] = days.get(g["day"], 0.0) + g["cost_usd"]
+            if sum(g[c] for c in cols):
+                used.add(g["day"])      # 只用本地模型、沒有金額的日子也算有用
+    active = sorted(used)
+    busiest = max(((d, days[d]) for d in active), key=lambda kv: kv[1]) if active else None
+    wd = [0.0] * 7
+    for d in active:
+        wd[datetime.date(*(int(x) for x in d.split("-"))).weekday()] += days[d]
+    # 一天裡的哪個小時（本地時間），以請求數計
+    hours = [0] * 24
+    for r in db.execute("SELECT CAST(strftime('%H', ts, 'unixepoch', 'localtime') AS INTEGER) AS h, "
+                        "SUM(requests) AS n FROM usage WHERE ts >= ? AND ts < ? AND source != 'cloud' GROUP BY h",
+                        (start, end)):
+        hours[r["h"]] += r["n"] or 0
+    peak = max(range(24), key=lambda h: (hours[h], -h)) if any(hours) else None
+    # 模型排行（以 token 計）
+    models = {}
+    for src in real:
+        for m in src["models"]:
+            models[m["model"]] = models.get(m["model"], 0) + sum(m[c] for c in cols)
+    mtotal = sum(models.values()) or 1
+    top = [{"model": k, "tokens": v, "share_pct": round(100.0 * v / mtotal)}
+           for k, v in sorted(models.items(), key=lambda kv: (-kv[1], kv[0]))[:3] if v > 0]
+    # session：只有數量、最大那個的 token 數和時間長度，沒有名稱
+    tok_sql = "SUM(input + cache_read + cache_write_5m + cache_write_1h + output)"
+    sessions = db.execute(
+        "SELECT %s AS tok, MAX(ts) - MIN(ts) AS dur FROM usage WHERE ts >= ? AND ts < ? AND source != 'cloud' "
+        "AND session != '' GROUP BY source, session ORDER BY tok DESC" % tok_sql, (start, end)).fetchall()
+    biggest = {"tokens": sessions[0]["tok"] or 0, "duration_s": sessions[0]["dur"] or 0} if sessions else None
+    # 快取省下的錢：命中快取的輸入照快取價算，而不是照輸入價算
+    saved = 0.0
+    for src in real:
+        for m in src["models"]:
+            p = price_for(m["model"], prices)
+            if p and m["cache_read"]:
+                saved += m["cache_read"] * max(p["input"] - p["cache_read"], 0.0) / 1e6
+    # 訂閱：用量價值 vs 月費（有用量的月份數 × 目前 [plans] 的價格）
+    months = max(1, len({d[:7] for d in active}))
+    fees = sum(p["usd"] for p in plan_table.values()) * months
+    subs = sum(src["cost_usd"] for src in real if src["source"] in SUBSCRIPTION_SOURCES)
+    local = sum(src["totals"]["input"] + src["totals"]["output"] for src in real if src["source"] == "local")
+    kwh = sum(r["kwh"] for r in machine_report(db, start, end))
+    out = {"label": label, "kind": kind, "tokens": tokens, "output_tokens": output,
+           "api_equivalent_usd": round(value, 2), "subscription_usage_usd": round(subs, 2),
+           "subscription_fees_usd": round(fees, 2), "value_ratio": round(subs / fees, 1) if fees else None,
+           "active_days": len(active), "longest_streak": longest_streak(active),
+           "busiest_day": busiest[0] if busiest else None, "busiest_day_usd": round(busiest[1], 2) if busiest else None,
+           "busiest_weekday": max(range(7), key=lambda i: wd[i]) if any(wd) else None,
+           "peak_hour": peak, "persona": persona_for(peak) if peak is not None else None,
+           "top_models": top, "sessions": len(sessions), "biggest_session": biggest,
+           "cache_savings_usd": round(saved, 2), "local_tokens": local, "kwh": round(kwh, 2),
+           "equivalents": equivalents(output),
+           "daily": [[d, round(days[d], 2)] for d in sorted(days)], "previous": None}
+    if compare:
+        ps, pe = _previous_period(start, end, kind, t)
+        if pe > ps:
+            p = wrapped(db, ps, pe, "", kind, prices, plan_table, compare=False, t=t)
+            out["previous"] = {"tokens": p["tokens"], "api_equivalent_usd": p["api_equivalent_usd"],
+                               "tokens_change_pct": _pct_change(tokens, p["tokens"]),
+                               "value_change_pct": _pct_change(value, p["api_equivalent_usd"])}
+    return out
+
+
+def _short_num(v):
+    return format(int(v), ",") if v >= 10 else "%.1f" % v
+
+
+def _sign(p):
+    return "%+d%%" % p
+
+
+def wrapped_slides(w):
+    """回顧的每一張投影片：{"id", "kicker"（小標）, "big"（大數字）, "punch"（一句話）, "rows"（可選）}。
+    終端機、HTML 故事頁、SVG 卡片都用同一份文字。只有彙總數字和模型名稱。"""
+    sl = []
+
+    def add(id_, kicker, big, punch, rows=None):
+        sl.append({"id": id_, "kicker": kicker, "big": big, "punch": punch, "rows": rows or []})
+
+    month = w["kind"] == "month"
+    add("intro", T("wr_title"), w["label"], T("wr_intro_month" if month else "wr_intro_year"))
+    if not w["tokens"]:
+        add("none", T("wr_tokens_k"), "0", T("wr_none"))
+        return sl
+    eq = w["equivalents"]
+    add("tokens", T("wr_tokens_k"), fmt_tok(w["tokens"]), T("wr_tokens_p") % fmt_tok(w["output_tokens"]))
+    punch = T("wr_value_p")
+    if w["value_ratio"] is not None:
+        punch += " " + T("wr_value_ratio") % (w["value_ratio"], fmt_usd(w["subscription_usage_usd"]),
+                                              fmt_usd(w["subscription_fees_usd"]))
+    add("value", T("wr_value_k"), fmt_usd(w["api_equivalent_usd"]), punch)
+    if eq["words"]:
+        add("words", T("wr_words_k"), T("wr_words_big") % fmt_tok(eq["words"]),
+            T("wr_words_p") % (_short_num(eq["lotr"]), _short_num(eq["reading_hours"])))
+    add("days", T("wr_days_k"), T("wr_days_big") % w["active_days"], T("wr_days_p") % w["longest_streak"])
+    if w["busiest_day"]:
+        add("busiest", T("wr_busy_k"), w["busiest_day"], T("wr_busy_p") % fmt_usd(w["busiest_day_usd"]))
+    if w["busiest_weekday"] is not None:
+        add("weekday", T("wr_weekday_k"), T("wr_wd")[w["busiest_weekday"]], T("wr_weekday_p"))
+    if w["peak_hour"] is not None:
+        add("hour", T("wr_hour_k"), "%02d:00" % w["peak_hour"], T("wr_persona_" + w["persona"]))
+    if w["top_models"]:
+        add("models", T("wr_models_k"), w["top_models"][0]["model"], T("wr_models_p"),
+            [[m["model"], "%d%%" % m["share_pct"] if m["share_pct"] else "<1%"] for m in w["top_models"]])
+    if w["sessions"]:
+        b = w["biggest_session"]
+        add("sessions", T("wr_sessions_k"), str(w["sessions"]),
+            T("wr_sessions_p") % (fmt_tok(b["tokens"]), fmt_dur(b["duration_s"])))
+    if w["cache_savings_usd"] >= 0.01:
+        add("cache", T("wr_cache_k"), fmt_usd(w["cache_savings_usd"]), T("wr_cache_p"))
+    if w["local_tokens"] or w["kwh"]:
+        add("local", T("wr_local_k"), fmt_tok(w["local_tokens"]), T("wr_local_p") % w["kwh"])
+    pv = w["previous"]
+    if pv and pv["tokens_change_pct"] is not None:
+        punch = T("wr_vs_p") % fmt_tok(pv["tokens"])
+        if pv["value_change_pct"] is not None:
+            punch += " " + T("wr_vs_value") % _sign(pv["value_change_pct"])
+        add("vs", T("wr_vs_month" if month else "wr_vs_year"), _sign(pv["tokens_change_pct"]), punch)
+    rows = [[T("wr_tokens_k"), fmt_tok(w["tokens"])], [T("wr_value_k"), fmt_usd(w["api_equivalent_usd"])],
+            [T("wr_days_k"), T("wr_days_card") % (w["active_days"], w["longest_streak"])]]
+    if w["persona"]:
+        rows.append([T("wr_hour_k"), "%02d:00" % w["peak_hour"]])
+    if w["top_models"]:
+        rows.append([T("wr_models_k"), w["top_models"][0]["model"]])
+    add("card", T("wr_card_k"), w["label"], T("wr_persona_" + w["persona"]) if w["persona"] else "", rows)
+    return sl
+
+
+def render_wrapped(w):
+    out = ["ComputAI Wrapped %s" % w["label"], ""]
+    for s in wrapped_slides(w):
+        if s["id"] in ("intro", "card"):
+            continue
+        out.append("  %s %s" % (cell(s["kicker"], 24), s["big"]))
+        for label, val in s["rows"]:
+            out.append("      %-30s %s" % (cell(label, 30), val))
+        out.append("      " + s["punch"])
+    if len(out) == 2:
+        out.append("  " + T("wr_none"))
+    return "\n".join(out)
+
+
+def wrapped_bars(w):
+    """迷你長條圖用的數字：月份是每天的金額，年是每個月的金額（API 等值）。"""
+    import calendar
+    daily = dict(w["daily"])
+    try:
+        if w["kind"] == "year":
+            y = int(w["label"])
+            return [round(sum(v for d, v in daily.items() if d[:7] == "%04d-%02d" % (y, mo)), 2) for mo in range(1, 13)]
+        y, mo = (int(x) for x in w["label"].split("-"))
+        return [daily.get("%04d-%02d-%02d" % (y, mo, d), 0.0) for d in range(1, calendar.monthrange(y, mo)[1] + 1)]
+    except ValueError:
+        return [v for _, v in w["daily"]]
+
+
+def json_for_script(obj):
+    """放進 <script> 的 JSON：<、>、& 和行分隔字元都跳脫，不可能提早結束 script 標籤。"""
+    s = json.dumps(obj, ensure_ascii=False)
+    for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"), (" ", "\\u2028"), (" ", "\\u2029")):
+        s = s.replace(ch, esc)
+    return s
+
+
+# 故事頁的樣式與腳本。整份檔案自給自足：沒有外部字型、圖片或網路請求。
+WRAPPED_CSS = """
+:root { --bg:#07080b; --fg:#e8f1f5; --dim:#8a97a3; --accent:#67e8f9; --line:#2a323b; }
+* { box-sizing:border-box; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); }
+body { font:16px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,"Noto Sans Mono CJK TC","PingFang TC",monospace; overflow:hidden; }
+#app { position:fixed; inset:0; display:flex; flex-direction:column; outline:none; user-select:none; -webkit-user-select:none;
+  touch-action:pan-y; cursor:pointer;
+  background:radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 4px), var(--bg); }
+#bars { display:flex; gap:4px; padding:max(12px,env(safe-area-inset-top)) 12px 0; }
+#bars i { flex:1; height:3px; background:var(--line); border-radius:2px; overflow:hidden; }
+#bars i.done, #bars i.now { background:var(--accent); }
+#bars i.now { box-shadow:0 0 10px var(--accent); }
+#brand { padding:10px 16px 0; font-size:12px; letter-spacing:.3em; color:var(--dim); text-transform:uppercase; }
+#stage { flex:1; display:flex; flex-direction:column; justify-content:center; padding:16px 22px 28px; max-width:900px;
+  width:100%; margin:0 auto; min-height:0; }
+.kicker { color:var(--accent); font-size:clamp(12px,3.4vw,18px); letter-spacing:.28em; text-transform:uppercase; }
+.big { font-weight:800; line-height:1.02; margin:.25em 0 .3em; font-size:clamp(52px,17vw,150px); letter-spacing:-.03em;
+  overflow-wrap:anywhere; text-shadow:0 0 28px color-mix(in srgb, var(--accent) 55%, transparent); }
+.big.mid { font-size:clamp(38px,11vw,96px); } .big.long { font-size:clamp(26px,7vw,60px); letter-spacing:-.01em; }
+.punch { font-size:clamp(16px,4.4vw,26px); color:#c9d4dc; max-width:34em; }
+.rows { margin:6px 0 18px; display:grid; gap:10px; }
+.row { display:grid; grid-template-columns:1fr auto; gap:4px 12px; font-size:clamp(14px,3.8vw,20px); }
+.row u { grid-column:1/3; display:block; height:6px; border-radius:3px; background:var(--accent); text-decoration:none;
+  box-shadow:0 0 12px var(--accent); }
+.card { margin-top:8px; border:1px solid var(--accent); border-radius:14px; padding:18px 18px 14px;
+  background:linear-gradient(160deg, rgba(103,232,249,.10), rgba(244,114,182,.08) 60%, rgba(10,12,16,.9));
+  box-shadow:0 0 40px -14px var(--accent); }
+.card .big { font-size:clamp(30px,9vw,60px); margin:.1em 0 .2em; }
+.card dl { margin:8px 0 12px; display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:clamp(13px,3.6vw,17px); }
+.card dt { color:var(--dim); } .card dd { margin:0; text-align:right; overflow-wrap:anywhere; }
+.spark { display:flex; align-items:flex-end; gap:2px; height:44px; margin:6px 0 14px; }
+.spark i { flex:1; min-width:2px; background:var(--accent); border-radius:1px 1px 0 0; opacity:.9; }
+.card .tag { margin-top:10px; color:var(--dim); font-size:12px; letter-spacing:.14em; text-transform:uppercase; }
+button { margin-top:14px; font:inherit; color:var(--fg); background:transparent; border:1px solid var(--line);
+  border-radius:8px; padding:8px 16px; cursor:pointer; }
+button:hover, button:focus-visible { border-color:var(--accent); outline:none; }
+#hint { padding:0 16px max(14px,env(safe-area-inset-bottom)); color:var(--dim); font-size:12px; text-align:center; }
+@media (prefers-reduced-motion: no-preference) {
+  #stage > * { animation:rise .55s cubic-bezier(.2,.8,.2,1) both; }
+  #stage > :nth-child(2) { animation-delay:.06s; } #stage > :nth-child(3) { animation-delay:.16s; }
+  #stage > :nth-child(4) { animation-delay:.26s; }
+  .row u { transform-origin:left; animation:grow .8s .3s cubic-bezier(.2,.8,.2,1) both; }
+  .big { animation:rise .55s .06s cubic-bezier(.2,.8,.2,1) both, glow 3.2s 1s ease-in-out infinite alternate; }
+  @keyframes rise { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:none; } }
+  @keyframes grow { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+  @keyframes glow { from { text-shadow:0 0 18px color-mix(in srgb, var(--accent) 40%, transparent); }
+                    to { text-shadow:0 0 40px color-mix(in srgb, var(--accent) 80%, transparent); } }
+}
+noscript { position:fixed; inset:0; z-index:5; overflow:auto; padding:24px; background:var(--bg); }
+"""
+
+WRAPPED_JS = r"""
+(function () {
+  var data = JSON.parse(document.getElementById("wrapped-data").textContent);
+  var slides = data.slides, i = 0;
+  var accents = ["#67e8f9", "#f472b6", "#a3e635", "#fbbf24", "#a78bfa", "#fb7185"];
+  var app = document.getElementById("app"), bars = document.getElementById("bars"),
+      stage = document.getElementById("stage");
+  document.getElementById("hint").textContent = data.hint;
+  slides.forEach(function () { bars.appendChild(document.createElement("i")); });
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    var s = slides[i];
+    Array.prototype.forEach.call(bars.children, function (b, k) { b.className = k < i ? "done" : (k === i ? "now" : ""); });
+    document.documentElement.style.setProperty("--accent", accents[i % accents.length]);
+    stage.textContent = "";
+    var big = el("div", "big" + (s.big.length > 12 ? " long" : s.big.length > 7 ? " mid" : ""), s.big);
+    if (s.id === "card") {
+      var card = el("div", "card");
+      card.appendChild(el("div", "kicker", s.kicker));
+      card.appendChild(big);
+      var dl = el("dl");
+      s.rows.forEach(function (r) { dl.appendChild(el("dt", "", r[0])); dl.appendChild(el("dd", "", r[1])); });
+      card.appendChild(dl);
+      var max = Math.max.apply(null, data.bars.concat([0.0001])), sp = el("div", "spark");
+      data.bars.forEach(function (v) {
+        var b = el("i"); b.style.height = Math.max(4, Math.round(100 * v / max)) + "%"; sp.appendChild(b);
+      });
+      card.appendChild(sp);
+      card.appendChild(el("div", "punch", s.punch));
+      card.appendChild(el("div", "tag", "computai · " + data.tagline));
+      stage.appendChild(card);
+      var again = el("button", "", data.replay);
+      again.type = "button";
+      again.addEventListener("click", function (ev) { ev.stopPropagation(); show(0); });
+      stage.appendChild(again);
+      return;
+    }
+    stage.appendChild(el("div", "kicker", s.kicker));
+    stage.appendChild(big);
+    if (s.rows.length) {
+      var rows = el("div", "rows");
+      s.rows.forEach(function (r) {
+        var row = el("div", "row");
+        row.appendChild(el("span", "", r[0])); row.appendChild(el("b", "", r[1]));
+        var pct = parseInt(r[1], 10) || 0, u = el("u"); u.style.width = Math.max(2, pct) + "%";
+        row.appendChild(u); rows.appendChild(row);
+      });
+      stage.appendChild(rows);
+    }
+    stage.appendChild(el("div", "punch", s.punch));
+  }
+  var x0 = null, y0 = null;
+  app.addEventListener("pointerdown", function (e) { x0 = e.clientX; y0 = e.clientY; });
+  app.addEventListener("pointerup", function (e) {
+    if (x0 === null || (e.target.closest && e.target.closest("button"))) { x0 = null; return; }
+    var dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { show(i + (dx < 0 ? 1 : -1)); return; }
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
+    show(e.clientX < window.innerWidth / 3 ? i - 1 : i + 1);
+  });
+  document.addEventListener("keydown", function (e) {
+    var k = e.key;
+    if (k === "ArrowRight" || k === "ArrowDown" || k === " " || k === "PageDown") { e.preventDefault(); show(i + 1); }
+    else if (k === "ArrowLeft" || k === "ArrowUp" || k === "Backspace" || k === "PageUp") { e.preventDefault(); show(i - 1); }
+    else if (k === "Home") { show(0); } else if (k === "End") { show(slides.length - 1); }
+  });
+  app.focus();
+  show(parseInt(location.hash.slice(1), 10) || 0);
+})();
+"""
+
+
+def render_wrapped_html(w):
+    """全螢幕、像限時動態的回顧頁。一個檔案，不連網。所有文字都是 textContent 或 html.escape 過。"""
+    import html
+    slides = wrapped_slides(w)
+    data = {"slides": slides, "bars": wrapped_bars(w), "hint": T("wr_hint"), "replay": T("wr_replay"),
+            "tagline": T("wr_tagline")}
+    plain = "".join("<li><b>%s</b> %s<br>%s</li>" % (html.escape(s["kicker"]), html.escape(s["big"]),
+                                                    html.escape(s["punch"])) for s in slides)
+    return ('<!doctype html>\n<html lang="%s"><head><meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+            '<meta name="color-scheme" content="dark"><title>%s</title>\n<style>%s</style></head>\n'
+            '<body><div id="app" tabindex="0" role="application" aria-label="%s" aria-live="polite">'
+            '<div id="bars"></div><div id="brand">computai</div><div id="stage"></div><div id="hint"></div></div>\n'
+            '<noscript><ol>%s</ol></noscript>\n'
+            '<script type="application/json" id="wrapped-data">%s</script>\n<script>%s</script>\n</body></html>\n'
+            % ("zh-Hant" if _lang == "zh" else "en", html.escape("ComputAI Wrapped " + w["label"]), WRAPPED_CSS,
+               html.escape(T("wr_title") + " " + w["label"]), plain, json_for_script(data), WRAPPED_JS))
+
+
+def svg_escape(s):
+    import html
+    return html.escape(str(s), quote=True)
+
+
+SVG_FONT = "ui-monospace,SFMono-Regular,Menlo,Consolas,'Noto Sans Mono CJK TC','PingFang TC',monospace"
+
+
+def svg_text(x, y, text, size, fill, anchor="start", weight="400", spacing=0, opacity=1):
+    """一行 SVG 文字；內容一律跳脫。"""
+    return ('<text x="%s" y="%s" font-size="%s" fill="%s" text-anchor="%s" font-weight="%s"%s%s>%s</text>'
+            % (x, y, size, fill, anchor, weight, (' letter-spacing="%s"' % spacing) if spacing else "",
+               (' opacity="%s"' % opacity) if opacity != 1 else "", svg_escape(text)))
+
+
+def svg_bars(values, x, y, w, h, fill, gap=3, min_h=3):
+    """迷你長條圖：values 平均分在寬度 w 裡，最高的那根撐滿 h；0 的畫一條很短的底線。"""
+    if not values:
+        return ""
+    top = max(values) or 1.0
+    bw = max(1.0, (w - gap * (len(values) - 1)) / float(len(values)))
+    out = []
+    for i, v in enumerate(values):
+        bh = max(min_h, h * v / top) if v > 0 else min_h
+        out.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="1" fill="%s"%s/>'
+                   % (x + i * (bw + gap), y + h - bh, bw, bh, fill, "" if v > 0 else ' opacity="0.25"'))
+    return "".join(out)
+
+
+def clip_text(s, n):
+    s = str(s)
+    return s if len(s) <= n else s[:n - 1] + "…"
+
+
+def persona_short(key):
+    return T("wr_persona_" + key).split(":")[0].split("：")[0]
+
+
+def render_wrapped_svg(w):
+    """1200x630 的分享卡。沒有外部字型、圖片或腳本；只放彙總數字和模型名稱。"""
+    cy, mg, fg, dim = "#67e8f9", "#f472b6", "#e8f1f5", "#8a97a3"
+    t = []
+    a = t.append
+    a('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" '
+      'aria-label="%s">' % svg_escape("ComputAI Wrapped " + w["label"]))
+    a('<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0e14"/>'
+      '<stop offset="1" stop-color="#150a1c"/></linearGradient>'
+      '<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">'
+      '<path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity="0.04"/></pattern></defs>')
+    a('<rect width="1200" height="630" fill="url(#bg)"/><rect width="1200" height="630" fill="url(#grid)"/>')
+    a('<rect x="14" y="14" width="1172" height="602" rx="18" fill="none" stroke="%s" stroke-opacity="0.55" '
+      'stroke-width="2"/>' % cy)
+    a('<g font-family="%s">' % svg_escape(SVG_FONT))
+    a(svg_text(60, 84, T("wr_title"), 26, cy, weight="700", spacing=6))
+    a(svg_text(1140, 84, w["label"], 26, mg, anchor="end", weight="700", spacing=4))
+    if not w["tokens"]:
+        a(svg_text(60, 330, T("wr_none"), 36, fg))
+    else:
+        a(svg_text(60, 270, fmt_tok(w["tokens"]), 170, fg, weight="800"))
+        a(svg_text(64, 312, T("wr_tokens_k"), 24, cy, spacing=6))
+        a(svg_text(64, 380, fmt_usd(w["api_equivalent_usd"]), 64, mg, weight="800"))
+        a(svg_text(64, 414, T("wr_value_k"), 20, dim, spacing=4))
+        rows = [(T("wr_days_k"), T("wr_days_card") % (w["active_days"], w["longest_streak"]))]
+        if w["peak_hour"] is not None:
+            rows.append((T("wr_hour_k"), "%02d:00" % w["peak_hour"]))
+        if w["top_models"]:
+            rows.append((T("wr_models_k"), clip_text(w["top_models"][0]["model"], 24)))
+        pv = w["previous"]
+        if pv and pv["tokens_change_pct"] is not None:
+            rows.append((T("wr_vs_month" if w["kind"] == "month" else "wr_vs_year"), _sign(pv["tokens_change_pct"])))
+        y = 190
+        for label, val in rows:
+            a(svg_text(1140, y, val, 36, fg, anchor="end", weight="700"))
+            a(svg_text(1140, y + 28, label, 17, dim, anchor="end", spacing=3))
+            y += 82
+        if w["persona"]:
+            a(svg_text(60, 478, persona_short(w["persona"]), 30, cy, weight="700"))
+        a(svg_bars(wrapped_bars(w), 60, 500, 1080, 70, cy))
+    a(svg_text(60, 600, "computai", 18, cy, weight="700", spacing=3))
+    a(svg_text(1140, 600, T("wr_tagline"), 18, dim, anchor="end", spacing=2))
+    a("</g></svg>\n")
+    return "".join(t)
+
+
+# ---- GitHub 個人頁卡片（--card）
+#
+# 495x195 的小 SVG，像 github-readme-stats 的卡片，貼在個人 README 裡。純 SVG、行內樣式、
+# 沒有腳本、外部字型或圖片；只有彙總數字和一個模型名稱。
+
+CARD_PERIODS = ("30d", "month", "year", "all")
+CARD_THEMES = {
+    "dark": {"bg": "#0d1117", "border": "#30363d", "title": "#67e8f9", "label": "#8b949e", "value": "#e6edf3",
+             "bar": "#67e8f9"},
+    "light": {"bg": "#ffffff", "border": "#d0d7de", "title": "#0969da", "label": "#57606a", "value": "#1f2328",
+              "bar": "#0969da"},
+}
+CARD_FILES = {"dark": "computai-card.svg", "light": "computai-card-light.svg"}
+
+
+def card_data(db, period="30d", prices=None, plan_table=None, t=None):
+    """卡片要的數字。預設看最近 30 天（含今天）：滾動的區間，月初也不會是空的。"""
+    if period not in CARD_PERIODS:
+        raise SystemExit("computai: bad period %r, expected one of %s" % (period, ", ".join(CARD_PERIODS)))
+    t = now() if t is None else t
+    today = datetime.date(*time.localtime(t)[:3])
+    tomorrow = today + datetime.timedelta(days=1)
+    end = local_ts(tomorrow.year, tomorrow.month, tomorrow.day)
+    if period == "30d":
+        s = tomorrow - datetime.timedelta(days=30)
+        start, kind = local_ts(s.year, s.month, s.day), "range"
+    elif period == "month":
+        start, kind = local_ts(today.year, today.month, 1), "range"
+    elif period == "year":
+        start, kind = local_ts(today.year, 1, 1), "range"
+    else:
+        start, kind = 0, "range"
+    w = wrapped(db, start, end, period, kind, prices, plan_table if plan_table is not None else {}, compare=False, t=t)
+    daily = dict(w["daily"])
+    if period in ("30d", "month"):
+        days = [today - datetime.timedelta(days=i) for i in range(13, -1, -1)]
+        bars, bars_key = [daily.get(d.isoformat(), 0.0) for d in days], "cd_bars_days"
+    else:
+        months = []
+        y, mo = today.year, today.month
+        for _ in range(12):
+            months.append("%04d-%02d" % (y, mo))
+            y, mo = (y - 1, 12) if mo == 1 else (y, mo - 1)
+        months.reverse()
+        bars = [round(sum(v for d, v in daily.items() if d[:7] == m_), 2) for m_ in months]
+        bars_key = "cd_bars_months"
+    return {"period": period, "tokens": w["tokens"], "api_equivalent_usd": w["api_equivalent_usd"],
+            "top_model": w["top_models"][0]["model"] if w["top_models"] else None,
+            "active_days": w["active_days"], "longest_streak": w["longest_streak"],
+            "bars": bars, "bars_key": bars_key}
+
+
+def render_card_svg(c, theme="dark"):
+    th = CARD_THEMES.get(theme, CARD_THEMES["dark"])
+    rows = [(T("cd_tokens"), fmt_tok(c["tokens"])), (T("cd_value"), fmt_usd(c["api_equivalent_usd"])),
+            (T("cd_model"), clip_text(c["top_model"], 15) if c["top_model"] else "-"),
+            (T("cd_days"), T("wr_days_card") % (c["active_days"], c["longest_streak"]))]
+    out = ['<svg xmlns="http://www.w3.org/2000/svg" width="495" height="195" viewBox="0 0 495 195" role="img" '
+           'aria-label="%s">' % svg_escape("ComputAI " + T("cd_" + c["period"])),
+           '<rect x="0.5" y="0.5" width="494" height="194" rx="8" fill="%(bg)s" stroke="%(border)s"/>' % th,
+           '<g font-family="%s">' % svg_escape(SVG_FONT),
+           svg_text(25, 36, "ComputAI · " + T("cd_" + c["period"]), 15, th["title"], weight="700")]
+    y = 72
+    for label, val in rows:
+        out.append(svg_text(25, y, label, 12, th["label"]))
+        out.append(svg_text(120, y, val, 14, th["value"], weight="700"))
+        y += 28
+    if c["tokens"]:
+        out.append(svg_bars(c["bars"], 285, 62, 185, 80, th["bar"], gap=3, min_h=2))
+        out.append(svg_text(377.5, 164, T(c["bars_key"]), 11, th["label"], anchor="middle"))
+    else:
+        out.append(svg_text(377.5, 105, T("cd_none"), 13, th["label"], anchor="middle"))
+    out.append("</g></svg>\n")
+    return "".join(out)
+
+
+def publish_card(db, period, path, push=False, prices=None, plan_table=None):
+    """把深色和淺色兩張卡片寫進本機的 git repo（例如 <帳號>/<帳號> 那個個人頁 repo）並 commit。
+    不加 --push 就絕對不會推出去。回傳要印給使用者看的每一行；失敗丟 SystemExit。"""
+    root = os.path.abspath(os.path.expanduser(path))
+    if not os.path.isdir(root):
+        raise SystemExit("computai: %s is not a folder" % root)
+    if not shutil.which("git"):
+        raise SystemExit("computai: git is not installed")
+
+    def git(*a):
+        return subprocess.run(["git", "-C", root] + list(a), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True)
+
+    def fail(what, r):
+        lines = [x for x in (r.stderr or r.stdout or "").strip().splitlines() if x.strip()]
+        raise SystemExit("computai: %s failed: %s" % (what, lines[-1] if lines else "exit %d" % r.returncode))
+
+    if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
+        raise SystemExit("computai: %s is not a git repository" % root)
+    c = card_data(db, period, prices, plan_table)
+    names = [CARD_FILES["dark"], CARD_FILES["light"]]
+    lines = []
+    for theme, name in (("dark", names[0]), ("light", names[1])):
+        with open(os.path.join(root, name), "w", encoding="utf-8") as f:
+            f.write(render_card_svg(c, theme))
+        lines.append("wrote %s" % os.path.join(root, name))
+    r = git("add", "--", *names)
+    if r.returncode:
+        fail("git add", r)
+    if git("diff", "--cached", "--quiet", "--", *names).returncode == 0:
+        lines.append("the cards did not change, so nothing was committed")
+    else:
+        msg = "Update ComputAI card (%s)" % T("cd_" + period)
+        r = git("commit", "-q", "-m", msg, "--", *names)
+        if r.returncode:
+            fail("git commit", r)
+        lines.append("committed %s in %s: %s" % (git("rev-parse", "--short", "HEAD").stdout.strip(), root, msg))
+    if push:
+        r = git("push")
+        if r.returncode:
+            fail("git push", r)
+        lines.append("pushed with `git push`")
+    else:
+        lines.append("did not push (add --push to push)")
+    return lines
+
+
 # ---- 實驗室彙總（--totals 匯出、--lab 合併）
 #
 # 每個人匯出自己的月總額（只有來源、模型的金額和 token，沒有專案、session、機器以外的名稱），
@@ -7056,12 +7732,25 @@ def parse_args(argv=None):
     p.add_argument("--uninstall-watch", action="store_true", help="undo --install-watch")
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
-    p.add_argument("--html", metavar="FILE", help="with --report or --recap: write an HTML page")
+    p.add_argument("--html", metavar="FILE", help="with --report, --recap or --wrapped: write an HTML page")
     p.add_argument("--weekly", action="store_true", help="the last 7 days as a short report")
     p.add_argument("--send", action="store_true",
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
     p.add_argument("--recap", nargs="?", const=0, type=int, metavar="YEAR",
                    help="a year in review (default: this year); with --html, a shareable card")
+    p.add_argument("--wrapped", nargs="?", const="", metavar="YYYY-MM|YYYY",
+                   help="a Wrapped-style recap of a month (default: this month so far) or a year; "
+                        "add --html FILE for a story page, --svg FILE for a share card")
+    p.add_argument("--svg", metavar="FILE", help="with --wrapped or --card: write an SVG card")
+    p.add_argument("--card", action="store_true",
+                   help="a small SVG card for your GitHub profile README (use with --svg FILE; see --period, --card-theme)")
+    p.add_argument("--period", choices=CARD_PERIODS, default="30d",
+                   help="with --card: the last 30 days (default), this month, this year or all time")
+    p.add_argument("--publish", metavar="PATH",
+                   help="with --card: write computai-card.svg and computai-card-light.svg into the git repo at PATH "
+                        "and commit them there (never pushes unless --push is also given)")
+    p.add_argument("--push", action="store_true", help="with --card --publish: also run `git push` in that repo")
+    p.add_argument("--card-theme", choices=sorted(CARD_THEMES), default="dark", help="with --card --svg: dark (default) or light")
     p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
     p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
     p.add_argument("--lab", metavar="DIR", help="combine everyone's --totals files in a shared folder into one table")
@@ -7132,7 +7821,7 @@ def local_hostname():
 
 ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench",
-           "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
+           "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
 
 def config_theme(cp=None):
@@ -7279,6 +7968,42 @@ def run(args, db):
             for name, ok_, msg in res:
                 print("computai: %s %s (%s)" % (name, "sent" if ok_ else "failed", msg))
             return 0 if all(r[1] for r in res) else 1
+        return 0
+    if args.wrapped is not None:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        start, end, label, kind = wrapped_period(args.wrapped)
+        w = wrapped(db, start, end, label, kind)
+        wrote = False
+        for path, render in ((args.html, render_wrapped_html), (args.svg, render_wrapped_svg)):
+            if path:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(render(w))
+                print("computai: wrote %s" % path)
+                wrote = True
+        if wrote:
+            return 0
+        emit(w, render_wrapped(w), args.json)
+        return 0
+    if args.card:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        if args.push and not args.publish:
+            raise SystemExit("computai: --push only works together with --card --publish PATH")
+        c = card_data(db, args.period)
+        if args.publish:
+            for line in publish_card(db, args.period, args.publish, args.push):
+                print("computai: " + line)
+            if not args.svg:
+                return 0
+        if args.svg:
+            with open(args.svg, "w", encoding="utf-8") as f:
+                f.write(render_card_svg(c, args.card_theme))
+            print("computai: wrote %s" % args.svg)
+        elif args.json:
+            emit(c, "", True)
+        else:
+            sys.stdout.write(render_card_svg(c, args.card_theme))
         return 0
     if args.recap is not None:
         if not args.no_sync:

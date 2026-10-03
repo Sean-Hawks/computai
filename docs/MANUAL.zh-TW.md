@@ -71,6 +71,8 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--lang zh` | live 畫面、網頁版和 `--line` 用繁體中文（也可以設 `[general] lang = zh`）。預設 `lang = auto` 跟系統語言走；macOS 以系統偏好的語言為準，因為 cmux、Ghostty 等終端機不管系統語言都會設 `LANG=en_US`。想固定英文就設 `COMPUTAI_LANG=en` 或 `lang = en`。 |
 | `--web [[位址:]埠]` | 瀏覽器版（手機排版）、`/api/state` JSON、給 Prometheus 的 `/metrics`。預設 `127.0.0.1:8765`。 |
 | `--recap [年份] [--html 檔名]` | 年度回顧（token、方案划算程度、使用天數、最長連續天數、最忙的一天、最常用的模型、本地推論）；HTML 卡片不含專案和機器名稱，可以直接分享。月費以「有用量的月份 × 目前 `[plans]` 的價格」計算。 |
+| `--wrapped [YYYY-MM\|YYYY] [--html 檔名] [--svg 檔名]` | 像 Spotify Wrapped 的月（預設：這個月到現在）或年回顧：終端機文字、限時動態風格網頁（`--html`）、1200x630 分享卡（`--svg`）。只有彙總數字和模型名稱。見「Wrapped 回顧」。 |
+| `--card [--period 30d\|month\|year\|all] [--card-theme dark\|light] [--svg 檔名] [--publish 路徑 [--push]]` | 放在 GitHub 個人頁 README 的小 SVG 卡片。見「個人頁卡片」。 |
 | `--weekly [--send]` | 最近 7 天的幾行摘要；`--send` 會送到 `DISCORD_WEBHOOK_URL` 和／或 Telegram（`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`，跟其他金鑰一樣從環境變數或 secrets.ini 讀）。放進 cron 就是每週通知。 |
 | `--totals 檔名 [--who 名字]`／`--lab 資料夾` | 實驗室彙總：每個人把自己這個月的總額（每個來源、模型的花費和 token、度數；不含專案名稱）寫到共用資料夾，`--lab` 把整個資料夾合成一張表。 |
 | `--csv 檔名` | 範圍內每一筆用量（時間、來源、模型、專案、token、金額）輸出成 CSV；`= + - @` 開頭的文字前面會加 `'`，避免試算表把它當公式執行。 |
@@ -278,6 +280,51 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
 - 只讀回應裡的用量欄位。
 
 Mac 要設定 `idle_watts`／`max_watts`（或接智慧插座）才有功耗欄位。
+
+## Wrapped 回顧
+
+`computai --wrapped [YYYY-MM|YYYY]` 是可以拿去分享的版本：token、照 API 價格算的價值、訂閱回本幾倍、活躍天數和最長連續天數、
+最忙的一天和星期、最常工作的時段（本地時間）和對應的人格（夜貓子 0–4 點、早起的鳥 5–8 點、朝九晚五 9–17 點、夜晚駭客 18–23 點）、
+token 佔比前三名的模型、對話數和最大那場的規模、提示快取省下的錢（快取命中 token × (輸入價 − 快取讀取價)）、
+本地模型的 token 和度數、和上一段同樣長的期間比（進行中的月份，只拿上個月同樣天數比），
+以及用輸出 token 換算的小比喻（每個 token 約 0.75 字：幾套《魔戒》（48 萬字）、以每分鐘 250 字算的閱讀小時數；
+常數放在腳本的 `EQUIVALENTS`）。
+
+- `--html 檔名`：全螢幕的故事頁，上方有進度條、一張一個大數字，點一下／輕觸（左邊三分之一是上一張）、方向鍵、空白鍵、
+  手機左右滑動切換，最後一張是可以截圖分享的總結卡。單一檔案、不連網、沒有外部字型，尊重 `prefers-reduced-motion`。
+  網址後面加 `#5` 可以直接從第 5 張開始。
+- `--svg 檔名`：1200x630 的分享卡。
+- `--json`：印出資料（含圖表用的每日數字）。
+
+隱私：只有彙總數字和模型名稱，專案名稱、路徑、session id、機器名稱和 prompt 都不會進到頁面。月費以「目前 `[plans]` 的價格 × 有用量的月份」計算。
+
+## 個人頁卡片
+
+`computai --card --svg computai-card.svg` 寫出一張 495x195 的 SVG（像 github-readme-stats）：token、API 等值金額、最常用的模型、
+活躍天數和連續天數，加上近 14 天的長條圖（`year`、`all` 則是近 12 個月）。`--period` 選範圍：`30d`（預設，最近 30 天，
+滾動的區間，月初也不會是空的）、`month`、`year`、`all`。`--card-theme light` 輸出淺色版。純 SVG、行內屬性，沒有腳本、字型或圖片，
+所有文字都經過跳脫。沒給 `--svg` 也沒給 `--publish` 時，SVG 印到標準輸出。
+
+要放到 GitHub 個人頁：把兩個檔案放進你的個人頁 repo（跟帳號同名的那個）。
+
+```sh
+computai --card --publish ~/Documents/你的個人頁repo
+git -C ~/Documents/你的個人頁repo push      # 或是在上面的指令加 --push
+```
+
+`--publish 路徑` 會把 `computai-card.svg` 和 `computai-card-light.svg` 寫進該路徑的 git repo，只用這兩個檔案做一個 commit
+（卡片沒變就不 commit；其他已 stage 的檔案不受影響），並印出做了哪些事。沒有加 `--push` 絕對不會推出去；加了就是單純的 `git push`
+（所以分支要有 upstream）。個人頁的 `README.md` 這樣寫：
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="computai-card.svg">
+  <source media="(prefers-color-scheme: light)" srcset="computai-card-light.svg">
+  <img alt="ComputAI card" src="computai-card.svg" width="495">
+</picture>
+```
+
+卡片是當下的快照，要更新就再跑一次指令（可以放進 cron）。
 
 ## MCP server（給 agent 用）
 

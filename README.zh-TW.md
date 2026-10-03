@@ -28,7 +28,7 @@
 
 另外還有：`--discover` 從 `~/.ssh/config` 和 Tailscale 找機器；每台機器顯示還放得下多大的模型；
 智慧插座（Shelly、Tasmota、Home Assistant）的實測功耗；`--wake` 遠端開機；`--mcp` 讓 agent 自己查預算；
-`--weekly --send` 把週報送到 Discord 或 Telegram；`--recap` 年度回顧卡；`--csv` 匯出明細；
+`--weekly --send` 把週報送到 Discord 或 Telegram；`--wrapped` 像 Spotify Wrapped 的故事頁和分享卡、`--card` GitHub 個人頁卡片（`--recap` 是較早的年度回顧卡）；`--csv` 匯出明細；
 `--totals`／`--lab` 實驗室彙總；`--lang zh` 中文介面。
 
 ## 安裝
@@ -82,6 +82,10 @@ computai --discover               # 看看哪些機器讀得到
 computai --bench                  # 每個本地模型的速度和每百萬 token 電費
 computai --install-watch          # 額度快用完、用完、重置時通知我（登入就在背景跑）
 computai --once --lang zh         # 中文、印一次
+computai --wrapped 2026-09        # 像 Spotify Wrapped 的月回顧（給 2026 就是整年）
+computai --wrapped --html story.html --svg card.svg   # 限時動態風格網頁 + 1200x630 分享卡
+computai --card --svg card.svg    # 放在 GitHub 個人頁 README 的小卡片（--card-theme light 淺色）
+computai --card --publish ~/Documents/me   # 把卡片 commit 進你的個人頁 repo（沒加 --push 不會推出去）
 ```
 
 每個指令都可以加 `--json`。第一次執行會在 `~/.config/computai/` 寫入 `config.ini` 和
