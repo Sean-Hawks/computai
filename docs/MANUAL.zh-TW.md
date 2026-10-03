@@ -176,6 +176,19 @@ OPENAI_ADMIN_KEY = ...
 `[general] usd_to_local`。用時間電價時，耗電會照使用的時間點計價，`--analyze` 會算出 AI 工作有多少在
 尖峰跑、挪到離峰可以省多少。
 
+## 其他電腦
+
+額度是整個帳號的，但 token 和花費來自這台的 log。要把筆電、公司電腦或 homelab 加進來（[細節](MULTI-DEVICE.md)）：
+
+- **共用資料夾**（推薦）：每台都 `computai --set devices.folder=路徑`，指向一個它們都會同步的資料夾（iCloud Drive、
+  Dropbox、Syncthing、私人 git repo）。每台把自己的用量寫進去（只有用量數字，沒有 prompt、路徑和 session id），
+  再讀別台的。`devices.name` 設定顯示的名字。
+- **SSH 拉取**：`[machines]` 裡的機器加上 `[machine.X] usage = pull`。ComputAI 會把自己複製到對方的
+  `~/.cache/computai`（對方只需要 `python3`），再執行 `computai --export-usage`。
+
+不管從哪條路來，每一筆只算一次。檔案壞掉時整份略過，之前的數字照留。超過 10 分鐘沒回報的裝置會標成過時。
+`--summary` 會列出每台，`--summary --by device` 照裝置拆開，`--doctor` 顯示每台最後回報的時間和錯誤。
+
 ## 機器和本地模型
 
 `computai --discover` 會從 `~/.ssh/config` 和 Tailscale 列出候選機器、逐台試 SSH，並印出要加的設定。

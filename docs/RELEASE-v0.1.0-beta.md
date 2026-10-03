@@ -38,6 +38,8 @@ Windows: `powershell -ExecutionPolicy Bypass -File install.ps1`.
   become codes.
 - Update check, at most once a day (`[general] update_check = no` turns it off). Only the version line of
   `computai` on GitHub is read; nothing about you is sent.
+- Usage from your other computers: a shared folder (iCloud, Dropbox, Syncthing) or SSH pull, usage numbers only
+  (docs/MULTI-DEVICE.md).
 - Limit checks follow the burn rate (`[limits] refresh = adaptive|fixed`); `--doctor` shows the next check and why.
 
 ## Privacy
@@ -47,8 +49,6 @@ and Claude's OAuth tokens are never read. The web server and proxy listen on `12
 
 ## Known gaps
 
-- Usage from other computers counts toward limits (they are account-wide), but their tokens and cost only
-  show up once multi-device merging lands.
 - Windows has been tested less than macOS and Linux.
 - Claude's plan can't be read from anywhere local, so the first-run plan is a guess you confirm.
 
