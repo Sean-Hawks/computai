@@ -210,7 +210,7 @@ class Wizard(unittest.TestCase):
         import json
         import stat
         code, text = self.run_wizard(
-            ["", "classic", "2", "c", "My Plus", "20", "", "y", "all", "y", "100,50", "2", "31.5", "300", "y", ""],
+            ["", "classic", "2", "c", "My Plus", "20", "", "y", "all", "y", "100,50", "2", "31.5", "300", "", "y", ""],
             secrets=["rp_SECRET"])
         self.assertEqual(code, 0)
         cfg = open(os.path.join(self.sb.config, "config.ini"), encoding="utf-8").read()
@@ -235,7 +235,7 @@ class Wizard(unittest.TestCase):
         import json
         with open(os.path.join(self.cc, "settings.json"), "w") as f:
             json.dump({"statusLine": {"type": "command", "command": "~/bin/my-line"}, "theme": "dark"}, f)
-        code, _ = self.run_wizard(["", "", "s", "s", "y", "n", "", "s", "", "", ""])
+        code, _ = self.run_wizard(["", "", "s", "s", "y", "n", "", "s", "", "", "", ""])
         self.assertEqual(code, 0)
         settings = json.load(open(os.path.join(self.cc, "settings.json")))
         self.assertEqual(settings["theme"], "dark")
@@ -247,16 +247,27 @@ class Wizard(unittest.TestCase):
 
     def test_skip_everything_changes_nothing(self):
         before = open(os.path.join(self.sb.config, "config.ini")).read()
-        code, text = self.run_wizard(["", "", "s", "s", "n", "n", "s", "", "", "n"])
+        code, text = self.run_wizard(["", "", "s", "s", "n", "n", "s", "", "", "", "n"])
         self.assertEqual(code, 0)
         self.assertIn("Nothing changed", text)
         self.assertEqual(open(os.path.join(self.sb.config, "config.ini")).read(), before)
 
     def test_cancel_saves_nothing(self):
         before = open(os.path.join(self.sb.config, "config.ini")).read()
-        code, _ = self.run_wizard(["", "", "1", "s", "n", "n", "s", "", "", "n", "n"])
+        code, _ = self.run_wizard(["", "", "1", "s", "n", "n", "s", "", "", "", "n", "n"])
         self.assertEqual(code, 1)
         self.assertEqual(open(os.path.join(self.sb.config, "config.ini")).read(), before)
+
+    def test_profile_card_step(self):
+        repo = os.path.join(self.sb.root, "octocat")
+        os.makedirs(os.path.join(repo, "assets"))
+        code, text = self.run_wizard(["", "", "s", "s", "n", "n", "s", "", "",
+                                      "y", os.path.join(repo, "assets"), "matrix", "n", "n", ""])
+        self.assertEqual(code, 0)
+        cfg = open(os.path.join(self.sb.config, "config.ini"), encoding="utf-8").read()
+        self.assertIn("style = matrix", cfg)
+        self.assertIn("repo = " + os.path.join(repo, "assets"), cfg)
+        self.assertIn("computai-card.svg", text)                 # 印出要貼進 README 的那段
 
     def test_needs_terminal(self):
         r = self.sb.run("--setup")

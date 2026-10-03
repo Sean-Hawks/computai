@@ -4224,6 +4224,11 @@ UI = {
         "su_keepit": "keep", "su_price": "Price per kWh", "su_currency": "Currency",
         "su_tou_note": "Taipower two-tier rates are preset; compare them with your bill (tou_* in config.ini).",
         "su_rate": "How many %s is one USD", "su_budget": "Budget", "su_budget_q": "Monthly budget in USD (0 = none)",
+        "su_card": "GitHub profile card", "su_card_q": "Keep an AI usage card in your GitHub profile README?",
+        "su_card_help": "Clone your profile repo (github.com/<you>/<you>) first. The card only has totals and model names; it is rewritten and committed once a day.",
+        "su_card_repo": "Folder in that repo for the card", "su_card_norepo": "That folder does not exist; skipped.",
+        "su_card_style": "Style (computai, amber, matrix, synthwave, mono)", "su_card_push": "Push it automatically?",
+        "su_card_snippet": "Put this in your profile README.md:",
         "su_secrets": "Keys (optional)", "su_secrets_q": "Add keys for cloud GPUs, admin APIs or weekly messages?",
         "su_secrets_help": "Typing is hidden. Enter skips. Saved to secrets.ini with chmod 600.", "su_set": "set",
         "su_review": "Review", "su_nothing": "Nothing changed.", "su_removed": "removed", "su_save": "Save these changes?",
@@ -4367,6 +4372,11 @@ UI = {
         "su_keepit": "保留", "su_price": "每度價格", "su_currency": "幣別",
         "su_tou_note": "台電二段式電價已經預設好；請對照你的電費單（config.ini 的 tou_*）。",
         "su_rate": "一美元等於多少 %s", "su_budget": "預算", "su_budget_q": "每月預算（美元，0 = 不設）",
+        "su_card": "GitHub 個人頁卡片", "su_card_q": "要在 GitHub 個人頁 README 放一張 AI 用量卡片嗎？",
+        "su_card_help": "先把個人頁 repo（github.com/<帳號>/<帳號>）clone 下來。卡片只有總數和模型名稱，每天重寫並 commit 一次。",
+        "su_card_repo": "卡片要放在那個 repo 的哪個資料夾", "su_card_norepo": "找不到那個資料夾，先跳過。",
+        "su_card_style": "主題（computai、amber、matrix、synthwave、mono）", "su_card_push": "要自動推上去嗎？",
+        "su_card_snippet": "把這段貼進個人頁的 README.md：",
         "su_secrets": "金鑰（可略過）", "su_secrets_q": "要輸入雲端 GPU、admin API 或週報的金鑰嗎？",
         "su_secrets_help": "輸入時不會顯示，Enter 跳過。存在權限 600 的 secrets.ini。", "su_set": "已設定",
         "su_review": "確認", "su_nothing": "沒有任何變更。", "su_removed": "刪除", "su_save": "要存檔嗎？",
@@ -7736,6 +7746,35 @@ SECRET_KEYS = (("RUNPOD_API_KEY", "RunPod"), ("VAST_API_KEY", "Vast.ai"), ("LAMB
                ("HA_TOKEN", "Home Assistant token"))
 
 
+CARD_README_SNIPPET = """<picture>
+  <source media="(prefers-color-scheme: light)" srcset="assets/computai-card-light.svg" />
+  <img src="assets/computai-card.svg" alt="AI usage: tokens, activity, rank and models" width="100%" />
+</picture>"""
+
+
+def detect_profile_repo():
+    """找本機的 GitHub 個人頁 repo（github.com/<帳號>/<帳號>）：只看幾個常見資料夾往下兩層，不連網路。
+    有 assets/ 資料夾就回傳它，不然回傳 repo 本身。"""
+    def subdirs(path):
+        try:
+            return [os.path.join(path, n) for n in sorted(os.listdir(path))
+                    if not n.startswith(".") and os.path.isdir(os.path.join(path, n))]
+        except OSError:   # 沒權限、不存在
+            return []
+    home = os.path.expanduser("~")
+    roots = [home] + [os.path.join(home, d) for d in ("Documents", "code", "src", "Projects", "dev", "GitHub", "repos")]
+    for root in roots:
+        for path in subdirs(root):
+            for cand in [path] + ([] if os.path.isdir(os.path.join(path, ".git")) else subdirs(path)):
+                if not os.path.isdir(os.path.join(cand, ".git")):
+                    continue
+                owner = github_owner(cand)
+                if owner and os.path.basename(cand).lower() == owner.lower():
+                    assets = os.path.join(cand, "assets")
+                    return assets if os.path.isdir(assets) else cand
+    return None
+
+
 def computai_command():
     """寫進別的設定檔（statusline、cron）時用的指令：有裝在 PATH 上就用名字，否則用這個檔案的完整路徑。"""
     here = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else "computai"
@@ -7782,8 +7821,30 @@ class Setup:
         self.step_machines()
         self.step_power()
         self.step_budget()
+        self.step_card()
         self.step_secrets()
         return self.finish()
+
+    # GitHub 個人頁卡片
+    def step_card(self):
+        self.title(T("su_card"))
+        cur = card_settings()
+        if not self.yes(T("su_card_q"), default=bool(cur["repo"])):
+            return
+        self.out(dim(T("su_card_help")))
+        guess = cur["repo"] or detect_profile_repo() or ""
+        repo = self.q(T("su_card_repo"), guess).strip()
+        if not repo or not os.path.isdir(os.path.expanduser(repo)):
+            self.out(rgb(AMBER, T("su_card_norepo")))
+            return
+        style = self.q(T("su_card_style"), cur["style"]).lower()
+        style = style if style in CARD_STYLES else "computai"
+        push = self.yes(T("su_card_push"), default=cur["push"])
+        for key, val in (("repo", repo), ("style", style), ("push", "yes" if push else "no")):
+            if str(cur.get(key)) != val and not (key == "push" and cur["push"] == push):
+                self.changes.append(("card", key, val))
+        self.out(dim(T("su_card_snippet")))
+        self.out(CARD_README_SNIPPET)
 
     # 語言
     def step_lang(self):
