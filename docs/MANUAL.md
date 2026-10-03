@@ -72,6 +72,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--sample` | Read every machine once and print the machine table. |
 | `--cloud` | List RunPod, Vast.ai and Lambda instances and record their cost. |
 | `--proxy [--listen ... --upstream ... --machine NAME]` | Token-counting proxy for Ollama and OpenAI-compatible servers. |
+| `--mcp` | MCP server on stdio for agents (see below). |
 | `--paths`, `--version` | |
 
 `--live`, `--web` and `--proxy` keep running; while they do they re-read logs every 30 s,
@@ -247,6 +248,15 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 - `/metrics`: gauges prefixed `computai_` (month cost and tokens per source, limit use, machine
   CPU/GPU/power, cloud price and GPU use, forecast, alerts by kind).
 - `--report --html FILE`: a single HTML file you can keep or send.
+
+## MCP server (for agents)
+
+`computai --mcp` speaks the Model Context Protocol on stdin/stdout, so an agent can check its own
+budget before starting something expensive. Tools: `usage_summary` (a month's cost per source and
+model), `limits`, `budget` (month-end forecast and today), `machines` (GPU use, loaded models, what
+still fits) and `advice`. All read-only. Register it with your agent as a stdio server whose command is
+`computai --mcp` (for Claude Code, something like `claude mcp add computai -- computai --mcp`; for
+Codex, an `[mcp_servers.computai]` entry with `command = "computai"` and `args = ["--mcp"]`).
 
 ## How the numbers are worked out
 

@@ -66,6 +66,7 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--sample` | 讀一次每台機器，印出機器表。 |
 | `--cloud` | 列出 RunPod、Vast.ai、Lambda 的機器並記下花費。 |
 | `--proxy [--listen ... --upstream ... --machine 名稱]` | Ollama 和 OpenAI 相容服務的 token 計數 proxy。 |
+| `--mcp` | 給 agent 用的 MCP server（見下面）。 |
 | `--paths`、`--version` | |
 
 `--live`、`--web`、`--proxy` 會一直執行；執行期間每 30 秒重讀 log、每 `--sample-every` 秒
@@ -223,6 +224,15 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
 - `/metrics`：`computai_` 開頭的 gauge（每個來源的當月花費和 token、額度使用率、機器 CPU／GPU／功耗、
   雲端價格和 GPU 使用率、預測、各類警示數量）。
 - `--report --html 檔名`：一個可以保存或寄出的 HTML 檔。
+
+## MCP server（給 agent 用）
+
+`computai --mcp` 在標準輸入輸出上說 Model Context Protocol，讓 agent 在做花錢的事之前自己查預算。
+工具有：`usage_summary`（某個月每個來源、每個模型的花費）、`limits`（額度）、`budget`（月底預估和今天）、
+`machines`（GPU 使用率、載入的模型、還放得下多大的模型）、`advice`（建議）。全部唯讀。
+在 agent 裡把它註冊成 stdio server，指令是 `computai --mcp`（Claude Code 大概是
+`claude mcp add computai -- computai --mcp`；Codex 是在設定加一段 `[mcp_servers.computai]`，
+`command = "computai"`、`args = ["--mcp"]`）。
 
 ## 數字怎麼算
 
