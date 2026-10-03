@@ -42,3 +42,31 @@ class Verdict(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Pace(unittest.TestCase):
+    def setUp(self):
+        self.m = helpers.load()
+        self.db = self.m.open_ledger(":memory:")
+
+    def pace(self, rows, t):
+        self.m.add_limits(self.db, [dict(source="codex", name="5h", ts=ts, used_percent=u, window_minutes=300,
+                                         resets_at=10000 + 18000) for ts, u in rows])
+        return [r for r in self.m.current_limits(self.db, t) if r["name"] == "5h"][0]
+
+    def test_average_pace_runs_out_before_reset(self):
+        # 週期 10000-28000；過了一半（t=19000）已經用 60%：照這速度 15000 秒後……其實 6000 秒就用完
+        r = self.pace([(19000, 60.0)], 19000)
+        self.assertEqual(r["elapsed_pct"], 50.0)
+        self.assertEqual(r["eta_full"], 6000)
+        self.assertEqual(r["projected_pct"], 120)
+
+    def test_recent_rate_wins(self):
+        # 最近一小時從 30% 到 31%：很慢，重置時只會到 ~34%
+        r = self.pace([(15400, 30.0), (19000, 31.0)], 19000)
+        self.assertIsNone(r["eta_full"])
+        self.assertEqual(r["projected_pct"], 34)
+
+    def test_used_up(self):
+        r = self.pace([(19000, 100.0)], 19000)
+        self.assertEqual(r["eta_full"], 0)

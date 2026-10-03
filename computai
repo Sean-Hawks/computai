@@ -1143,7 +1143,35 @@ def current_limits(db, t=None):
             r["resets_in"] = int(r["resets_at"] - t) if r["resets_at"] else None
         r["window"] = window_label(r["window_minutes"])
         r["age"] = int(t - r["ts"])
+        r.update(limit_pace(db, r, t))
         out.append(r)
+    return out
+
+
+def limit_pace(db, r, t):
+    """這個額度用得多快：週期過了幾 %（elapsed_pct）、照目前速度重置時會到幾 %（projected_pct）、
+    幾秒後用完（eta_full，重置前用不完就是 None）。速度優先用最近一小時的紀錄算，紀錄不夠才用整個週期的平均。"""
+    out = {"elapsed_pct": None, "projected_pct": None, "eta_full": None}
+    used, left, win = r["used_percent"] or 0.0, r.get("resets_in"), (r["window_minutes"] or 0) * 60
+    if left is None or not win:
+        return out
+    elapsed = max(0.0, min(win, win - left))
+    out["elapsed_pct"] = round(100.0 * elapsed / win, 1)
+    if used >= LIMIT_FAIL:
+        out["eta_full"] = 0
+        return out
+    rows = db.execute("SELECT ts, used_percent FROM limits WHERE source = ? AND name = ? AND resets_at = ? "
+                      "AND ts >= ? ORDER BY ts", (r["source"], r["name"], r["resets_at"], t - 3600)).fetchall()
+    rate = None
+    if len(rows) >= 2 and rows[-1]["ts"] - rows[0]["ts"] >= 600:
+        rate = max(0.0, (rows[-1]["used_percent"] - rows[0]["used_percent"]) / (rows[-1]["ts"] - rows[0]["ts"]))
+    elif elapsed >= 0.05 * win:
+        rate = used / elapsed
+    if rate is None:
+        return out
+    out["projected_pct"] = round(min(999.0, used + rate * left))
+    if rate > 0 and used + rate * left >= 100:
+        out["eta_full"] = int((100 - used) / rate)
     return out
 
 
