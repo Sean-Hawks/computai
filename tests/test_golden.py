@@ -78,6 +78,20 @@ class Golden(unittest.TestCase):
     def test_cyber(self):
         self.check("live-cyber.txt", self.m.render_live(self.st, 100, theme_name="cyber"))
 
+    def test_hud_overview(self):
+        self.check("live-hud.txt", self.m.render_live(self.st, 120, theme_name="cyber", height=40, view="overview"))
+
+    def test_hud_views(self):
+        for v in self.m.HUD_VIEWS:
+            text = self.m.render_live(self.st, 160, theme_name="cyber", height=40, view=v)
+            self.assertIn("1-5 switch tabs", text)
+            self.assertTrue(all(self.m.vlen(ln) <= 160 for ln in text.splitlines()), v)
+        ov = self.m.render_live(self.st, 120, theme_name="cyber", height=40, view="overview")
+        self.assertLessEqual(len(ov.splitlines()), 40)                    # 總覽放得進一個畫面
+        self.assertIn("weekly limit LEFT", ov)                             # 額度看剩下多少
+        machines = self.m.render_live(self.st, 160, theme_name="cyber", height=40, view="machines")
+        self.assertTrue(any("gpubox" in ln and "mac" in ln for ln in machines.splitlines()))   # 兩欄並排
+
     def test_cyber_color(self):
         # 有色碼的版本：cyber 的顏色依用途（docs/DESIGN.md）
         text = self.m.render_live(self.st, 100, color=True, theme_name="cyber")

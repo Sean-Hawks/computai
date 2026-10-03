@@ -4403,6 +4403,10 @@ UI = {
         "l_title": "LOCAL MODELS", "l_state": "state", "l_now": "now", "l_today": "today", "l_month": "month",
         "l_sum": "Local tokens today %s, this month %s", "l_worth": " - worth %s at API prices, electricity about %s",
         "l_foot": "value at %s API prices; Ollama counts need computai --proxy in front of it",
+        "tab_overview": "OVERVIEW", "tab_limits": "LIMITS", "tab_machines": "MACHINES", "tab_local": "LOCAL MODELS",
+        "tab_spend": "SPEND", "tab_attention": "ATTENTION", "more_in_tab": "more in tab 5",
+        "hud_keys": ["1-5 switch tabs", "Tab next", "q quit", "computai --web for the browser"],
+        "local_tip": "computai --bench measures tokens/s and electricity per 1M tokens for each model",
         "t_gen": "generating %s tok/s", "b_linking": "linking logs and machines...", "b_ready": "SYSTEM READY",
         "h_today": "TODAY'S USAGE VALUE", "h_month": "this month %s", "h_rate": "LOCAL TOKENS/S",
         "h_busy": "%d machine(s) generating", "h_power": "POWER NOW (W)", "h_online": "%d/%d NODES ONLINE", "hud_tag": "AI COMPUTE LEDGER",
@@ -4576,6 +4580,10 @@ UI = {
         "l_title": "本地模型", "l_state": "狀態", "l_now": "現在", "l_today": "今天", "l_month": "本月",
         "l_sum": "本地今天 %s token、本月 %s", "l_worth": "，照 API 價格值 %s，電費約 %s",
         "l_foot": "價值照 %s 的 API 價格算；Ollama 要在前面接 computai --proxy 才數得到",
+        "tab_overview": "總覽", "tab_limits": "額度", "tab_machines": "機器", "tab_local": "本地模型",
+        "tab_spend": "花費", "tab_attention": "注意", "more_in_tab": "其他在分頁 5",
+        "hud_keys": ["1-5 切換分頁", "Tab 下一頁", "q 離開", "computai --web 開網頁版"],
+        "local_tip": "computai --bench 會量每個模型的速度和每百萬 token 電費",
         "t_gen": "推論中 %s tok/s", "b_linking": "正在連線 log 和機器…", "b_ready": "系統就緒",
         "h_today": "今天用量價值", "h_month": "本月 %s", "h_rate": "本地推論 tok/s",
         "h_busy": "%d 台正在推論", "h_power": "目前功耗 (W)", "h_online": "%d/%d 台在線", "hud_tag": "AI 算力總帳",
@@ -4880,7 +4888,7 @@ def hero_panel(st, width, frame=0):
                               T("w_left") if _limit_view == "left" else T("w_used"))
         state = (" " + bold(rgb(RED, T("used_up")))) if used >= LIMIT_FAIL else ""
         note = limit_note(r)
-        w = max(tw, vlen(big[0]))
+        w = max(tw, vlen(big[0]), vlen(label) + vlen(state))   # 標籤要放得下，不要切成「…limit L」
         tiles.append([dim(cell(label, w - vlen(state)) ) + state] + [bold(rgb(col, x)) for x in big] +
                      [limit_gauge(r, w)] + wrap_colored(note, w))
     today = bigtext(fmt_usd(st["today_usd"]).replace(",", ""))
@@ -5181,7 +5189,7 @@ def ticker(st, width, frame=0):
         if m["ai_active"]:
             items.append("%s %s" % (m["machine"], T("t_gen") % m["recent"]["tok_s"] if m["recent"]["tok_s"] else T("busy")))
     for r in sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0)):
-        txt = "%s %s %d%%" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]), round(r["used_percent"] or 0))
+        txt = "%s %s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]), pct_word(r["used_percent"]))
         if r.get("resets_in") is not None:
             txt += sym(" \u00b7 ", " - ") + T("resets") % fmt_dur(r["resets_in"])
         items.append(txt)
@@ -5291,13 +5299,135 @@ def header_text(st):
     return dim(sym(" \u00b7 ", " | ")).join(header_parts(st))
 
 
-def render_live(st, width=100, color=False, ascii_=False, height=None, theme_name=None, frame=0):
+HUD_VIEWS = ("overview", "limits", "machines", "local", "spend")
+
+
+def hud_tabs(view, width):
+    """分頁列：目前的分頁反白，其他是編號加名字。"""
+    parts = []
+    for i, v in enumerate(HUD_VIEWS):
+        label = " %d %s " % (i + 1, T("tab_" + v))
+        parts.append(badge("brand", label.strip()) if v == view and _color else
+                     ("[%s]" % label.strip() if v == view else dim(label)))
+    return " " + " ".join(parts)
+
+
+def machine_row(m, width):
+    """總覽用的機器一行：狀態、名字、CPU／GPU 長條、記憶體、功耗、正在跑的模型和速度。"""
+    gpus = m.get("gpus") or []
+    busy = m["ai_active"]
+    dot = rgb(GREEN, spinner()) if busy else (rgb(AMBER, "!") if m.get("age", 0) > 300 else sym("\u25cb", "o"))
+    gu = m["gpu_util"]
+    mem = (100.0 * (m["mem_used"] or 0) / m["mem_total"]) if m.get("mem_total") else None
+    bits = [" %s %s" % (dot, bold(cell(m["machine"], 14))),
+            "%s %s %s" % (label("CPU"), gradbar(m["cpu_pct"] or 0, 8), _num(m["cpu_pct"], "%3.0f%%", "  -")),
+            ("%s %s %s" % (label("GPU"), gradbar(gu or 0, 8), _num(gu, "%3.0f%%", "  -"))) if gpus else dim(cell(T("no_gpu"), 16)),
+            "%s %s" % (label("MEM"), _num(mem, "%3.0f%%", "  -")),
+            rgb(MAG, _num(m["power_w"], "%4.0fW", "     "))]
+    loaded = [x["name"] for x in m.get("loaded") or []]
+    if loaded:
+        rate = m["recent"]["tok_s"]
+        bits.append((rgb(GREEN, loaded[0]) if busy else dim(loaded[0])) +
+                    (rgb(GREEN, " %.0f tok/s" % rate) if rate else ""))
+    return clip("  ".join(bits), width)
+
+
+def spend_lines(st, width):
+    """花費摘要：每個訂閱值多少、回本幾倍，本地模型的價值，這個月實際要付多少。"""
+    out = []
+    for x in st["sources"]:
+        name = T("src").get(x["source"], x["source"])
+        plan = x.get("plan")
+        if x["source"] == "local":
+            lo = st.get("local") or {}
+            val = (" \u2248 " + fmt_usd(lo["api_usd"])) if lo.get("api_usd") else ""
+            out.append(" %s %s%s" % (bold(cell(name, 13)), T("local_free") % fmt_tok(x["tokens"]), dim(val)))
+        elif plan:
+            ratio = plan["value_ratio"] or 0
+            out.append(" %s %s %s" % (bold(cell(name, 13)), T("worth") % fmt_usd(x["cost_usd"]),
+                                      rgb(GREEN if ratio >= 1 else AMBER, "\u00b7 " + T("value_x") % ratio)))
+        else:
+            out.append(" %s %s" % (bold(cell(name, 13)), T("worth" if x["source"] in SUBSCRIPTION_SOURCES else "spent")
+                                   % fmt_usd(x["cost_usd"])))
+    f = st["forecast"]
+    pay = fmt_usd(f["projected_usd"])
+    for i, ln in enumerate(wrap(T("sum_pay") % pay, max(20, width - 1))):   # 太長就折行，不要被框線切掉
+        out.append(" " + (ln.replace(pay, bold(rgb(RED, pay) if f.get("over_budget") else pay), 1) if pay in ln else ln))
+    return [clip(x, width) for x in out]
+
+
+def attention_lines(st, width):
+    """注意：警示（嚴重的在前）加上建議的前幾條，每條折行。"""
+    out = []
+    warn_ = "!" if _ascii else "\u26a0"
+    for a in sorted(st["alerts"], key=lambda a: alert_level(a) != "fail"):
+        for i, ln in enumerate(wrap(a["message"], max(20, width - 4))):
+            out.append(" %s %s" % (rgb(tone(alert_level(a)), warn_) if i == 0 else " ", ln))
+    for x in (st.get("insights") or [])[:3]:
+        for i, ln in enumerate(wrap(x["text"], max(20, width - 4))):
+            out.append(" %s %s" % (rgb(CYAN, sym("\u2192", ">")) if i == 0 else " ", ln))
+    return out or [" " + rgb(GREEN, sym("\u25cf ", "* ") + T("clear"))]
+
+
+def render_hud(st, width, height, frame, view):
+    """cyber 主題的分頁畫面。總覽一定放得進一個畫面；細節在其他分頁。"""
+    clock = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))
+    head = [hud_header(st, width, clock, frame), hud_tabs(view, width)] + verdict_line(verdict(st), width).split("\n")
+    body = []
+    if view == "overview":
+        body += hero_panel(st, width, frame)
+        if st["machines"]:
+            rows = [machine_row(m, width - 4) for m in st["machines"]]
+            errors = [a for a in st["alerts"] if a["kind"] == "machine_unreachable"]
+            rows += [" %s %s" % (rgb(RED, "!"), bold(a["machine"]) + " " + dim(T("v_down") % "")) for a in errors]
+            watts = sum(m["power_w"] or 0 for m in st["machines"])
+            body += panel(ptitle(2, T("compute")), dim(T("power_now") % ("%.0f W" % watts)) + dim("  [3]"), rows, width, 0)
+        col = (width - 2) // 2 if width >= 110 else width
+        left = panel(ptitle(3, T("tab_spend")) + " " + dim(st["month"]), dim("[5]"), spend_lines(st, col - 4), col, 0)
+        att = attention_lines(st, col - 4)
+        room = max(4, (height or 60) - len(head) - len(body) - 5)
+        if len(att) > room:
+            att = att[:room - 1] + [dim("  \u2026 " + T("more_in_tab"))]
+        right = panel(ptitle(4, T("tab_attention")), "", att, col, 0)
+        body += side_by_side(left, right) if col < width else left + right
+    elif view == "limits":
+        body += hero_panel(st, width, frame)
+        body += quota_panel(st, width) or []
+    elif view == "machines":
+        energy = {r["machine"]: r for r in st["energy"]}
+        errors = {a["machine"]: a for a in st["alerts"] if a["kind"] == "machine_unreachable"}
+        panels = [machine_panel(m, (width - 2) // 2 if width >= 150 else width, energy.get(m["machine"]))
+                  for m in st["machines"]]
+        panels += [machine_panel(None, (width - 2) // 2 if width >= 150 else width, error=e)
+                   for n, e in errors.items() if n not in {m["machine"] for m in st["machines"]}]
+        if st["cloud"]:
+            panels.append(cloud_panel(st, (width - 2) // 2 if width >= 150 else width))
+        if not panels:
+            panels = [panel(bold(T("compute")), "", [dim(" " + T("no_machines"))], width)]
+        if width >= 150:   # 兩欄並排，不要一路往下疊
+            for i in range(0, len(panels), 2):
+                body += side_by_side(panels[i], panels[i + 1] if i + 1 < len(panels) else [])
+        else:
+            for pnl in panels:
+                body += pnl
+    elif view == "local":
+        body += local_panel(st, width) or panel(ptitle(3, T("l_title")), "", [dim(" " + T("b_none"))], width)
+        body += [dim("  " + T("local_tip"))]
+    elif view == "spend":
+        body += usage_panel(st, width) + alerts_panel(st, width) + advice_panel(st, width)
+    keys = dim(sym(" \u00b7 ", " | ").join(T("hud_keys")))
+    return "\n".join(head + [""] + body + [ticker(st, width, frame), keys])
+
+
+def render_live(st, width=100, color=False, ascii_=False, height=None, theme_name=None, frame=0, view=None):
     """整個畫面：上面一行總覽，下面是算力（每台機器、雲端）、AI 用量、警示。
     寬度夠（>= 150）就兩欄：左邊算力，右邊 AI 用量和警示；不夠就上下排。"""
     global _frame
     set_style(color, ascii_, theme_name)
     _frame = frame
     width = max(60, width)
+    if view and theme().get("flat"):
+        return render_hud(st, width, height, frame, view)
     clock = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))
     if theme().get("flat"):
         head = hud_header(st, width, clock, frame) + "\n" + verdict_line(verdict(st), width)
@@ -5415,6 +5545,7 @@ def run_live(interval, sample_every, intro=True):
             tty.setcbreak(sys.stdin.fileno())
         sys.stdout.write("\033[?1049h\033[?25l\033[2J")  # 換到另一個畫面、藏游標，離開時還原
         frame = 0
+        view = "overview"
         ascii_ = not can_draw_blocks()
         if intro and config_theme() == "cyber":
             set_style(color, ascii_, "cyber")
@@ -5443,11 +5574,16 @@ def run_live(interval, sample_every, intro=True):
             with lock:
                 st = box["st"]
             cols, rows = shutil.get_terminal_size((100, 40))
-            text = (render_live(clean_strings(st), cols, color, ascii_=ascii_, height=rows, frame=frame) if st
+            text = (render_live(clean_strings(st), cols, color, ascii_=ascii_, height=rows, frame=frame, view=view) if st
                     else "ComputAI: reading logs and machines...")
             draw(text, rows)
-            if read_key(tick) in ("q", "Q"):
+            k = read_key(tick)
+            if k in ("q", "Q"):
                 break
+            if k and k in "12345":                       # 數字鍵切分頁，Tab 換下一頁
+                view = HUD_VIEWS[int(k) - 1]
+            elif k == "\t":
+                view = HUD_VIEWS[(HUD_VIEWS.index(view) + 1) % len(HUD_VIEWS)]
             frame += 1
     except KeyboardInterrupt:
         pass

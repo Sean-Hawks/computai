@@ -2,13 +2,13 @@
  [WATCH] Codex weekly limit has only 7% left - resets in 8h20m
 
 ┌── ◢01 LIMITS ────────────────────────────────────────────────────────────────── 1 nearly used up ┐
-│ Codex weekly limit LEFT      Claude Code 5-hour limit L   TODAY'S USAGE VALUE                    │
-│ ▀▀█ ▀ █                      █▀▀ █▀█ ▀ █                  ▄█▀ ▄█  ▄█      █▀▀ █▀█                │
-│  ▄▀ ▄▀                       ▀▀█ █▀█ ▄▀                    █▄  █   █      ▀▀█ █ █                │
-│  ▀  ▀ ▀                      ▀▀▀ ▀▀▀ ▀ ▀                  ▀▀  ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀                │
-│ █|░░░░░░░░░░░░░░░░░░░░░░░░   ███████████|███░░░░░░░░░░░                                          │
-│ at this pace about 98% by    at this pace about 74% by    this month $15.50                      │
-│ the reset in 8h20m           the reset in 2h10m                                                  │
+│ Codex weekly limit LEFT      Claude Code 5-hour limit LEFT   TODAY'S USAGE VALUE                 │
+│ ▀▀█ ▀ █                      █▀▀ █▀█ ▀ █                     ▄█▀ ▄█  ▄█      █▀▀ █▀█             │
+│  ▄▀ ▄▀                       ▀▀█ █▀█ ▄▀                       █▄  █   █      ▀▀█ █ █             │
+│  ▀  ▀ ▀                      ▀▀▀ ▀▀▀ ▀ ▀                     ▀▀  ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀             │
+│ █|░░░░░░░░░░░░░░░░░░░░░░░░   ████████████|████░░░░░░░░░░░░                                       │
+│ at this pace about 98% by    at this pace about 74% by the   this month $15.50                   │
+│ the reset in 8h20m           reset in 2h10m                                                      │
 └── ┃ = time left in the window; a bar shorter than it is burning faster than time ────────────────┘
 
  ◢02 COMPUTE  2 machines · drawing 431 W now ⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿ · GPU avg 56%
@@ -52,5 +52,5 @@
 ┌── ◢06 ADVICE ────────────────────────────────────────────────────────────────────────────────────┐
 │ → Codex: example advice                                                                          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-▶ gpubox busy  ◆  Codex weekly limit 93% · resets in 8h20m  ◆  Claude Code 5-hour limit 42% · reset
+▶ gpubox busy  ◆  Codex weekly limit 7% left · resets in 8h20m  ◆  Claude Code 5-hour limit 58% lef
 q quit · -n SEC refresh · computai --web for the browser · --analyze for advice

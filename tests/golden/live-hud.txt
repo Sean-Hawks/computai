@@ -1,0 +1,26 @@
+ ◢◤ C O M P U T A I ◥◣  AI COMPUTE LEDGER                             ● 2/2 NODES ONLINE  ⠀⠀⠀⠀⠀⣿⣿⣿  2026-09-21 14:13:20 
+ [1 OVERVIEW]  2 LIMITS   3 MACHINES   4 LOCAL MODELS   5 SPEND 
+ [WATCH] Codex weekly limit has only 7% left - resets in 8h20m
+
+┌── ◢01 LIMITS ────────────────────────────────────────────────────────────────────────────────────── 1 nearly used up ┐
+│ Codex weekly limit LEFT      Claude Code 5-hour limit LEFT   TODAY'S USAGE VALUE       POWER NOW (W)                 │
+│ ▀▀█ ▀ █                      █▀▀ █▀█ ▀ █                     ▄█▀ ▄█  ▄█      █▀▀ █▀█   █ █ ▀▀█ ▄█                    │
+│  ▄▀ ▄▀                       ▀▀█ █▀█ ▄▀                       █▄  █   █      ▀▀█ █ █   ▀▀█ ▀▀█  █                    │
+│  ▀  ▀ ▀                      ▀▀▀ ▀▀▀ ▀ ▀                     ▀▀  ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀     ▀ ▀▀▀ ▀▀▀                   │
+│ █|░░░░░░░░░░░░░░░░░░░░░░░░   ████████████|████░░░░░░░░░░░░                                                           │
+│ at this pace about 98% by    at this pace about 74% by the   this month $15.50         2 machines                    │
+│ the reset in 8h20m           reset in 2h10m                                                                          │
+└── ┃ = time left in the window; a bar shorter than it is burning faster than time ────────────────────────────────────┘
+┌── ◢02 COMPUTE ─────────────────────────────────────────────────────────────────────────────── drawing 431 W now  [3] ┐
+│ ⠋ gpubox          CPU ████░░░░  50%  GPU ███████░  90%  MEM  33%   410W  Qwen/Qwen3-32B                              │
+│ ○ mac             CPU ██░░░░░░  21%  GPU ██░░░░░░  22%  MEM  85%    21W  qwen3:0.6b                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌── ◢03 SPEND 2026-09 ─────────────────────────────── [5] ┐  ┌── ◢04 ATTENTION ────────────────────────────────────────┐
+│ Claude Code   used $14.40 worth                         │  │ → Codex: example advice                                 │
+│ Codex         used $1.10 worth                          │  └─────────────────────────────────────────────────────────┘
+│ Local models  438k tokens · free apart from electricit  │  
+│ You will actually pay about $0.01 this month (plans +   │  
+│ cloud + electricity)                                    │  
+└─────────────────────────────────────────────────────────┘  
+▶ gpubox busy  ◆  Codex weekly limit 7% left · resets in 8h20m  ◆  Claude Code 5-hour limit 58% left · resets in 2h10m 
+1-5 switch tabs · Tab next · q quit · computai --web for the browser
