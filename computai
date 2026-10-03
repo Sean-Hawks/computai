@@ -4079,19 +4079,26 @@ def system_lang():
     """系統語言是中文就用 zh，否則 en。先看 LC_ALL／LC_MESSAGES／LANG，macOS 再看系統偏好的語言
     （終端機常常沒設 LANG），Windows 看 locale。"""
     global _sys_lang
+    forced = os.environ.get("COMPUTAI_LANG", "").strip().lower()[:2]
+    if forced in UI:
+        return forced
     if _sys_lang is None:
         _sys_lang = "en"
         for k in ("LC_ALL", "LC_MESSAGES", "LANG"):
             v = os.environ.get(k, "")
             if v and v not in ("C", "POSIX") and not v.startswith("C."):
                 _sys_lang = "zh" if v.lower().startswith("zh") else "en"
-                return _sys_lang
+                break
+        # macOS 的終端機（cmux、Ghostty 等）常常不管系統語言一律設 LANG=en_US，所以英文不算數，
+        # 再看系統偏好的語言；真的想要英文就設 lang = en。
+        if _sys_lang == "zh":
+            return _sys_lang
         if sys.platform == "darwin" and not os.environ.get("COMPUTAI_FIXTURES"):
             out = run_cmd(["defaults", "read", "-g", "AppleLanguages"], timeout=3)
             first = re.search(r'"?([A-Za-z-]+)"?', out.replace("(", "").strip())
             if first and first.group(1).lower().startswith("zh"):
                 _sys_lang = "zh"
-        elif os.name == "nt":
+        elif os.name == "nt" and not any(os.environ.get(k) for k in ("LC_ALL", "LC_MESSAGES", "LANG")):
             import locale
             try:
                 if (locale.getdefaultlocale()[0] or "").lower().startswith("zh"):

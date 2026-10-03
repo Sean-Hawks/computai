@@ -71,7 +71,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--live [-n SEC]` | Live terminal dashboard: one panel per machine (bars and sparklines for CPU, memory, every GPU and power, plus its inference servers), AI usage with limit bars and 14-day cost trends, and alerts. Two columns on wide terminals, one line per machine when the window is short. `q` quits. |
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
 | `--theme cyber\|classic` | Neon cyberpunk look (default) or the calmer slurmtop look, for the terminal, web, report and recap (or `[general] theme`). |
-| `--lang zh` | Traditional Chinese for the live and web dashboards and `--line` (or `[general] lang = zh`). |
+| `--lang zh` | Traditional Chinese for the live and web dashboards and `--line` (or `[general] lang = zh`). The default `lang = auto` follows the system language; on macOS it uses the system's preferred language, because terminals such as cmux and Ghostty set `LANG=en_US` regardless. `COMPUTAI_LANG=en` or `lang = en` forces English. |
 | `--web [[HOST:]PORT]` | Browser dashboard (phone layout), `/api/state` JSON and `/metrics` for Prometheus. Default `127.0.0.1:8765`. |
 | `--recap [YEAR] [--html FILE]` | A year in review (tokens, value, active days, streak, busiest day, favourite models, local inference); the HTML card leaves out project and machine names so it can be shared. Plan fees are counted for each month with usage, at today's `[plans]` prices. |
 | `--weekly [--send]` | The last 7 days in a few lines; `--send` posts it to `DISCORD_WEBHOOK_URL` and/or Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`), read like other secrets. Run it from cron for a weekly message. |

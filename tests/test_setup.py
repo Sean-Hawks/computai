@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 
 from tests import helpers
 
@@ -270,9 +271,15 @@ class Lang(unittest.TestCase):
             m = helpers.load()
             os.environ["LANG"] = "zh_TW.UTF-8"
             self.assertEqual(m.system_lang(), "zh")
-            m = helpers.load()
-            os.environ["LANG"] = "en_US.UTF-8"
-            self.assertEqual(m.system_lang(), "en")
+            for apple, want in (('(\n    "en-US"\n)', "en"), ('(\n    "zh-Hant-TW"\n)', "zh")):
+                m = helpers.load()
+                os.environ.pop("COMPUTAI_FIXTURES", None)
+                m.run_cmd = lambda *a, **k: apple
+                os.environ["LANG"] = "en_US.UTF-8"                # cmux／Ghostty 的預設，不代表使用者的選擇
+                with mock.patch.object(m.sys, "platform", "darwin"):
+                    self.assertEqual(m.system_lang(), want)
+            os.environ["COMPUTAI_LANG"] = "zh"
+            self.assertEqual(m.system_lang(), "zh")               # 環境變數直接指定
             cp = m._ini()
             cp.read_string("[general]\nlang = zh\n")
             self.assertEqual(m.config_lang(cp), "zh")             # 明確指定的優先
