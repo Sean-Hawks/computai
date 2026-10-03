@@ -45,7 +45,12 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
   subagent 的請求會標記；工作目錄就是專案。
 - **Codex**：每個 `token_count` 事件一列。OpenAI 的 `input_tokens` 包含快取命中的部分，
   ComputAI 會扣掉，讓兩家的欄位意思一致。加總跟 Codex 自己記的每個 thread 的 `tokens_used` 一樣。
-- **額度**：兩家都讀整個帳號的數字（別台電腦、T3 Code、claude.ai、別人用的都算），每 10 分鐘一次：
+- **額度**：兩家都讀整個帳號的數字（別台電腦、T3 Code、claude.ai、別人用的都算）。多久查一次跟著消耗速度走：
+  - 沒有快用完的額度時每 `poll_minutes`（預設 10 分鐘）一次；燒得快時加快，最短 1 分鐘（剩餘 % ÷ 消耗速度 ÷ 4）。
+    變快立刻採用，變慢則慢慢放鬆，不會剛停下來就回到慢速。
+  - 任何視窗的重置時間一到，過 30 秒多查一次，恢復的數字馬上看得到。
+  - 消耗速度用帳本裡同一個視窗的連續樣本算。`computai --doctor` 會顯示下次查詢的時間和原因
+    （「每週額度照速度 3h00m 後用完 → 每 45m」）；`[limits] refresh = fixed` 改回固定每 `poll_minutes` 一次。
   - Claude：問官方的 `claude` 程式（`claude -p /usage`，本機指令，不呼叫模型、不花額度），限 Pro、Max 帳號。
     也可以把 Claude Code 的 statusLine 設成 `computai --statusline`（見 [one-line.md](one-line.md)），每次回應都會更新。
   - Codex：問官方的 `codex` 程式（`codex app-server`）；log 裡的額度視窗也會讀。

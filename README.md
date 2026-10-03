@@ -226,8 +226,8 @@ The snippet `--card --setup` adds to your README:
 
 ## Privacy and security
 
-- Claude limits for your whole account come from asking the official `claude` CLI (`claude -p /usage`, a local command that calls no model) every 10 minutes. The CLI uses its own login; ComputAI only receives percentages and reset times and ignores the rest of the report (`[claude] poll_minutes = 0` turns it off).
-- Codex limits for your whole account (every machine and person on it) come from asking the official `codex` CLI (`codex app-server`, `account/rateLimits/read`) every 10 minutes. The CLI uses its own login; ComputAI only receives percentages and reset times (`[codex] poll_minutes = 0` turns it off).
+- Claude limits for your whole account come from asking the official `claude` CLI (`claude -p /usage`, a local command that calls no model): every 10 minutes when calm, down to every minute while a limit burns fast, and 30 seconds after a reset. The CLI uses its own login; ComputAI only receives percentages and reset times and ignores the rest of the report (`[claude] poll_minutes = 0` turns it off).
+- Codex limits for your whole account (every machine and person on it) come from asking the official `codex` CLI (`codex app-server`, `account/rateLimits/read`), on the same burn-rate schedule. The CLI uses its own login; ComputAI only receives percentages and reset times (`[codex] poll_minutes = 0` turns it off).
 - Reads only usage fields from your logs. Prompts and responses are never read into the
   ledger, stored or sent anywhere. `~/.codex/auth.json` and Claude's OAuth tokens are never read.
 - API keys come from environment variables or a `chmod 600` `secrets.ini`, and never appear in

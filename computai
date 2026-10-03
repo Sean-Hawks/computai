@@ -145,6 +145,11 @@ poll_minutes = 10
 # reads it. 0 turns this off.
 poll_minutes = 10
 
+[limits]
+# adaptive: ask more often while a limit burns fast (remaining % / burn rate / 4, between 1 minute and
+# poll_minutes), and once more 30 seconds after any window resets. fixed: always every poll_minutes.
+refresh = adaptive
+
 [card]
 # Keep a GitHub profile card up to date: once a day computai (and --web / --watch) writes
 # computai-card.svg + computai-card-light.svg into this git repo folder and commits them.
@@ -1293,6 +1298,99 @@ def claude_poll_minutes(cp=None):
 def codex_poll_minutes(cp=None):
     cp = cp or load_config()
     return _float(cp.get("codex", "poll_minutes", fallback="10"), 10.0)
+
+
+LIMIT_POLL_MIN = 60       # 自適應查詢最短 1 分鐘
+LIMIT_RESET_GRACE = 30    # 重置時間到了，過 30 秒再多查一次
+LIMIT_RELAX = 0.3         # 消耗變慢時新速度的權重
+
+
+def limits_refresh(cp=None):
+    """[limits] refresh：adaptive（預設，照消耗速度決定多久查一次）或 fixed（固定照 poll_minutes）。"""
+    cp = cp or load_config()
+    v = (cp.get("limits", "refresh", fallback="adaptive") or "adaptive").strip().lower()
+    return "fixed" if v == "fixed" else "adaptive"
+
+
+def poll_interval(left, rate, base):
+    """剩餘 % ÷ 消耗速度（%/秒）÷ 4，夾在 1 分鐘和設定值（秒）之間；沒在消耗或已經用完就是設定值。"""
+    if rate <= 0 or left <= 0:
+        return base
+    return max(min(LIMIT_POLL_MIN, base), min(base, left / rate / 4.0))
+
+
+def limit_burn(samples, t, base):
+    """從同一個視窗的連續樣本 [(ts, 已用 %)] 算平滑過的消耗速度（%/秒）。
+    變快立刻採用；變慢只用權重 0.3 慢慢放鬆。帳本只在數字變了才寫，所以兩筆樣本之間（和最後一筆到現在）
+    照當時的間隔應該查過、卻沒看到變化的每一次，都當成一次速度 0 的觀察。"""
+    rate = 0.0
+    for i, (ts, used) in enumerate(samples):
+        end = samples[i + 1][0] if i + 1 < len(samples) else t
+        at = ts
+        for _ in range(500):   # 速度掉到很低時間隔會拉到設定值，次數有上限
+            if rate <= 0:
+                break
+            at += poll_interval(100.0 - used, rate, base)
+            if at >= end:
+                break
+            rate *= 1 - LIMIT_RELAX
+        if i + 1 < len(samples):
+            nts, nused = samples[i + 1]
+            seen = max(0.0, (nused - used) / max(1, nts - ts))
+            rate = seen if seen >= rate else rate + LIMIT_RELAX * (seen - rate)
+    return rate
+
+
+def limit_poll_why(plan):
+    """把 limit_poll_plan 的原因寫成一句話，例如「每週額度照速度 3h00m 後用完 → 每 1m」。"""
+    why, a, every = plan["why"], plan["args"], fmt_dur(plan["interval"])
+    if why == "burn":
+        return T("why_burn") % (limit_label(a["name"]), fmt_dur(a["eta"]), every)
+    if why == "reset":
+        return T("why_reset") % limit_label(a["name"])
+    return T("why_" + why) % every if why != "first" else T("why_first")
+
+
+def limit_poll_plan(db, source, last, t=None, cp=None):
+    """下次什麼時候查這個來源（claude、codex）的帳號額度，以及原因。last 是上次查的時間（epoch，沒查過是 None）。
+    回傳 {"at", "interval", "why", "args"}；這個來源沒開就回傳 None。
+    why：first（還沒查過）、fixed、idle（沒在消耗）、calm（不會很快用完）、burn（照速度快用完）、reset（剛好遇到重置）。"""
+    cp = cp or load_config()
+    t = now() if t is None else t
+    base = (claude_poll_minutes(cp) if source == "claude" else codex_poll_minutes(cp)) * 60
+    if base <= 0:
+        return None
+    rows = [r for r in current_limits(db, t) if r["source"] == source]
+    plan = {"interval": base, "why": "fixed", "args": {}}
+    if limits_refresh(cp) == "adaptive":
+        plan["why"] = "idle"
+        for r in rows:
+            if r["stale"] or not r["resets_at"]:
+                continue
+            samples = [(x["ts"], x["used_percent"] or 0.0) for x in db.execute(
+                "SELECT ts, used_percent FROM limits WHERE source = ? AND name = ? AND resets_at = ? AND ts >= ? "
+                "AND ts <= ? ORDER BY ts", (source, r["name"], r["resets_at"], t - 6 * 3600, t))]
+            rate = limit_burn(samples, t, base)
+            if rate <= 0:
+                continue
+            left = 100.0 - (r["used_percent"] or 0.0)
+            iv = poll_interval(left, rate, base)
+            if iv < plan["interval"]:
+                plan.update(interval=iv, why="burn", args={"name": r["name"], "eta": round(left / rate)})
+            elif plan["why"] == "idle":
+                plan["why"] = "calm"
+    if last is None:
+        plan.update(at=t, why="first", args={})
+        return plan
+    plan["at"] = last + plan["interval"]
+    if plan["why"] != "fixed":   # 任何視窗一重置就多查一次，不用等到下個間隔
+        resets = [r["resets_at"] + LIMIT_RESET_GRACE for r in rows
+                  if r["resets_at"] and r["resets_at"] + LIMIT_RESET_GRACE > last]
+        if resets and min(resets) < plan["at"]:
+            r0 = min(resets)
+            name = [r["name"] for r in rows if r["resets_at"] and r["resets_at"] + LIMIT_RESET_GRACE == r0][0]
+            plan.update(at=r0, why="reset", args={"name": name})
+    return plan
 
 
 def limit_reset_rows(db, source, t=None):
@@ -4379,6 +4477,7 @@ class Updater:
         self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300,
                       "codex": codex_poll_minutes() * 60, "claude": claude_poll_minutes() * 60}
         self.last = {k: 0.0 for k in self.every}
+        self.next_poll = {"codex": 0.0, "claude": 0.0}   # 下次查帳號額度的時間（epoch）
         self.insights = []
         self.stop = threading.Event()
 
@@ -4390,18 +4489,20 @@ class Updater:
         if self.every["machines"] > 0 and t - self.last["machines"] >= self.every["machines"] and machines():
             self.last["machines"] = t
             sample_machines(db)
-        if self.every["codex"] > 0 and t - self.last["codex"] >= self.every["codex"]:
-            self.last["codex"] = t   # 整個帳號的 Codex 額度（別台電腦、別人用的也算）
+        # 整個帳號的額度（別台電腦、別人、T3 Code、claude.ai 用的也算）；多久查一次跟著消耗速度走
+        for src, poll in (("codex", codex_account_poll), ("claude", claude_account_poll)):
+            if self.every[src] <= 0 or now() < self.next_poll[src]:
+                continue
             try:
-                codex_account_poll(db)
+                poll(db)
             except Exception as e:
-                warn("codex limits failed: %r" % (e,))
-        if self.every["claude"] > 0 and t - self.last["claude"] >= self.every["claude"]:
-            self.last["claude"] = t   # 整個帳號的 Claude 額度（T3 Code、別台電腦、claude.ai 用的也算）
+                warn("%s limits failed: %r" % (src, e))
             try:
-                claude_account_poll(db)
+                plan = limit_poll_plan(db, src, now())
+                self.next_poll[src] = plan["at"] if plan else float("inf")
             except Exception as e:
-                warn("claude limits failed: %r" % (e,))
+                self.next_poll[src] = now() + self.every[src]
+                warn("%s limit schedule failed: %r" % (src, e))
         card = card_settings()
         if card["repo"] and time.time() - self.card_at >= 86400:   # 個人頁卡片一天更新一次
             self.card_at = time.time()
@@ -4477,7 +4578,11 @@ UI = {
         "dr_plan": "%s plan: %s, %s/month", "dr_plan_det": "the logs say %r",
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
         "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
-        "dr_cl_cli": "Claude account limits are read from the claude CLI every %d minutes (no status line needed)",
+        "dr_cl_cli": "Claude account limits are read from the claude CLI at least every %d minutes (no status line needed)",
+        "dr_next": "%s limits: next check %s (%s)", "dr_now": "now", "dr_in": "in %s",
+        "why_first": "not read yet", "why_fixed": "fixed: every %s", "why_idle": "not being used: every %s",
+        "why_calm": "nothing close to running out: every %s",
+        "why_burn": "%s runs out in %s at this pace: every %s", "why_reset": "%s resets: check 30 seconds after",
         "dr_sl_other": "Claude Code uses another status line; combine it with computai to see Claude limits",
         "dr_sl_none": "Claude limit percentages need the claude CLI (logged in) or computai as Claude Code's status line",
         "dr_unreach": "%s: cannot read", "dr_pw_plug": "power measured by the plug %s",
@@ -4668,7 +4773,11 @@ UI = {
         "dr_plan": "%s 方案：%s，每月 %s", "dr_plan_det": "log 裡記錄的是 %r",
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
         "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
-        "dr_cl_cli": "Claude 帳號額度每 %d 分鐘從 claude 程式讀一次（不用設 statusline）",
+        "dr_cl_cli": "Claude 帳號額度從 claude 程式讀，最久 %d 分鐘一次（不用設 statusline）",
+        "dr_next": "%s 額度：%s再查（%s）", "dr_now": "現在", "dr_in": "%s 後",
+        "why_first": "還沒讀過", "why_fixed": "固定每 %s", "why_idle": "沒在消耗 → 每 %s",
+        "why_calm": "沒有快用完的額度 → 每 %s",
+        "why_burn": "%s照速度 %s 後用完 → 每 %s", "why_reset": "%s重置 → 過 30 秒多查一次",
         "dr_sl_other": "Claude Code 用的是別的 statusline；要跟 computai 並用才看得到 Claude 額度",
         "dr_sl_none": "要看 Claude 的額度百分比，需要裝好並登入 claude 程式，或把 computai 設成 Claude Code 的 statusline",
         "dr_unreach": "%s：讀不到", "dr_pw_plug": "功耗由插座 %s 實測",
@@ -8848,6 +8957,15 @@ def doctor(db, sample=True):
             add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
         else:
             add("claude", "todo", T("dr_sl_none"), "computai --setup")
+    # 帳號額度下次什麼時候查、為什麼（跟著消耗速度走）
+    for src, name in (("claude", "Claude"), ("codex", "Codex")):
+        row = db.execute("SELECT value FROM meta WHERE key = ?", (src + "_account_read",)).fetchone()
+        if row is None and (os.environ.get("COMPUTAI_FIXTURES") or not shutil.which(src)):
+            continue
+        plan = limit_poll_plan(db, src, float(row["value"]) if row else None, t=t)
+        if plan:
+            add(src, "ok", T("dr_next") % (name, T("dr_now") if plan["at"] <= t else T("dr_in") % fmt_dur(plan["at"] - t),
+                                           limit_poll_why(plan)))
     # 機器
     ms = machines()
     snaps = sample_machines(db) if (sample and ms) else {}
