@@ -3880,7 +3880,7 @@ UI = {
         "dr_all_ok": "Everything is set up.", "dr_todo": "%d thing(s) to set up: run computai --setup, or the commands above.",
         "su_searching": "searching (SSH to each candidate, up to 15 s)...", "su_per_month": "%s/month",
         "su_intro": "ComputAI setup", "su_keys": "Enter accepts the value in [brackets], s skips a step, Ctrl-C quits without saving.",
-        "su_lang": "Language / 語言 (en, zh)", "su_plans": "Subscriptions", "su_detected": "the logs say %r",
+        "su_lang": "Language / 語言 (en, zh)", "su_theme": "Look: cyber (neon) or classic", "su_plans": "Subscriptions", "su_detected": "the logs say %r",
         "su_none": "I don't pay for this", "su_custom": "other (type name and price)", "su_current": "now: %s",
         "su_pick": "Choice", "su_plan_name": "Plan name", "su_plan_usd": "USD per month", "su_bad": "not understood, skipped",
         "su_sl": "Claude limit percentages",
@@ -3954,7 +3954,7 @@ UI = {
         "dr_all_ok": "全部設定好了。", "dr_todo": "還有 %d 件事要設定：跑 computai --setup，或照上面的指令做。",
         "su_searching": "搜尋中（逐台試 SSH，最多 15 秒）…", "su_per_month": "每月 %s",
         "su_intro": "ComputAI 設定", "su_keys": "Enter 接受 [方括號] 裡的值，s 跳過這一步，Ctrl-C 離開且不存檔。",
-        "su_lang": "Language / 語言 (en, zh)", "su_plans": "訂閱方案", "su_detected": "log 裡記錄的是 %r",
+        "su_lang": "Language / 語言 (en, zh)", "su_theme": "外觀：cyber（霓虹）或 classic", "su_plans": "訂閱方案", "su_detected": "log 裡記錄的是 %r",
         "su_none": "沒有付這個", "su_custom": "其他（自己輸入名稱和價格）", "su_current": "目前：%s",
         "su_pick": "選擇", "su_plan_name": "方案名稱", "su_plan_usd": "每月美元", "su_bad": "看不懂，先跳過",
         "su_sl": "Claude 額度百分比",
@@ -5557,6 +5557,10 @@ class Setup:
         if a in UI and a != cur:
             self.changes.append(("general", "lang", a))
             set_lang(a)
+        cur_t = config_theme()
+        b = self.q(T("su_theme"), cur_t).lower()
+        if b in THEMES and b != cur_t:
+            self.changes.append(("general", "theme", b))
 
     # 月費
     def step_plans(self):
