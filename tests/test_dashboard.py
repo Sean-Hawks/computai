@@ -55,7 +55,7 @@ class Dashboard(unittest.TestCase):
 
     def test_live_render_has_three_areas(self):
         text = self.m.render_live(self.st, 90)
-        for title in ("COMPUTE", "AI SUBSCRIPTIONS", "ALERTS", "\u25e2mac"):
+        for title in ("COMPUTE", "AI SUBSCRIPTIONS", "ALERTS", "\u2500 mac "):
             self.assertIn(title, text)
         self.assertIn("ollama:11434", text)
         self.assertIn("qwen3:0.6b", text)
@@ -72,9 +72,9 @@ class Dashboard(unittest.TestCase):
     def test_compact_when_short(self):
         text = self.m.render_live(self.st, 100, height=18)
         self.assertIn("MACHINES", text)
-        self.assertNotIn("\u25e2mac", text)
+        self.assertNotIn("\u2500 mac ", text)
         self.assertIn("mac", text)
-        self.assertIn("\u25e2mac", self.m.render_live(self.st, 100, height=200))
+        self.assertIn("\u2500 mac ", self.m.render_live(self.st, 100, height=200))
 
     def test_prometheus(self):
         text = self.m.prometheus(self.st)
@@ -288,5 +288,5 @@ class Hud(unittest.TestCase):
         done = self.m.render_boot(self.st, 80, 30, 99)
         self.assertIn("GENERATING  RTX", done)
         self.assertIn("DEPLETED", done)
-        self.assertIn("[ALERT]  SYSTEM READY", done)
+        self.assertIn("ALERT  SYSTEM READY", done)
         self.assertIn("linking", self.m.render_boot(None, 80, 30, 0))
