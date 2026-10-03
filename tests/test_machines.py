@@ -23,6 +23,7 @@ class Snapshot(unittest.TestCase):
         s = self.m.remote_script([("ollama", 11434), ("vllm", 8000)])
         self.assertIn("echo '@@svc ollama 11434'", s)
         self.assertIn("get http://127.0.0.1:8000/metrics | grep -E '^(vllm:", s)
+        self.assertIn("/usr/lib/wsl/lib", s.split("@@cpu")[0])   # WSL 的 nvidia-smi 不在 ssh 的 PATH 裡
 
     def test_mac_with_ollama(self):
         d = self.m.snapshot("mac", self.svc)

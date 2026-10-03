@@ -1219,6 +1219,8 @@ SERVICE_KINDS = {
 DEFAULT_SERVICES = "ollama:11434, llamacpp:8080, vllm:8000, sglang:30000, lmstudio:1234"
 
 REMOTE = """
+# 非互動的 ssh 不會讀登入設定，WSL 的 nvidia-smi（/usr/lib/wsl/lib）和某些驅動的路徑不在 PATH 裡
+PATH="$PATH:/usr/lib/wsl/lib:/usr/local/nvidia/bin:/opt/bin"; export PATH
 echo '@@cpu'
 if [ -r /proc/stat ]; then
   head -1 /proc/stat
