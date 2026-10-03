@@ -25,6 +25,16 @@ class Paint(unittest.TestCase):
         self.assertEqual(m.spark([150], 1, top=300), "▅")
         self.assertEqual(m.spark([], 3), "···")
 
+    def test_relative_spark_is_single_colour_and_flat_in_the_middle(self):
+        m = self.m
+        m.set_style(color=False)
+        self.assertEqual(m.spark([5, 5, 5], 3, relative=True), "\u2585" * 3)
+        self.assertEqual(m.spark([10, 20], 2, relative=True)[-1], "\u2588")
+        m.set_style(color=True)
+        out = m.spark([1, 2, 3], 3, color=(1, 2, 3), relative=True)
+        self.assertEqual(out.count("38;2;1;2;3m"), 3)
+        m.set_style()
+
     def test_panel_width_and_clip_keep_colors_intact(self):
         m = self.m
         m.set_style(color=True)

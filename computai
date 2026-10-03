@@ -3116,20 +3116,29 @@ def gradbar(pct, width=12):
     return lcap + "".join(cells) + rcap
 
 
-def spark(vals, width=12, top=100.0):
-    """歷史走勢（預設 0-100；top 給別的上限，例如功耗）。資料不夠的地方補點。"""
+def spark(vals, width=12, top=100.0, color=None, relative=False):
+    """歷史走勢（預設 0-100 用熱度上色）。relative=True 時依這段資料的最小到最大值縮放
+    （功耗、花費這種沒有固定上限的量），一律用 color 這一個顏色，平的時候畫在中間。"""
     chars = glyphs()[0]
+    dot = "." if _ascii else "\u00b7"
     v = [x for x in (vals or [])][-width:]
     if not v:
-        return rgb(GREY, ("." if _ascii else "·") * width)
-    out = [rgb(GREY, "." if _ascii else "·")] * (width - len(v))
+        return rgb(GREY, dot * width)
+    known = [x for x in v if x is not None]
+    lo, hi = 0.0, top
+    if relative and known:
+        lo, hi = min(known), max(known)
+        if hi - lo < 1e-9:
+            lo, hi = lo - 1, hi + 1
+        lo = max(0.0, lo - (hi - lo) * 0.15)
+    out = [rgb(GREY, dot)] * (width - len(v))
     for x in v:
         if x is None:
-            out.append(rgb(GREY, "." if _ascii else "·"))
+            out.append(rgb(GREY, dot))
             continue
-        pct = max(0.0, min(100.0, 100.0 * x / top)) if top else 0.0
+        pct = max(0.0, min(100.0, 100.0 * (x - lo) / (hi - lo))) if hi > lo else 0.0
         idx = min(len(chars) - 1, int(pct / 100 * (len(chars) - 1) + 0.5))
-        out.append(rgb(heat(pct), chars[idx]))
+        out.append(rgb(color or heat(pct), chars[idx]))
     return "".join(out)
 
 
@@ -3358,7 +3367,7 @@ UI = {
         "kwh_month": "%.2f kWh this month, AI %s", "busy": "busy", "idle": "idle",
         "no_model": "no model loaded", "rate": "%d req/5m, %s tok/s", "rate_tok": "%s tok/s",
         "no_server": "no inference server found", "usage": "AI USAGE", "api_equiv": "API-equivalent",
-        "resets": "resets in %s", "d14": "14d", "today_x": "today %s", "line_today": "today $%s", "tok_req": "%s tokens, %s requests",
+        "resets": "resets in %s", "d14": "14d", "today_x": "today %s", "line_today": "today $%s", "tok_req": "%s tokens, %s requests", "tok_only": "%s tokens",
         "no_usage": "no usage yet - run computai --sync", "today": "today", "month": "month",
         "forecast": "forecast", "cloud": "CLOUD", "alerts": "ALERTS", "clear": "all clear",
         "compute": "COMPUTE", "machines_n": "%d machines", "machine_1": "1 machine", "machines": "MACHINES",
@@ -3380,7 +3389,7 @@ UI = {
         "kwh_month": "本月 %.2f 度，AI 佔 %s", "busy": "推論中", "idle": "閒置",
         "no_model": "沒有載入模型", "rate": "5 分鐘 %d 個請求，%s tok/s", "rate_tok": "%s tok/s",
         "no_server": "沒有找到推論服務", "usage": "AI 用量", "api_equiv": "等值 API 花費",
-        "resets": "%s 後重置", "d14": "14天", "today_x": "今天 %s", "line_today": "今天 $%s", "tok_req": "%s token、%s 個請求",
+        "resets": "%s 後重置", "d14": "14天", "today_x": "今天 %s", "line_today": "今天 $%s", "tok_req": "%s token、%s 個請求", "tok_only": "%s token",
         "no_usage": "還沒有用量，先跑 computai --sync", "today": "今天", "month": "本月",
         "forecast": "月底預估", "cloud": "雲端", "alerts": "警示", "clear": "一切正常",
         "compute": "算力", "machines_n": "%d 台機器", "machine_1": "1 台機器", "machines": "機器",
@@ -3494,7 +3503,7 @@ def machine_panel(m, width, energy=None, error=None):
             extra = dim("  " + T("kwh_month") % (
                 energy["kwh"], "-" if energy["ai_share"] is None else "%d%%" % round(100 * energy["ai_share"])))
         lines.append(" %s %s %s%s" % (rgb(CYAN, "PWR"), rgb(MAG, "%5.0f W" % (m["power_w"] or 0)),
-                                       spark(ph, sp_w + 6, top=top), extra))
+                                       spark(ph, sp_w + 6, color=MAG, relative=True), extra))
     by_svc = {}
     for x in m.get("loaded") or []:
         by_svc.setdefault((x["service"], x.get("port")), []).append(x)
@@ -3538,10 +3547,11 @@ def usage_panel(st, width):
                                                  r["used_percent"], when))
         series = daily["sources"].get(x["source"])
         if series and any(series):
-            lines.append("   %s %s %s" % (dim(cell(T("d14"), 5)), spark(series, len(series), top=max(series)),
+            lines.append("   %s %s %s" % (dim(cell(T("d14"), 5)), spark(series, len(series), top=max(series), color=CYAN),
                                            dim(T("today_x") % fmt_usd(series[-1]))))
         if x["source"] == "local" and x["tokens"]:
-            lines.append(dim("   " + T("tok_req") % (fmt_tok(x["tokens"]), fmt_tok(x["requests"]))))
+            lines.append(dim("   " + (T("tok_req") % (fmt_tok(x["tokens"]), fmt_tok(x["requests"])) if x["requests"]
+                                      else T("tok_only") % fmt_tok(x["tokens"]))))
     for src, rows in lim.items():  # 有額度但這個月還沒有用量的來源
         for r in rows:
             lines.append(" %s %s %3.0f%%" % (bold(cell(T("src").get(src, src), 14)),
@@ -3617,7 +3627,7 @@ def render_live(st, width=100, color=False, ascii_=False, height=None):
             n = max(len(m["history"]["power"]) for m in st["machines"])
             total = [sum((m["history"]["power"][-n + i] or 0) if len(m["history"]["power"]) >= n - i else 0
                          for m in st["machines"]) for i in range(n)]
-            bits.append(rgb(MAG, "%.0f W" % watts) + " " + spark(total, 12, top=max(total + [1])))
+            bits.append(rgb(MAG, "%.0f W" % watts) + " " + spark(total, 12, color=MAG, relative=True))
         utils = [g["util"] for m in st["machines"] for g in m.get("gpus") or [] if g.get("util") is not None]
         if utils:
             avg = sum(utils) / len(utils)
