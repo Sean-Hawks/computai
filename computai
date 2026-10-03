@@ -7736,6 +7736,8 @@ def parse_args(argv=None):
                    help="which machine the proxied tokens belong to (default: the first local one)")
     p.add_argument("--sample-every", type=float, default=60, metavar="SEC",
                    help="while --proxy, --live or --web run, sample machines this often (0 = never)")
+    p.add_argument("--no-ledger", action="store_true",
+                   help="with --proxy: only keep token totals at /metrics (for a machine another computai samples)")
     p.add_argument("--no-usage-injection", action="store_true",
                    help="don't add stream_options.include_usage to streaming OpenAI requests")
     p.add_argument("--analyze", action="store_true",
@@ -7921,7 +7923,7 @@ def run(args, db):
     if args.proxy:
         db.close()
         return serve_proxy(args.listen, args.upstream, args.machine or default_machine(),
-                           args.sample_every, not args.no_usage_injection)
+                           args.sample_every, not args.no_usage_injection, False if args.no_ledger else None)
     if args.statusline:
         add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()), only_changes=True)
         db.commit()
