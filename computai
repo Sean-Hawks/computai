@@ -136,8 +136,11 @@ monthly_usd = 0
 repo =
 period = 30d
 push = no
-# The name on the card's title bar (SYS.<handle> // AI USAGE).
+# The name on the card's title bar (SYS.<handle> // AI USAGE); empty uses the repo's GitHub account.
 handle =
+# Look: computai (cyan to violet), amber, matrix, synthwave, mono. colors = #from, #to overrides it.
+style = computai
+colors =
 # Card language (en, zh); empty follows [general] lang.
 lang =
 
@@ -6085,13 +6088,43 @@ def send_report(text):
 
 # ---- 通知：有事時主動告訴你（狀態改變才送一次）
 
+_card_style_flag = None
+
+
+def args_style(cs):
+    """--card-style 優先，其次 [card] style。"""
+    return _card_style_flag if _card_style_flag in CARD_STYLES else cs["style"]
+
+
+def card_colors(spec):
+    """`#67e8f9, #a78bfa` -> ("#67e8f9", "#a78bfa")；格式不對就當沒設。"""
+    parts = [x.strip() for x in (spec or "").split(",")]
+    if len(parts) == 2 and all(re.match(r"^#[0-9a-fA-F]{6}$", x) for x in parts):
+        return tuple(parts)
+    return None
+
+
+def github_owner(repo):
+    """個人頁 repo 的 GitHub 帳號（從 origin 網址判斷），卡片標題預設就用它：SYS.<帳號>。"""
+    if not repo:
+        return None
+    path = os.path.expanduser(repo)
+    if not os.path.isdir(path) or not shutil.which("git"):
+        return None
+    url = run_cmd(["git", "-C", path, "remote", "get-url", "origin"], timeout=5).strip()
+    m = re.search(r"github\.com[:/]+([A-Za-z0-9-]{1,39})/", url)
+    return m.group(1) if m else None
+
+
 def card_settings(cp=None):
     """[card] repo = 個人頁 repo（或裡面的資料夾）：設了就由 computai / --web / --watch 每天更新一次卡片並 commit；
     push = yes 才會推上去。"""
     cp = cp or load_config()
     g = lambda k, d="": (cp.get("card", k, fallback=d) or d).strip()
     return {"repo": os.path.expanduser(g("repo")) if g("repo") else "", "period": g("period", "30d"),
-            "handle": re.sub(r"[^A-Za-z0-9_.-]", "", g("handle"))[:24] or None,
+            "handle": re.sub(r"[^A-Za-z0-9_.-]", "", g("handle"))[:24] or github_owner(g("repo")) or None,
+            "style": g("style", "computai").lower() if g("style", "computai").lower() in CARD_STYLES else "computai",
+            "colors": card_colors(g("colors")),
             "lang": g("lang").lower()[:2] if g("lang").lower()[:2] in UI else None,
             "push": g("push", "no").lower() in ("yes", "true", "1", "on")}
 
@@ -7132,14 +7165,41 @@ def card_extras(db, w, today, start, end):
 
 
 CARD_FONT = "'JetBrains Mono','Fira Code','SF Mono',Menlo,Consolas,'Liberation Mono','Noto Sans Mono CJK TC',monospace"
-CARD_PAL = {
-    "dark": {"bg": "#111018", "frame": "#2a2633", "grid": "#fbbf24", "grid_op": ".055", "text": "#ece8f4",
-             "gray": "#8b8597", "amber": "#fbbf24", "violet": "#a78bfa", "green": "#4ade80", "track": "#24212d",
-             "heat": ("#1d1b25", "#3b2f63", "#5b46a8", "#8b6cf0", "#fbbf24"), "chip": "#1a1822"},
-    "light": {"bg": "#fbfaff", "frame": "#ddd8ea", "grid": "#6d28d9", "grid_op": ".05", "text": "#1b1a22",
-              "gray": "#6b6577", "amber": "#b45309", "violet": "#6d28d9", "green": "#15803d", "track": "#ebe7f3",
-              "heat": ("#ece9f3", "#d8ccf9", "#b39af2", "#8b5cf6", "#d97706"), "chip": "#f3f0fa"},
+# 卡片的底色（深／淺）大家共用；主題只決定漸層（from -> to）、強調色（key：括號、標籤、最忙的日子）
+# 和熱力圖的四階。預設 computai 是品牌的青到紫；amber 是暖色的紫到琥珀。[card] colors = #起,#迄 可以自訂。
+CARD_BASE = {
+    "dark": {"bg": "#111018", "frame": "#2a2633", "grid_op": ".055", "text": "#ece8f4", "gray": "#8b8597",
+             "green": "#4ade80", "track": "#24212d", "empty": "#1d1b25", "chip": "#1a1822"},
+    "light": {"bg": "#fbfaff", "frame": "#ddd8ea", "grid_op": ".05", "text": "#1b1a22", "gray": "#6b6577",
+              "green": "#15803d", "track": "#ebe7f3", "empty": "#ece9f3", "chip": "#f3f0fa"},
 }
+CARD_STYLES = {
+    # 名稱: {模式: (from, to, key, 熱力圖四階)}
+    "computai": {"dark": ("#67e8f9", "#a78bfa", "#67e8f9", ("#173a44", "#1f6f80", "#3fb4c8", "#c4b5fd")),
+                 "light": ("#0e7490", "#6d28d9", "#0e7490", ("#cdeff5", "#7dd3e3", "#22a6bf", "#7c3aed"))},
+    "amber": {"dark": ("#a78bfa", "#fbbf24", "#fbbf24", ("#3b2f63", "#5b46a8", "#8b6cf0", "#fbbf24")),
+              "light": ("#6d28d9", "#b45309", "#b45309", ("#d8ccf9", "#b39af2", "#8b5cf6", "#d97706"))},
+    "matrix": {"dark": ("#22c55e", "#a3e635", "#4ade80", ("#123a22", "#166534", "#22c55e", "#bef264")),
+               "light": ("#15803d", "#4d7c0f", "#15803d", ("#d1f2dc", "#86efac", "#22c55e", "#4d7c0f"))},
+    "synthwave": {"dark": ("#f472b6", "#38bdf8", "#f472b6", ("#3d1d3a", "#7a2d6b", "#c0479a", "#38bdf8")),
+                  "light": ("#be185d", "#0369a1", "#be185d", ("#fbd5e8", "#f9a8d4", "#ec4899", "#0284c7"))},
+    "mono": {"dark": ("#f5f5f5", "#a3a3a3", "#e5e5e5", ("#2a2a2a", "#525252", "#8a8a8a", "#f5f5f5")),
+             "light": ("#171717", "#525252", "#171717", ("#e5e5e5", "#bdbdbd", "#7a7a7a", "#171717"))},
+}
+
+
+def card_palette(style="computai", mode="dark", colors=None):
+    """主題 + 深淺 -> 畫卡片要的所有顏色。colors=(起, 迄) 時用自訂漸層，強調色跟著用迄色。"""
+    base = dict(CARD_BASE.get(mode, CARD_BASE["dark"]))
+    st = CARD_STYLES.get(style, CARD_STYLES["computai"])[mode if mode in CARD_BASE else "dark"]
+    a, b, key, heat = st
+    if colors:
+        a, b = colors
+        key = b
+    base.update({"violet": a, "to": b, "amber": key, "grid": key, "heat": (base["empty"],) + tuple(heat)})
+    return base
+
+
 CARD_TXT = {
     "en": {"usage": "AI USAGE", "tokens": "TOKENS THROUGH AI AGENTS", "api": "AT API PRICES", "value": "SUBSCRIPTION VALUE",
            "activity": "ACTIVITY // 13 WEEKS", "less": "LESS", "more": "MORE", "rank": "RANK", "xp": "XP %d%% TO LV.%d",
@@ -7164,11 +7224,11 @@ def card_persona(key, lang):
     return name.upper() if lang == "en" else name
 
 
-def render_card_svg(c, theme="dark", handle=None, t=None, lang=None):
+def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="computai", colors=None):
     """GitHub 個人頁卡片（900x360）：琥珀四角括號、細格線、紫到琥珀的漸層大數字、13 週熱力圖（有掃描光）、
     等級環、裝備欄、一行事實、成就徽章，分隔線是近 30 天的脈搏。只有彙總數字和模型名稱；不放腳本和外部資源。
     動畫是 CSS／SMIL，系統設了「減少動態效果」就停。"""
-    p = CARD_PAL.get(theme, CARD_PAL["dark"])
+    p = card_palette(style, theme, colors)
     lang = lang if lang in CARD_TXT else _lang
     tx = CARD_TXT.get(lang, CARD_TXT["en"])
     W, H = 900, 360
@@ -7188,7 +7248,7 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None):
          '.on{animation:on 1.6s steps(2) infinite}@keyframes on{50%%{opacity:.25}}'
          '.ty{animation:ty 1.4s steps(24) .2s both}@keyframes ty{from{width:0}}'
          '@media (prefers-reduced-motion:reduce){.sc,.rg,.pl,.on,.ty{animation:none}}</style>' % (CARD_FONT, 2 * math.pi * 44),
-         '<defs><linearGradient id="ac" x1="0" x2="1"><stop offset="0" stop-color="%(violet)s"/><stop offset="1" stop-color="%(amber)s"/></linearGradient>'
+         '<defs><linearGradient id="ac" x1="0" x2="1"><stop offset="0" stop-color="%(violet)s"/><stop offset="1" stop-color="%(to)s"/></linearGradient>'
          '<linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="%(amber)s" stop-opacity="0"/><stop offset=".5" stop-color="%(amber)s" stop-opacity=".35"/>'
          '<stop offset="1" stop-color="%(amber)s" stop-opacity="0"/></linearGradient>'
          '<pattern id="gd" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="%(grid)s" stroke-opacity="%(grid_op)s"/></pattern>'
@@ -7319,7 +7379,7 @@ def publish_card(db, period, path, push=False, prices=None, plan_table=None):
     lines = []
     for theme, name in (("dark", names[0]), ("light", names[1])):
         with open(os.path.join(root, name), "w", encoding="utf-8") as f:
-            f.write(render_card_svg(c, theme, card_settings()["handle"], lang=card_settings()["lang"]))
+            f.write(render_card_svg(c, theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"]))
         lines.append("wrote %s" % os.path.join(root, name))
     r = git("add", "--", *names)
     if r.returncode:
@@ -8131,6 +8191,7 @@ def parse_args(argv=None):
                         "and commit them there (never pushes unless --push is also given)")
     p.add_argument("--push", action="store_true", help="with --card --publish: also run `git push` in that repo")
     p.add_argument("--card-theme", choices=sorted(CARD_THEMES), default="dark", help="with --card --svg: dark (default) or light")
+    p.add_argument("--card-style", choices=sorted(CARD_STYLES), help="with --card: computai (default), amber, matrix, synthwave or mono")
     p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
     p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
     p.add_argument("--lab", metavar="DIR", help="combine everyone's --totals files in a shared folder into one table")
@@ -8172,7 +8233,9 @@ def emit(obj, text, as_json):
 
 
 def main(argv=None):
+    global _card_style_flag
     args = parse_args(argv)
+    _card_style_flag = args.card_style
     if args.paths:
         print("config: " + config_dir())
         print("ledger: " + data_dir())
@@ -8378,12 +8441,12 @@ def run(args, db):
                 return 0
         if args.svg:
             with open(args.svg, "w", encoding="utf-8") as f:
-                f.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"]))
+                f.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"]))
             print("computai: wrote %s" % args.svg)
         elif args.json:
             emit(c, "", True)
         else:
-            sys.stdout.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"]))
+            sys.stdout.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"]))
         return 0
     if args.recap is not None:
         if not args.no_sync:

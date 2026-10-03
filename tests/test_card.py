@@ -85,8 +85,33 @@ class Card(unittest.TestCase):
         self.assertIsNone(c["heat"][-1]) if c["heat"][-1] is None else None
         self.assertTrue(any(v for v in c["heat"] if v))
         self.assertIn("STREAK x%d" % c["longest_streak"], c["badges"]) if c["longest_streak"] >= 7 else None
-        svg = self.m.render_card_svg(c, handle="hawks")
-        self.assertIn("SYS.HAWKS // AI USAGE", svg)
+        svg = self.m.render_card_svg(c, handle="neo")
+        self.assertIn("SYS.NEO // AI USAGE", svg)
+
+    def test_styles_and_custom_colors(self):
+        c = self.card()
+        svgs = {st: self.m.render_card_svg(c, style=st) for st in self.m.CARD_STYLES}
+        self.assertEqual(len(set(svgs.values())), len(svgs))              # 每個主題長得不一樣
+        self.assertIn("#67e8f9", svgs["computai"])                         # 預設是品牌的青色
+        self.assertIn("#fbbf24", svgs["amber"])
+        custom = self.m.render_card_svg(c, colors=("#123456", "#abcdef"))
+        self.assertIn("#123456", custom)
+        self.assertEqual(self.m.card_colors("#123456, #abcdef"), ("#123456", "#abcdef"))
+        self.assertIsNone(self.m.card_colors("red, blue"))                # 格式不對就當沒設
+
+    def test_handle_from_profile_repo(self):
+        self.assertIsNone(self.m.github_owner(""))
+        repo = os.path.join(self.sb.root, "profile") if hasattr(self, "sb") else None
+        if repo is None:
+            import tempfile
+            repo = tempfile.mkdtemp()
+            self.addCleanup(__import__("shutil").rmtree, repo)
+        os.makedirs(repo, exist_ok=True)
+        subprocess.run(["git", "init", "-q", repo], check=True)
+        subprocess.run(["git", "-C", repo, "remote", "add", "origin", "git@github.com:octocat/octocat.git"], check=True)
+        self.assertEqual(self.m.github_owner(repo), "octocat")
+        svg = self.m.render_card_svg(self.card(), handle=self.m.github_owner(repo))
+        self.assertIn("SYS.OCTOCAT // AI USAGE", svg)
 
     def test_empty_ledger(self):
         db = self.m.open_ledger(":memory:")

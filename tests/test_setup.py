@@ -40,9 +40,9 @@ class EditIni(unittest.TestCase):
         self.assertEqual(self.m.edit_ini(TEXT, "nope", "x", None), TEXT)
 
     def test_key_with_regex_chars_and_similar_names(self):
-        text = "[machines]\nm1m = 1.2.3.4\nm1m-2 = 5.6.7.8\n"
-        out = self.m.edit_ini(text, "machines", "m1m", "9.9.9.9")
-        self.assertEqual(out, "[machines]\nm1m = 9.9.9.9\nm1m-2 = 5.6.7.8\n")
+        text = "[machines]\nbox = 1.2.3.4\nbox-2 = 5.6.7.8\n"
+        out = self.m.edit_ini(text, "machines", "box", "9.9.9.9")
+        self.assertEqual(out, "[machines]\nbox = 9.9.9.9\nbox-2 = 5.6.7.8\n")
 
     def test_parse_assignment(self):
         self.assertEqual(self.m.parse_assignment("machine.wsl.mac=aa:bb"), ("machine.wsl", "mac", "aa:bb"))
