@@ -1132,6 +1132,72 @@ def sync_codex(db):
 SOURCES.append(("codex", sync_codex))
 
 
+# ---- Gemini CLI：~/.gemini/tmp/<專案>/chats/*.jsonl（subagent 在 chats/<主 session id>/ 底下）
+#
+# 每則 Gemini 回應一行 type = gemini，tokens 有 input、output、cached、thoughts、tool；同一則（同一個 id）
+# 會被重寫好幾次，取最後（最大）的那筆。只讀 tokens、model、timestamp、id；content、thoughts、toolCalls 一律不看。
+
+def gemini_home():
+    return os.environ.get("GEMINI_CLI_HOME") or os.path.join(os.path.expanduser("~"), ".gemini")
+
+
+def gemini_project(path):
+    """tmp/<專案>/.project_root 裡寫的是專案資料夾；讀不到就用 tmp 底下那層的名字。"""
+    parts = path.split(os.sep)
+    if "chats" in parts:
+        root = os.sep.join(parts[:parts.index("chats")])
+        try:
+            with open(os.path.join(root, ".project_root"), encoding="utf-8") as f:
+                return f.read().strip()[:500]
+        except OSError:
+            return os.path.basename(root)
+    return ""
+
+
+def parse_gemini_file(path, cursor=None):
+    st = (cursor or {}).get("state") or {}
+    session, kind = st.get("session", ""), st.get("kind", "main")
+    project = gemini_project(path)
+    rows = {}
+    for line in read_jsonl(path, cursor):
+        if '"sessionId"' not in line and '"tokens"' not in line:
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(d, dict):
+            continue
+        if "sessionId" in d and "kind" in d:
+            kind = d.get("kind") or "main"
+            # subagent 的檔案放在 chats/<主 session id>/ 底下：算在主 session 上，時間軸才掛得起來
+            session = os.path.basename(os.path.dirname(path)) if kind == "subagent" else (d.get("sessionId") or "")
+            continue
+        tk = d.get("tokens")
+        if d.get("type") != "gemini" or not isinstance(tk, dict) or not d.get("id"):
+            continue
+        ts = iso_ts(d.get("timestamp"))
+        if ts is None:
+            continue
+        inp, cached, out, th = _int(tk.get("input")), _int(tk.get("cached")), _int(tk.get("output")), _int(tk.get("thoughts"))
+        rows[d["id"]] = {"source": "gemini", "uid": "%s:%s" % (session, d["id"]), "ts": int(ts),
+                         "model": normalize_model(d.get("model") or ""), "project": project, "session": session,
+                         "input": max(inp - cached, 0) + _int(tk.get("tool")), "cache_read": cached,
+                         "output": out + th, "reasoning": th, "subagent": 1 if kind == "subagent" else 0}
+    if cursor is not None:
+        cursor["state"] = {"session": session, "kind": kind}
+    return list(rows.values())
+
+
+def sync_gemini(db):
+    root = os.path.join(gemini_home(), "tmp")
+    paths = [p for p in sorted(walk_files(root)) if os.sep + "chats" + os.sep in p] if os.path.isdir(root) else []
+    return import_files(db, "gemini", paths, parse_gemini_file)
+
+
+SOURCES.append(("gemini", sync_gemini))
+
+
 # ---- 多台電腦：交換只有用量欄位的匯出檔（共用資料夾或 SSH 拉取，docs/MULTI-DEVICE.md）
 
 EXPORT_SOURCES = ("claude", "codex")   # 本地模型和 API 用量在每台各自記，交換會重複計算
@@ -5801,7 +5867,7 @@ UI = {
         "no_machines": "no machines yet: add them under [machines] in config.ini",
         "foot": ["q quit", "-n SEC refresh", "computai --web for the browser", "--analyze for advice"],
         "plan_unset": "monthly fee not set (computai --setup)", "gpus_n": "%d GPUs", "fits": "%.1f GB free: room for a ~%s model (4-bit)",
-        "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "local": "Local models",
+        "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "cursor": "Cursor", "local": "Local models",
                                      "cloud": "Cloud GPUs", "anthropic-api": "Anthropic API",
                                      "openai-api": "OpenAI API"},
         "w_today": "Today's usage worth", "w_month": "Usage worth this month", "w_forecast": "You'll pay this month", "w_days_left": "%d days left",
@@ -6048,7 +6114,7 @@ UI = {
         "no_machines": "還沒有機器：在 config.ini 的 [machines] 加上去",
         "foot": ["q 離開", "-n 秒數 更新間隔", "computai --web 開網頁版", "--analyze 看建議"],
         "plan_unset": "還沒設月費（computai --setup）", "gpus_n": "%d 張 GPU", "fits": "還有 %.1f GB：放得下約 %s 的模型（4-bit）",
-        "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "local": "本地模型",
+        "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "cursor": "Cursor", "local": "本地模型",
                                       "cloud": "雲端 GPU", "anthropic-api": "Anthropic API",
                                       "openai-api": "OpenAI API"},
         "w_today": "今天用量價值", "w_month": "本月用量價值", "w_forecast": "本月實際約要付", "w_days_left": "還有 %d 天",

@@ -1,0 +1,2 @@
+{"sessionId": "sub01", "projectHash": "0000000000000000000000000000000000000000000000000000000000000000", "startTime": "2026-09-10T01:01:00.000Z", "lastUpdated": "2026-09-10T01:01:00.000Z", "kind": "subagent", "directories": ["/home/demo"]}
+{"id": "s1", "timestamp": "2026-09-10T01:01:30.000Z", "type": "gemini", "content": "FAKE SUBAGENT TEXT", "tokens": {"input": 300, "output": 30, "cached": 0, "thoughts": 5, "tool": 0, "total": 335}, "model": "gemini-3-flash-preview"}
