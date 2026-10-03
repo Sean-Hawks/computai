@@ -129,6 +129,14 @@ idle_alert_minutes = 15
 # Warn when this month's forecast spend goes over this many USD (0 = no budget).
 monthly_usd = 0
 
+[card]
+# Keep a GitHub profile card up to date: once a day computai (and --web / --watch) writes
+# computai-card.svg + computai-card-light.svg into this git repo folder and commits them.
+# Only aggregates and model names go into the card. push = yes also pushes the commit.
+repo =
+period = 30d
+push = no
+
 [notify]
 # Tell me when something changes, once per change: a limit reaches 80% or runs out, a limit resets
 # (you can use it again), a machine stops answering, a model holds memory unused, a cloud GPU idles
@@ -4100,6 +4108,7 @@ class Updater:
 
     def __init__(self, sample_every=60, cloud_every=300, sync_every=30, notify=True):
         self.notify = notify
+        self.card_at = 0.0
         self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300}
         self.last = {k: 0.0 for k in self.every}
         self.insights = []
@@ -4113,6 +4122,13 @@ class Updater:
         if self.every["machines"] > 0 and t - self.last["machines"] >= self.every["machines"] and machines():
             self.last["machines"] = t
             sample_machines(db)
+        card = card_settings()
+        if card["repo"] and time.time() - self.card_at >= 86400:   # 個人頁卡片一天更新一次
+            self.card_at = time.time()
+            try:
+                publish_card(db, card["period"], card["repo"], push=card["push"])
+            except (SystemExit, OSError) as e:
+                warn("card update failed: %s" % e)
         if self.every["cloud"] > 0 and t - self.last["cloud"] >= self.every["cloud"]:
             self.last["cloud"] = t
             if any(secret(env) for _n, env, _f in CLOUDS):
@@ -6065,6 +6081,15 @@ def send_report(text):
 
 # ---- 通知：有事時主動告訴你（狀態改變才送一次）
 
+def card_settings(cp=None):
+    """[card] repo = 個人頁 repo（或裡面的資料夾）：設了就由 computai / --web / --watch 每天更新一次卡片並 commit；
+    push = yes 才會推上去。"""
+    cp = cp or load_config()
+    g = lambda k, d="": (cp.get("card", k, fallback=d) or d).strip()
+    return {"repo": os.path.expanduser(g("repo")) if g("repo") else "", "period": g("period", "30d"),
+            "push": g("push", "no").lower() in ("yes", "true", "1", "on")}
+
+
 def notify_settings(cp=None):
     cp = cp or load_config()
     yes = lambda k, d: (cp.get("notify", k, fallback=d) or d).strip().lower() in ("yes", "true", "1", "on")
@@ -7101,6 +7126,13 @@ def publish_card(db, period, path, push=False, prices=None, plan_table=None):
             fail("git commit", r)
         lines.append("committed %s in %s: %s" % (git("rev-parse", "--short", "HEAD").stdout.strip(), root, msg))
     if push:
+        # 個人頁 repo 常有機器人推的 commit：遠端已經有這個分支的話先接上再推
+        git("fetch", "-q")
+        if git("rev-parse", "--verify", "-q", "@{u}").returncode == 0:
+            r = git("rebase", "-q", "@{u}")
+            if r.returncode:
+                git("rebase", "--abort")
+                fail("git rebase", r)
         r = git("push")
         if r.returncode:
             fail("git push", r)

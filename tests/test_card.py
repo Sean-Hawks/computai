@@ -166,6 +166,24 @@ class Publish(unittest.TestCase):
         self.assertIn("pushed", r.stdout)
         self.assertIn(self.branch, self.git("branch", cwd=self.remote).stdout)
 
+    def test_push_rebases_onto_a_bot_commit(self):
+        # 個人頁 repo 常有機器人推的 commit（例如自動更新文章列表）：先接上再推，不會被拒絕
+        self.git("config", "branch.%s.remote" % self.branch, "origin", cwd=self.repo)
+        self.git("config", "branch.%s.merge" % self.branch, "refs/heads/" + self.branch, cwd=self.repo)
+        self.git("push", "-q", "origin", self.branch, cwd=self.repo)
+        bot = os.path.join(self.sb.root, "bot")
+        self.git("clone", "-q", self.remote, bot, cwd=self.sb.root)
+        with open(os.path.join(bot, "posts.md"), "w") as f:
+            f.write("new post\n")
+        self.git("add", "posts.md", cwd=bot)
+        self.git("commit", "-q", "-m", "bot: update posts", cwd=bot)
+        self.git("push", "-q", "origin", self.branch, cwd=bot)
+        r = self.publish("--push")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        log = self.git("log", "--format=%s", self.branch, cwd=self.remote).stdout
+        self.assertIn("bot: update posts", log)
+        self.assertIn("Update ComputAI card", log)
+
     def test_errors(self):
         plain = os.path.join(self.sb.root, "plain")
         os.makedirs(plain)
