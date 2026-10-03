@@ -165,6 +165,10 @@ class EndToEnd(unittest.TestCase):
     def test_metrics_counters(self):
         self.post("/api/chat", {"model": "qwen3:0.6b", "messages": []})
         self.post("/api/generate", {"model": "qwen3:0.6b", "prompt": "x", "stream": False})
+        for _ in range(40):
+            if self.holder["totals"].get("qwen3:0.6b", [0, 0])[1] >= 30:
+                break
+            __import__("time").sleep(0.05)
         with urllib.request.urlopen(self.base + "/metrics", timeout=10) as r:
             text = r.read().decode()
         vals = self.m.parse_prom(text)                              # 取樣端用同一個解析器讀
@@ -180,6 +184,10 @@ class EndToEnd(unittest.TestCase):
                                          data=json.dumps({"model": "qwen3:0.6b", "messages": []}).encode(),
                                          headers={"Content-Type": "application/json"})
             urllib.request.urlopen(req, timeout=10).read()
+            for _ in range(40):                 # proxy 送完回應才記，稍等一下
+                if holder["totals"]:
+                    break
+                __import__("time").sleep(0.05)
             self.assertEqual(holder["totals"], {"qwen3:0.6b": [11, 10]})
             db = self.m.open_ledger()
             self.assertEqual(db.execute("SELECT COUNT(*) FROM usage").fetchone()[0], 0)   # 不重複記帳

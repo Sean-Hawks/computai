@@ -63,7 +63,7 @@ class Dashboard(unittest.TestCase):
         self.assertIn("free the memory", text)                  # 長的警示會折行，不會被切掉
         self.assertTrue(all(self.m.vlen(ln) <= 90 for ln in text.splitlines()))
         wide = self.m.render_live(self.st, 160)
-        self.assertTrue(any("COMPUTE" in ln and "AI SUBSCRIPTIONS" in ln for ln in wide.splitlines()))  # 兩欄
+        self.assertTrue(any("COMPUTE" in ln and "LOCAL MODELS" in ln for ln in wide.splitlines()))  # 兩欄
         ascii_ = self.m.render_live(self.st, 90, ascii_=True)
         self.assertTrue(all(ord(c) < 128 for c in ascii_), [c for c in ascii_ if ord(c) >= 128])
         self.assertNotIn("\033", text)                       # 沒開顏色就沒有控制碼

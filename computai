@@ -3913,6 +3913,57 @@ def latest_samples(db, t=None, n=HISTORY):
     return out
 
 
+def local_compare(prices=None, cp=None):
+    """本地 token 拿來比的 API 價格：[local] compare_model，沒設就用 prices.ini 裡輸出最便宜的模型。"""
+    prices = load_prices() if prices is None else prices
+    cp = cp or load_config()
+    name = (cp.get("local", "compare_model", fallback="") or "").strip().lower()
+    if name and price_for(name, prices):
+        return name, price_for(name, prices)
+    best = sorted((p["output"], n) for n, p in prices.items() if p.get("output"))
+    return (best[0][1], prices[best[0][1]]) if best else (None, None)
+
+
+def local_overview(db, machines_state, energy, t=None):
+    """本地模型一覽：每台機器的每個模型一列——狀態、現在多快、今天和本月的 token，
+    以及「這些 token 照 API 價格值多少」。也列出載入了但這個月還沒用過的模型。"""
+    t = now() if t is None else t
+    ms, me, _l = month_range()
+    ts, _te = today_range()
+    rows = {}
+    q = ("SELECT project AS machine, model, session, SUM(input + cache_read) AS i, SUM(output) AS o, "
+         "SUM(CASE WHEN ts >= ? THEN input + cache_read + output ELSE 0 END) AS today, COUNT(*) AS n "
+         "FROM usage WHERE source = 'local' AND ts >= ? AND ts < ? GROUP BY project, model")
+    for r in db.execute(q, (ts, ms, me)):
+        key = (r["machine"], normalize_model(r["model"]))   # 計數器記的名字保留大小寫，比對時統一小寫
+        row = rows.setdefault(key, {"machine": r["machine"], "model": r["model"], "input": 0, "output": 0,
+                                    "today_tokens": 0, "service": None, "busy": False, "tok_s": 0.0})
+        row["input"] += r["i"] or 0
+        row["output"] += r["o"] or 0
+        row["today_tokens"] += r["today"] or 0
+    for m in machines_state:
+        for svc in m.get("services") or []:
+            names = {normalize_model(x["name"]) for x in m.get("loaded") or []
+                     if x.get("service") == svc["kind"] and x.get("port") in (None, svc["port"])}
+            names |= {normalize_model(x if isinstance(x, str) else x.get("name")) for x in svc.get("models") or []}
+            for name in names:
+                row = rows.setdefault((m["machine"], name), {
+                    "machine": m["machine"], "model": name, "input": 0, "output": 0, "today_tokens": 0,
+                    "service": None, "busy": False, "tok_s": 0.0})
+                row["service"] = "%s:%s" % (svc["kind"], svc["port"])
+                row["busy"] = bool(svc.get("busy"))
+                row["tok_s"] = svc.get("tok_s") or 0.0
+    name, price = local_compare()
+    out = sorted(rows.values(), key=lambda r: (-r["busy"], -(r["input"] + r["output"])))
+    for r in out:
+        r["month_tokens"] = r["input"] + r["output"]
+        r["api_usd"] = round((r["input"] * price["input"] + r["output"] * price["output"]) / 1e6, 2) if price else None
+    power = sum((e.get("energy_cost_usd") or 0) * (e.get("ai_share") or 0) for e in energy)
+    return {"rows": out, "compare": name,
+            "today_tokens": sum(r["today_tokens"] for r in out), "month_tokens": sum(r["month_tokens"] for r in out),
+            "api_usd": round(sum(r["api_usd"] or 0 for r in out), 2), "power_usd": round(power, 2)}
+
+
 def daily_costs(db, days=14, t=None):
     """最近 days 天每天的花費（每個來源分開），給 sparkline 用。"""
     t = now() if t is None else t
@@ -3953,6 +4004,7 @@ def dashboard_state(db):
             "forecast": forecast(db, t, month_machines=energy),
             "alerts": machine_alerts() + idle_alerts(db, t) + cloud_alerts(db, t)}
     st["verdict"] = verdict(st)
+    st["local"] = local_overview(db, st["machines"], energy, t)
     return st
 
 
@@ -4179,6 +4231,9 @@ UI = {
         "nt_full": "%s %s is used up - resets in %s.", "nt_alt": "%s still has %d%% left.",
         "nt_high": "%s %s is %d%% used.", "nt_pace": "At this pace it runs out in %s.",
         "nt_test": "Notifications work. You will hear from ComputAI when a limit runs low, runs out or resets.",
+        "l_title": "LOCAL MODELS", "l_state": "state", "l_now": "now", "l_today": "today", "l_month": "month",
+        "l_sum": "Local tokens today %s, this month %s", "l_worth": " - worth %s at API prices, electricity about %s",
+        "l_foot": "value at %s API prices; Ollama counts need computai --proxy in front of it",
         "t_gen": "generating %s tok/s", "b_linking": "linking logs and machines...", "b_ready": "SYSTEM READY",
         "h_today": "TODAY'S USAGE VALUE", "h_month": "this month %s", "h_rate": "LOCAL TOKENS/S",
         "h_busy": "%d machine(s) generating", "h_power": "POWER NOW (W)", "h_online": "%d/%d NODES ONLINE", "hud_tag": "AI COMPUTE LEDGER",
@@ -4319,6 +4374,9 @@ UI = {
         "nt_full": "%s %s用完了，%s 後重置。", "nt_alt": "%s 還剩 %d%%。",
         "nt_high": "%s %s已用 %d%%。", "nt_pace": "照目前速度 %s 後用完。",
         "nt_test": "通知可以用了。額度快用完、用完、重置的時候，ComputAI 會告訴你。",
+        "l_title": "本地模型", "l_state": "狀態", "l_now": "現在", "l_today": "今天", "l_month": "本月",
+        "l_sum": "本地今天 %s token、本月 %s", "l_worth": "，照 API 價格值 %s，電費約 %s",
+        "l_foot": "價值照 %s 的 API 價格算；Ollama 要在前面接 computai --proxy 才數得到",
         "t_gen": "推論中 %s tok/s", "b_linking": "正在連線 log 和機器…", "b_ready": "系統就緒",
         "h_today": "今天用量價值", "h_month": "本月 %s", "h_rate": "本地推論 tok/s",
         "h_busy": "%d 台正在推論", "h_power": "目前功耗 (W)", "h_online": "%d/%d 台在線", "hud_tag": "AI 算力總帳",
@@ -4676,6 +4734,34 @@ def quota_panel(st, width):
     return panel(bold(T("q_title")), state, lines, width, 0, foot=foot, level="fail" if full else None)
 
 
+def local_panel(st, width):
+    """◢ 本地模型：每個模型一列（狀態、現在 tok/s、今天、本月、照 API 價格值多少），最後一行總結。"""
+    lo = st.get("local") or {}
+    rows = lo.get("rows") or []
+    if not rows:
+        return []
+    mw = min(22, max([vlen(r["model"]) for r in rows] + [vlen(T("b_model"))]))
+    nw = min(14, max([vlen(r["machine"]) for r in rows] + [vlen(T("b_machine"))]))
+    head = " %s %s %s %s %s %s" % (cell(T("b_model"), mw), cell(T("b_machine"), nw), cell(T("l_state"), 10),
+                                   cell(T("l_now"), 11), cell(T("l_today"), 9), T("l_month"))
+    lines = [dim(head)]
+    for r in rows:
+        state = rgb(GREEN, cell(spinner() + " " + T("busy"), 10)) if r["busy"] else cell(sym("\u25cb ", "o ") + T("idle"), 10)
+        now_ = rgb(GREEN, cell("%.0f tok/s" % r["tok_s"], 11)) if r["tok_s"] else dim(cell("-", 11))
+        val = (" " + dim("\u2248 " + fmt_usd(r["api_usd"]))) if r.get("api_usd") else ""
+        lines.append(" %s %s %s %s %s %s%s" % (bold(cell(r["model"], mw)), cell(r["machine"], nw), state, now_,
+                                              cell(fmt_tok(r["today_tokens"]), 9), cell(fmt_tok(r["month_tokens"]), 7), val))
+    lines.append("")
+    tail = T("l_sum") % (bold(fmt_tok(lo["today_tokens"])), bold(fmt_tok(lo["month_tokens"])))
+    if lo.get("api_usd"):
+        tail += T("l_worth") % (bold(rgb(GREEN, fmt_usd(lo["api_usd"]))), fmt_usd(lo.get("power_usd") or 0))
+    lines += [" " + x for x in wrap_colored(tail, width - 4)] if "\033" not in tail else [" " + tail]
+    busy = sum(1 for r in rows if r["busy"])
+    state = rgb(GREEN, T("h_busy") % busy) if busy else ""
+    foot = dim(T("l_foot") % lo["compare"]) if lo.get("compare") else ""
+    return panel(ptitle(3, T("l_title")), state, lines, width, 0, foot=foot)
+
+
 def usage_panel(st, width):
     """AI 訂閱與花費。金額分兩種，寫清楚：訂閱的是「照 API 價格算的價值」，雲端和 API 是真的花掉的錢。"""
     lines = []
@@ -4741,7 +4827,7 @@ def usage_panel(st, width):
     full = sum(1 for r in st["limits"] if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in st["limits"] if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
-    return panel(ptitle(3, T("usage")) + " " + dim(st["month"]), "", lines, width, 0, foot=dim(T("api_equiv")))
+    return panel(ptitle(4, T("usage")) + " " + dim(st["month"]), "", lines, width, 0, foot=dim(T("api_equiv")))
 
 
 def cloud_panel(st, width):
@@ -4768,7 +4854,7 @@ def alerts_panel(st, width):
         lines = [" " + rgb(GREEN, sym("\u25cf ", "* ") + T("clear"))] if theme().get("flat") else [dim(" " + T("clear"))]
     count = "%d" % len(st["alerts"]) if st["alerts"] else ""
     if theme().get("flat"):
-        return panel(ptitle(4, T("alerts")), rgb(tone(worst), count) if count else "", lines, width, 0,
+        return panel(ptitle(5, T("alerts")), rgb(tone(worst), count) if count else "", lines, width, 0,
                      level="fail" if worst == "fail" else None)
     return panel(bold(T("alerts")), dim(count) if count else "", lines, width, 100 if st["alerts"] else 0)
 
@@ -4786,7 +4872,7 @@ def advice_panel(st, width):
     for x in items:
         for i, ln in enumerate(wrap(x["text"], max(20, width - 4 - vlen(arrow)))):
             lines.append(" %s %s" % (rgb(CYAN, arrow) if i == 0 else " " * vlen(arrow), ln))
-    return panel(ptitle(5, T("advice")), "", lines, width, 0)
+    return panel(ptitle(6, T("advice")), "", lines, width, 0)
 
 
 LIMIT_WARN, LIMIT_FAIL = 80.0, 99.5
@@ -4994,7 +5080,8 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
             left += machine_panel(None, col, error=e)
     if st["cloud"]:
         left += cloud_panel(st, col)
-    right = usage_panel(st, col) + alerts_panel(st, col) + advice_panel(st, col)
+    right = (local_panel(st, col) if theme().get("flat") else []) + usage_panel(st, col) + alerts_panel(st, col) + \
+        advice_panel(st, col)
     used = 4 + len(hero_panel(st, width, frame) if theme().get("flat") else quota_panel(st, width)) + (max(len(left), len(right)) if two else len(left) + len(right)) + 1
     if height and used > height and st["machines"]:
         # 放不下：機器改成一台一列的精簡版（照 slurmtop 的 dense 模式）
@@ -5523,6 +5610,24 @@ function usageCard(st) {
   return card;
 }
 
+function localCard(st) {   // 本地模型：每個模型一列，狀態、現在多快、今天、本月、照 API 價格值多少
+  const lo = st.local || {};
+  if (!(lo.rows || []).length) return null;
+  const busy = lo.rows.filter((r) => r.busy).length;
+  const rows = lo.rows.map((r) => el("tr", {}, el("td", {}, el("b", {}, r.model)), el("td", {}, r.machine),
+    el("td", {class: r.busy ? "lv-ok" : ""}, r.busy ? "● " + t.busy : "○ " + t.idle),
+    el("td", {class: r.tok_s ? "lv-ok num" : "muted num"}, r.tok_s ? Math.round(r.tok_s) + " tok/s" : "-"),
+    el("td", {class: "num"}, tok(r.today_tokens)), el("td", {class: "num"}, tok(r.month_tokens)),
+    el("td", {class: "num muted"}, r.api_usd ? "≈ " + usd(r.api_usd) : "")));
+  const sum = fmt(t.l_sum, tok(lo.today_tokens), tok(lo.month_tokens)) +
+    (lo.api_usd ? fmt(t.l_worth, usd(lo.api_usd), usd(lo.power_usd || 0)) : "");
+  return el("div", {class: "card"}, FLAT() ? hd(t.l_title, busy ? fmt(t.h_busy, busy) : null, busy ? "ok" : null) : el("h3", {}, t.l_title),
+    el("div", {class: "tablewrap"}, el("table", {}, el("thead", {}, el("tr", {},
+      ...[t.b_model, t.b_machine, t.l_state, t.l_now, t.l_today, t.l_month, ""].map((h) => el("th", {}, h)))),
+      el("tbody", {}, ...rows))),
+    el("div", {style: "margin-top:8px"}, sum), lo.compare ? ft(fmt(t.l_foot, lo.compare)) : null);
+}
+
 function quotaCard(st) {   // 額度：粗量表、大百分比、白線標出週期過了多久，下一行講速度
   const rows = [...st.limits].sort((a, b) => a.source.localeCompare(b.source) || (a.window_minutes || 0) - (b.window_minutes || 0));
   const have = new Set(rows.map((r) => r.source));
@@ -5583,7 +5688,8 @@ function render(st) {
   $("#cloud").replaceChildren(...(cc ? [cc] : []));
   const adv = (st.insights || []).length ? el("div", {class: "card"}, FLAT() ? hd(t.w_advice) : el("h3", {}, t.w_advice),
     ...st.insights.map((x) => el("div", {class: "advice"}, "→ " + x.text))) : null;
-  $("#usage").replaceChildren(usageCard(st), ...(adv ? [adv] : []));
+  const lc = localCard(st);
+  $("#usage").replaceChildren(...(lc ? [lc] : []), usageCard(st), ...(adv ? [adv] : []));
   $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
   document.title = `${st.line_text} · ComputAI`;
 }
