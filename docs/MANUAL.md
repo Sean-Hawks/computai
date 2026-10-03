@@ -70,6 +70,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--statusline` | For Claude Code's `statusLine`: records Claude's limits from stdin, prints `--line`. |
 | `--live [-n SEC]` | Live terminal dashboard: one panel per machine (bars and sparklines for CPU, memory, every GPU and power, plus its inference servers), AI usage with limit bars and 14-day cost trends, and alerts. Two columns on wide terminals, one line per machine when the window is short. `q` quits. |
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
+| `--theme cyber\|classic` | Neon cyberpunk look (default) or the calmer slurmtop look, for the terminal, web, report and recap (or `[general] theme`). |
 | `--lang zh` | Traditional Chinese for the live and web dashboards and `--line` (or `[general] lang = zh`). |
 | `--web [[HOST:]PORT]` | Browser dashboard (phone layout), `/api/state` JSON and `/metrics` for Prometheus. Default `127.0.0.1:8765`. |
 | `--recap [YEAR] [--html FILE]` | A year in review (tokens, value, active days, streak, busiest day, favourite models, local inference); the HTML card leaves out project and machine names so it can be shared. Plan fees are counted for each month with usage, at today's `[plans]` prices. |

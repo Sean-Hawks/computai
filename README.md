@@ -27,7 +27,7 @@ codex
 
 ![Web dashboard](docs/images/web.png)
 
-*(Screenshots use demo data.)*
+*(Screenshots use demo data. Prefer the calmer slurmtop look? `--theme classic` or `computai --set general.theme=classic`.)*
 
 ## What it does
 
