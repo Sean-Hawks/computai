@@ -212,6 +212,32 @@ class Insights(unittest.TestCase):
             sb.close()
 
 
+class InsightsNow(unittest.TestCase):
+    def test_used_up_only_when_it_is_now(self):
+        sb = helpers.Sandbox()
+        old = dict(os.environ)
+        try:
+            os.makedirs(sb.config)
+            with open(os.path.join(sb.config, "config.ini"), "w") as f:
+                f.write("[plans]\ncodex = Pro, 200, x\n\n[plan_options]\ncodex = Plus 20 x1, Pro 200 x6\n")
+            os.environ.update(COMPUTAI_CONFIG_DIR=sb.config, COMPUTAI_FAKE_NOW=str(10 * 86400))
+            m = helpers.load()
+            db = m.open_ledger(":memory:")
+            # 這個月稍早用光過（那個週期已經結束），現在新週期只用了 39%
+            m.add_limits(db, [dict(source="codex", name="week", ts=3 * 86400, used_percent=100.0, window_minutes=10080,
+                                   resets_at=5 * 86400),
+                              dict(source="codex", name="week", ts=10 * 86400 - 60, used_percent=39.0,
+                                   window_minutes=10080, resets_at=16 * 86400)])
+            texts = " ".join(x["text"] for x in m.insights(db))
+            self.assertNotIn("is used up", texts)
+            self.assertIn("down to 0 this month", texts)
+            db.close()
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            sb.close()
+
+
 class Recap(unittest.TestCase):
     def test_recap(self):
         sb = helpers.Sandbox()

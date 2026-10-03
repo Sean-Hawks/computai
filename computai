@@ -4201,7 +4201,11 @@ def insights(db, t=None):
                     if left >= 10:
                         args["alt"] = T("i_alt") % (names.get(o, o), round(left))
             if best["name"] == r["current"]:
-                out.append({"kind": "plan", "text": T("i_plan_ok" if best["fits"] else "i_plan_max") % args})
+                key = "i_plan_ok"
+                if not best["fits"]:   # 「用完了」只在現在真的用完時講；只是這個月曾經用完就說曾經
+                    cur = [x for x in current_limits(db, t) if x["source"] == r["source"]]
+                    key = "i_plan_max" if any((x["used_percent"] or 0) >= LIMIT_FAIL for x in cur) else "i_plan_max_past"
+                out.append({"kind": "plan", "text": T(key) % args})
             else:
                 out.append({"kind": "plan", "text": T("i_plan_down" if best["usd"] < (r["current_usd"] or 0)
                                                       else "i_plan_up") % args})
@@ -4423,6 +4427,7 @@ UI = {
         "i_plan_up": "%(src)s: you hit %(peak)d%% of the %(win)s - %(plan)s ($%(usd)d/month) would give you room (about %(proj)d%%)",
         "i_plan_ok": "%(src)s: your plan is the right size (at most %(peak)d%% of the %(win)s used)",
         "i_plan_max": "%(src)s: the %(win)s is used up%(reset)s, and you are already on the biggest plan listed%(alt)s",
+        "i_plan_max_past": "%(src)s: you ran the %(win)s down to 0 this month and are already on the biggest plan listed - pace yourself near the reset, or add another subscription",
         "i_api": "%(src)s: paying per use would have cost only %(cost)s over the last 30 days - less than the plan",
         "i_cache": "After a pause of more than 5 minutes (or an hour), the next message re-sends the whole conversation. That happened %(n)d times this month and used %(cost)s worth of extra quota. After a long break, a new conversation (or /compact) is cheaper.",
         "i_offpeak": "%(machine)s: running AI work at night or on weekends (off-peak) would have saved %(save).2f %(cur)s",
@@ -4595,6 +4600,7 @@ UI = {
         "i_plan_up": "%(src)s：%(win)s用到 %(peak)d%%，改用 %(plan)s（每月 $%(usd)d）會比較寬裕（約 %(proj)d%%）",
         "i_plan_ok": "%(src)s：方案大小剛好（%(win)s最多用到 %(peak)d%%）",
         "i_plan_max": "%(src)s：%(win)s已經用完%(reset)s，而且已經是最大的方案%(alt)s",
+        "i_plan_max_past": "%(src)s：這個月%(win)s曾經用光，你已經是最大的方案了；接近重置時放慢一點，或再補一個訂閱",
         "i_api": "%(src)s：過去 30 天如果改成用多少付多少，只要 %(cost)s，比月費便宜",
         "i_cache": "對話暫停超過 5 分鐘（或 1 小時）後，下一則訊息會把整段對話重新送一次。這個月發生 %(n)d 次，多用了價值 %(cost)s 的額度。休息很久之後，開新對話（或先 /compact）會比較省。",
         "i_offpeak": "%(machine)s：如果 AI 工作改在晚上或週末（離峰）跑，可以省 %(save).2f %(cur)s",
