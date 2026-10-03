@@ -4725,6 +4725,7 @@ WEB_HTML = """<!doctype html>
 </header>
 <main>
   <section id="verdict" class="verdict" aria-live="polite"></section>
+  <section id="quota" class="card quota"></section>
   <div id="line"></div>
   <div id="tiles" class="tiles"></div>
   <div id="alerts"></div>
@@ -4813,7 +4814,19 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
   .brand span { display:none; } #clock { margin-left:auto; } }
 
 /* 兩個主題共用：總結列、面板的標題列／來源列、依用途的顏色 class */
-.verdict:empty { display:none; }
+.verdict:empty, .quota:empty, #line:empty { display:none; }
+.quota .q { display:grid; grid-template-columns:minmax(120px,max-content) minmax(0,1fr) 5.5em; gap:2px 14px;
+  align-items:center; padding:8px 0; border-top:1px solid var(--line); }
+.quota .hd + .q { border-top:0; }
+.quota .lab { font-weight:700; }
+.quota .g { position:relative; height:18px; background:#282c32; border-radius:3px; overflow:hidden; }
+.quota .g > i { position:absolute; top:0; bottom:0; left:0; background:var(--accent); }
+.quota .g.lv-warn > i { background:var(--warn); } .quota .g.lv-fail > i { background:var(--red); }
+.quota .g > b { position:absolute; top:0; bottom:0; width:2px; background:#f5f6f7; }
+.quota .p { font-size:24px; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.quota .n { grid-column:2 / -1; font-size:12px; color:var(--dim); }
+@media (max-width: 520px) { .quota .q { grid-template-columns:minmax(0,1fr) 5em; }
+  .quota .lab { grid-column:1 / -1; } .quota .n { grid-column:1 / -1; } }
 .verdict { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; padding:12px 14px;
   border:1px solid var(--line); border-left:4px solid var(--ok); border-radius:6px; background:var(--panel); }
 .verdict .word { font-weight:700; letter-spacing:.14em; color:var(--ok); }
@@ -4986,6 +4999,7 @@ function verdictBand(v) {
   box.replaceChildren(...kids);
 }
 let t = {src: {}};
+const fmtn = (s, o) => s.replace(/%%|%\((\w+)\)[sd]/g, (m, k) => m === "%%" ? "%" : String(o[k]));
 const fmt = (s, ...a) => { let i = 0; return s.replace(/%%|%(\.\d)?[sdf]/g, (m, p) => { if (m === "%%") return "%"; const v = a[i++]; return p && typeof v === "number" ? v.toFixed(+p.slice(1)) : String(v); }); };
 
 function machineCard(m, energy) {
@@ -5045,13 +5059,8 @@ function machineCard(m, energy) {
 const winLabel = (w) => (t.win || {})[w] || w;
 
 function usageCard(st) {
-  const full = st.limits.filter((l) => l.used_percent >= 99.5).length;
-  const high = st.limits.filter((l) => l.used_percent >= 80 && l.used_percent < 99.5).length;
-  const card = el("div", {class: "card" + (FLAT() && full ? " fail" : "")});
-  if (FLAT()) card.append(hd(st.month,
-    full ? fmt(t.n_used_up, full) : high ? fmt(t.n_high, high) : null, full ? "fail" : high ? "warn" : null));
-  const lim = {};
-  for (const l of st.limits) (lim[l.source] = lim[l.source] || []).push(l);
+  const card = el("div", {class: "card"});
+  if (FLAT()) card.append(hd(st.month));
   for (const s of st.sources) {
     const p = s.plan;
     const what = s.source === "local" ? fmt(t.local_free, tok(s.tokens)) : fmt(s.subscription ? t.worth : t.spent, usd(s.cost_usd));
@@ -5060,24 +5069,39 @@ function usageCard(st) {
       p ? el("span", {class: "muted", style: `color:${(p.value_ratio || 0) >= 1 ? "var(--ok)" : "var(--warn)"}`},
              `${fmt(t.plan_fee, usd(p.fee_in_range), p.name)} · ${fmt(t.value_x, p.value_ratio || 0)}`)
         : s.plan_missing ? el("span", {style: "color:var(--warn)"}, t.plan_unset) : null));
-    for (const l of (lim[s.source] || []).sort((a, b) => (a.window_minutes || 0) - (b.window_minutes || 0)))
-      box.append(rowBar(winLabel(l.name), l.used_percent, l.used_percent >= 99.5 ? t.used_up : fmt(t.used_pct, Math.round(l.used_percent)),
-                        limitLevel(l.used_percent)),
-                 l.resets_in !== null ? el("div", {class: "legend"}, fmt(t.resets, dur(l.resets_in))) : null);
-    delete lim[s.source];
     const series = (st.daily.sources || {})[s.source];
     if (series && series.some((x) => x > 0))
       box.append(bars(series, 280, 34, st.daily.days), el("div", {class: "legend"}, `${t.w_last14} · ${fmt(s.subscription ? t.today_worth : t.today_spent, usd(series[series.length - 1]))}`));
     if (s.source !== "local") box.append(el("div", {class: "legend"}, s.requests ? fmt(t.tok_req, tok(s.tokens), tok(s.requests)) : fmt(t.tok_only, tok(s.tokens))));
     card.append(box);
   }
-  for (const [src, rows] of Object.entries(lim))
-    for (const l of rows) card.append(el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, t.src[src] || src)),
-                                      rowBar(winLabel(l.name), l.used_percent, fmt(t.used_pct, Math.round(l.used_percent)),
-                                             limitLevel(l.used_percent))));
   if (!st.sources.length && !st.limits.length) card.append(el("div", {class: "muted"}, t.w_no_usage));
   else card.append(FLAT() ? ft(t.api_equiv) : el("div", {class: "legend"}, t.api_equiv));
   return card;
+}
+
+function quotaCard(st) {   // 額度：粗量表、大百分比、白線標出週期過了多久，下一行講速度
+  const rows = [...st.limits].sort((a, b) => a.source.localeCompare(b.source) || (a.window_minutes || 0) - (b.window_minutes || 0));
+  const have = new Set(rows.map((r) => r.source));
+  const kids = rows.map((r) => {
+    const lv = limitLevel(r.used_percent), reset = r.resets_in !== null ? dur(r.resets_in) : null;
+    const g = el("div", {class: "g" + (lv ? " lv-" + lv : "")}, el("i", {style: `width:${Math.max(r.used_percent > 0 ? 1 : 0, Math.min(100, r.used_percent))}%`}));
+    if (r.elapsed_pct !== null && r.elapsed_pct !== undefined) g.append(el("b", {style: `left:calc(${r.elapsed_pct}% - 1px)`, title: t.q_foot}));
+    let note = reset ? fmt(t.resets, reset) : "", cls = "n";
+    if (r.used_percent >= 99.5) { note = reset ? fmt(t.q_wait, reset) : ""; cls += " lv-fail"; }
+    else if (r.eta_full) { note = fmt(t.q_eta, dur(r.eta_full), reset); cls += " lv-warn"; }
+    else if (r.projected_pct !== null && r.projected_pct !== undefined) note = fmtn(t.q_proj, {pct: r.projected_pct, reset: reset});
+    return el("div", {class: "q"}, el("span", {class: "lab"}, `${t.src[r.source] || r.source} ${winLabel(r.name)}`), g,
+              el("span", {class: "p" + (lv ? " lv-" + lv : "")}, r.used_percent >= 99.5 ? t.used_up : pct(r.used_percent)),
+              note ? el("span", {class: cls}, note) : null);
+  });
+  for (const s of st.sources) if (s.subscription && !have.has(s.source))
+    kids.push(el("div", {class: "q"}, el("span", {class: "lab"}, t.src[s.source] || s.source), el("span", {class: "n"}, t.q_unlinked)));
+  if (!kids.length) return [];
+  const full = rows.filter((r) => r.used_percent >= 99.5).length, high = rows.filter((r) => r.used_percent >= 80 && r.used_percent < 99.5).length;
+  $("#quota").classList.toggle("fail", full > 0);
+  return [hd(t.q_title, full ? fmt(t.n_used_up, full) : high ? fmt(t.n_high, high) : null, full ? "fail" : high ? "warn" : null),
+          ...kids, rows.some((r) => r.elapsed_pct !== null && r.elapsed_pct !== undefined) ? ft(t.q_foot) : null].filter(Boolean);
 }
 
 function cloudCard(st) {
@@ -5096,16 +5120,14 @@ function render(st) {
   document.documentElement.lang = st.lang === "zh" ? "zh-Hant" : "en";
   $("#h-compute").textContent = t.w_compute; $("#h-usage").textContent = t.w_usage;
   $("#tagline").textContent = t.w_tagline;
-  $("#line").textContent = st.header || st.line_text;
+  $("#line").textContent = "";   // 額度和今天的用量已經在總結列、額度區和小卡片上
   if (st.verdict) verdictBand(st.verdict);
+  $("#quota").replaceChildren(...quotaCard(st));
   $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString();
   const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
   const f = st.forecast;
   const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.w_at_api),
                  tile(t.w_forecast, usd(f.projected_usd), fmt(t.w_days_left, Math.round(f.days_left)), f.over_budget ? "fail" : null)];
-  for (const l of st.line.limits) tiles.push(tile(`${l.label} ${winLabel(l.window)}`,
-    l.used_percent >= 99.5 ? t.used_up : pct(l.used_percent),
-    l.resets_in !== null ? fmt(t.resets, dur(l.resets_in)) : "", limitLevel(l.used_percent), l.used_percent));
   if (st.machines.length) tiles.push(tile(t.w_power, Math.round(watts) + " W", st.machines.length === 1 ? t.machine_1 : fmt(t.machines_n, st.machines.length)));
   $("#tiles").replaceChildren(...tiles);
   const red = (a) => a.kind === "cloud_idle_billing" || a.kind === "machine_unreachable";
