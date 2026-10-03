@@ -8956,6 +8956,68 @@ def claude_statusline():
     return sl.get("command") if isinstance(sl, dict) else None
 
 
+class Redactor:
+    """把一段文字裡會認出人的東西換成代號：機器名和 SSH 主機（machine-1…）、IP（ip-1…）、
+    專案名（project-1…）、email、家目錄（~）和使用者名稱（user）。同一個值在同一次輸出裡代號都一樣。"""
+
+    IP = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b"
+                    r"|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*::(?:[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*)?\b")
+    EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+    PATH = re.compile(r"~/[^\s,;()'\"\u3000-\u303f\uff00-\uffef]+")
+    # 太常見、換掉反而看不懂的資料夾名稱（專案的上層資料夾常常就是這些）
+    COMMON = {"documents", "desktop", "downloads", "development", "dev", "projects", "project", "src", "code",
+              "work", "repos", "home", "users", "tmp", "claude", "codex", "ollama", "computai", "github"}
+
+    def __init__(self, db=None):
+        self.codes = {}
+        names = []
+        for m in machines():
+            names.append(("machine", m["name"]))
+            if m["host"] != "local":
+                host = m["host"].split("@")[-1]
+                names.append(("host", m["host"]))
+                names.append(("host", host))
+        names.append(("machine", local_hostname()))
+        if db is not None:
+            for (p,) in db.execute("SELECT DISTINCT project FROM usage WHERE project != ''"):
+                base = os.path.basename(p.rstrip("/\\"))
+                if base.lower() not in self.COMMON:
+                    names.append(("project", base))
+        self.words = []
+        for kind, w in names:
+            if w and len(w) >= 2 and w not in ("local", "this-computer"):
+                self.words.append((kind, w))
+        self.words.sort(key=lambda kw: -len(kw[1]))   # 長的先換，避免「m1」先吃掉「m1m」的一部分
+        self.home = os.path.expanduser("~")
+        try:
+            import getpass
+            self.user = getpass.getuser()
+        except Exception:
+            self.user = ""
+
+    def code(self, kind, value):
+        key = (kind, value)
+        if key not in self.codes:
+            self.codes[key] = "%s-%d" % (kind, 1 + sum(1 for k in self.codes if k[0] == kind))
+        return self.codes[key]
+
+    def __call__(self, text):
+        if not isinstance(text, str) or not text:
+            return text
+        if self.home and len(self.home) > 1:
+            text = text.replace(self.home, "~")
+        # 家目錄底下的路徑：設定類的點資料夾（~/.claude、~/.config）照留，其他整段換成代號
+        text = self.PATH.sub(lambda m: m.group(0) if m.group(0).startswith("~/.") else "~/" + self.code("path", m.group(0)), text)
+        text = self.EMAIL.sub("email", text)
+        text = self.IP.sub(lambda m: self.code("ip", m.group(0)), text)
+        for kind, w in self.words:
+            text = re.sub(r"(?<![\w-])%s(?![\w-])" % re.escape(w),
+                          lambda m, k=kind, w=w: self.code("machine" if k == "host" else k, w), text)
+        if self.user and len(self.user) >= 3:
+            text = re.sub(r"(?<![\w-])%s(?![\w-])" % re.escape(self.user), "user", text)
+        return text
+
+
 def doctor(db, sample=True):
     """檢查每個來源和每台機器，回傳 [{area, level: ok|tip|todo, text, fix}]。"""
     out = []
@@ -9796,6 +9858,8 @@ def parse_args(argv=None):
     p.add_argument("--unset", action="append", metavar="SECTION.KEY", default=[],
                    help="remove a setting from config.ini (repeatable)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--redact", action="store_true",
+                   help="with --doctor: replace machine names, hosts, IPs, project names and your user name with codes")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     group_help(p)
     return p.parse_args(argv)
@@ -9986,6 +10050,9 @@ def run(args, db):
             sync(db, quiet=True)
         set_style(use_color(), not can_draw_blocks())
         items = doctor(db, sample=not args.no_sync)
+        if args.redact:   # 貼到 issue 用：機器名、IP、專案名、使用者名稱換成代號
+            r = Redactor(db)
+            items = [{k: r(v) for k, v in x.items()} for x in items]
         emit(items, render_doctor(items), args.json)
         return 0
     if args.discover:
