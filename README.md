@@ -120,12 +120,13 @@ status line (that is also how ComputAI learns Claude's limit percentages). See
 A card for your profile README (`github.com/<you>/<you>`). It is rendered from your own ledger on your own machine, not by a web service:
 
 - the token count and its value at API prices;
+- how agents work for you: agent hours, peak parallel agents, longest run, cache hit rate, prompts, subagents and the Claude Code / Codex / local split;
 - a 13-week activity heatmap;
 - a level and rank earned from all-time tokens;
 - your top models, streak, peak hour and cache savings;
 - badges unlocked from real data.
 
-![ComputAI profile card](docs/images/card-computai.svg)
+![ComputAI profile card](docs/images/card-netrunner.svg)
 
 ```sh
 computai --setup      # the "GitHub profile card" step finds your profile repo and prints the README snippet
@@ -133,13 +134,15 @@ computai --setup      # the "GitHub profile card" step finds your profile repo a
 
 Once it is set up, `computai` (and `--watch` after `computai --install-watch`) rewrites the card once a day and commits it. It pushes too if you said so; before pushing it rebases onto anything a bot pushed meanwhile. The card contains only totals and model names: no project names, paths or prompts.
 
-| `amber` | `matrix` |
+| `arasaka` | `militech` |
 |---|---|
-| ![amber](docs/images/card-amber.svg) | ![matrix](docs/images/card-matrix.svg) |
-| `synthwave` | `mono` |
-| ![synthwave](docs/images/card-synthwave.svg) | ![mono](docs/images/card-mono.svg) |
+| ![arasaka](docs/images/card-arasaka.svg) | ![militech](docs/images/card-militech.svg) |
+| `synthwave` | `matrix` |
+| ![synthwave](docs/images/card-synthwave.svg) | ![matrix](docs/images/card-matrix.svg) |
+| `amber` | light mode |
+| ![amber](docs/images/card-amber.svg) | ![netrunner light](docs/images/card-netrunner-light.svg) |
 
-Pick a style with `computai --set card.style=matrix`, or your own gradient with `computai --set 'card.colors=#ff6b6b, #ffd93d'`. Every style has a light version for light-mode visitors (`computai-card-light.svg`). The title shows `SYS.<your GitHub account>` unless you set `card.handle`.
+Pick a style with `computai --set card.style=arasaka`, or your own gradient with `computai --set 'card.colors=#ff6b6b, #ffd93d'`. Every style has a light version for light-mode visitors (`computai-card-light.svg`). The title shows `SYS.<your GitHub account>` unless you set `card.handle`.
 
 ## Privacy and security
 
