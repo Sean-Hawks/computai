@@ -680,6 +680,17 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS bench_runs (
+    ts INTEGER NOT NULL,
+    machine TEXT NOT NULL,
+    service TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    tok_s REAL,
+    power_w REAL,
+    j_per_token REAL,
+    usd_per_mtok REAL,
+    PRIMARY KEY (ts, machine, service, model)
+);
 CREATE TABLE IF NOT EXISTS devices (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL DEFAULT '',
@@ -4972,6 +4983,176 @@ def local_compare(prices=None, cp=None):
     return (best[0][1], prices[best[0][1]]) if best else (None, None)
 
 
+def local_settings(cp=None):
+    cp = cp or load_config()
+    names = [x.strip().lower() for x in (cp.get("local", "compare_models", fallback="") or "").split(",") if x.strip()]
+    return {"compare": names or ["claude-haiku-4", "gpt-5.4-mini"],
+            "light_output": int(_float(cp.get("local", "light_output", fallback="800"), 800)),
+            "light_context": int(_float(cp.get("local", "light_context", fallback="30000"), 30000)),
+            "hardware_usd": _float(cp.get("local", "hardware_usd", fallback="0"), 0.0),
+            "lifetime_years": max(0.5, _float(cp.get("local", "lifetime_years", fallback="3"), 3.0)),
+            "grid_kg_per_kwh": _float(cp.get("energy", "grid_kg_per_kwh", fallback="0.474"), 0.474)}
+
+
+def api_usd_per_mtok(price, share_in=0.5):
+    """一個 API 模型每 100 萬 token 的價格：本地請求的輸入大多沒有快取，照 input 和 output 混合（預設各半）。"""
+    return price["input"] * share_in + price["output"] * (1 - share_in)
+
+
+def local_cost_report(db, start, end, prices=None, t=None):
+    """本地模型的真實成本和分流建議（--local-cost、本地模型分頁、Wrapped）：
+    - 每個本地模型：每 100 萬 token 的電費（用實際用量和實測耗電算；沒有就用 --bench 的紀錄）、
+      加上折舊（[local] hardware_usd、lifetime_years）、跟 compare_models 比的打平點。
+    - 這個月 Claude、Codex 的輕量請求如果都改走本地，省多少錢（照 API 價格）和多少訂閱額度（佔用量價值的比例），
+      要花多少電、排多少碳。"""
+    t = now() if t is None else t
+    prices = load_prices() if prices is None else prices
+    ls = local_settings()
+    ps = power_settings()
+    energy = {r["machine"]: r for r in machine_report(db, start, end, ps)}
+    # 比較的模型要在 prices.ini 裡有完全同名的一節：用字首比對會把 gpt-5.4-mini 當成 gpt-5.4（貴好幾倍）
+    compare = [(n, prices[normalize_model(n)]) for n in ls["compare"] if normalize_model(n) in prices]
+    months = max(1.0, (end - start) / (30 * 86400.0))
+    # 每個（機器, 模型）：實際用量
+    models = []
+    q = ("SELECT project AS machine, model, SUM(input + cache_read) AS i, SUM(output) AS o, SUM(requests) AS n "
+         "FROM usage WHERE source = 'local' AND ts >= ? AND ts < ? GROUP BY project, model ORDER BY SUM(output) DESC")
+    for r in db.execute(q, (start, end)):
+        e = energy.get(r["machine"]) or {}
+        mo = e.get("output_tokens") or 0
+        share = (r["o"] or 0) / float(mo) if mo else 0.0
+        kwh = (e.get("ai_kwh") or 0.0) * share
+        cost = (e.get("energy_cost_usd") or 0.0) * (e.get("ai_kwh") or 0) / (e.get("kwh") or 1) * share if e.get("kwh") else None
+        tokens = (r["i"] or 0) + (r["o"] or 0)
+        models.append({"machine": r["machine"], "model": r["model"], "tokens": tokens, "output": r["o"] or 0,
+                       "requests": r["n"] or 0, "kwh": round(kwh, 4), "source": "usage",
+                       "elec_usd_per_mtok": round(cost / tokens * 1e6, 4) if cost and tokens else None})
+    # 沒有實際用量（或量不到電）的模型，用最近一次跑分補上
+    have = {(x["machine"], normalize_model(x["model"])) for x in models if x["elec_usd_per_mtok"] is not None}
+    for b in db.execute("SELECT b.* FROM bench_runs b JOIN (SELECT machine, model, MAX(ts) AS ts FROM bench_runs "
+                        "GROUP BY machine, model) x ON b.machine = x.machine AND b.model = x.model AND b.ts = x.ts"):
+        key = (b["machine"], normalize_model(b["model"]))
+        if key in have or b["usd_per_mtok"] is None:
+            continue
+        row = next((x for x in models if (x["machine"], normalize_model(x["model"])) == key), None)
+        if row is None:
+            row = {"machine": b["machine"], "model": b["model"], "tokens": 0, "output": 0, "requests": 0, "kwh": 0.0}
+            models.append(row)
+        row.update(source="bench", elec_usd_per_mtok=b["usd_per_mtok"], tok_s=b["tok_s"])
+    # 折舊：硬體價錢 ÷ 壽命，攤到這段期間全部的本地 token
+    total_local = sum(x["tokens"] for x in models)
+    dep_period = ls["hardware_usd"] / (ls["lifetime_years"] * 12.0) * months if ls["hardware_usd"] else 0.0
+    for x in models:
+        x["depreciation_usd_per_mtok"] = round(dep_period / total_local * 1e6, 4) if dep_period and total_local else None
+        x["total_usd_per_mtok"] = (round((x["elec_usd_per_mtok"] or 0) + (x["depreciation_usd_per_mtok"] or 0), 4)
+                                   if x.get("elec_usd_per_mtok") is not None else None)
+        x["vs"] = []
+        for n, p_ in compare:
+            api = api_usd_per_mtok(p_)
+            local = x["total_usd_per_mtok"]
+            # 打平點：每個月要跑多少 token，本地（電費＋折舊）才比 API 便宜
+            per_tok_gap = (api - (x.get("elec_usd_per_mtok") or 0)) / 1e6
+            breakeven = (ls["hardware_usd"] / (ls["lifetime_years"] * 12.0) / per_tok_gap) \
+                if ls["hardware_usd"] and per_tok_gap > 0 else None
+            x["vs"].append({"model": n, "api_usd_per_mtok": round(api, 4),
+                            "times_cheaper": round(api / local, 1) if local else None,
+                            "breakeven_mtok_per_month": round(breakeven / 1e6, 2) if breakeven else None})
+    # 這個月的輕量請求如果走本地
+    light = db.execute("SELECT source, model, SUM(input) AS input, SUM(cache_read) AS cache_read, "
+                       "SUM(cache_write_5m) AS cache_write_5m, SUM(cache_write_1h) AS cache_write_1h, SUM(output) AS output, "
+                       "SUM(reasoning) AS reasoning, SUM(requests) AS n, NULL AS cost_usd FROM usage "
+                       "WHERE source IN ('claude', 'codex') AND ts >= ? AND ts < ? AND output <= ? "
+                       "AND input + cache_read + cache_write_5m + cache_write_1h <= ? GROUP BY source, model",
+                       (start, end, ls["light_output"], ls["light_context"])).fetchall()
+    light_usd = sum(row_cost(dict(r), price_for(r["model"], prices)) or 0.0 for r in light)
+    light_tok = sum((r["input"] or 0) + (r["cache_read"] or 0) + (r["cache_write_5m"] or 0) + (r["cache_write_1h"] or 0)
+                    + (r["output"] or 0) for r in light)
+    light_out = sum(r["output"] or 0 for r in light)
+    subs_usd = sum(x["cost_usd"] for x in summary(db, start, end, prices, plan_table={})["sources"]
+                   if x["source"] in ("claude", "codex"))
+    best = min((x for x in models if x.get("elec_usd_per_mtok") is not None), key=lambda x: x["elec_usd_per_mtok"],
+               default=None)
+    # 本地跑這些要多少電：用最省的那個本地模型實測的 J/token（輸出 token）
+    jpt = None
+    if best:
+        e = energy.get(best["machine"]) or {}
+        jpt = e.get("j_per_token")
+        if jpt is None:
+            b = db.execute("SELECT j_per_token FROM bench_runs WHERE machine = ? AND j_per_token IS NOT NULL "
+                           "ORDER BY ts DESC LIMIT 1", (best["machine"],)).fetchone()
+            jpt = b["j_per_token"] if b else None
+    light_kwh = light_out * jpt / 3.6e6 if jpt else None
+    light_elec = light_tok * best["elec_usd_per_mtok"] / 1e6 if best else None
+    local_kwh = sum(e.get("ai_kwh") or 0 for e in energy.values())
+    local_value = sum(x["tokens"] * api_usd_per_mtok(compare[0][1]) / 1e6 for x in models) if compare else 0.0
+    local_elec = sum((e.get("energy_cost_usd") or 0) * (e.get("ai_kwh") or 0) / e["kwh"]
+                     for e in energy.values() if e.get("kwh"))
+    g = ls["grid_kg_per_kwh"]
+    return {"models": models, "compare": [n for n, _ in compare],
+            "missing_prices": [n for n in ls["compare"] if normalize_model(n) not in prices], "best": best and {"machine": best["machine"], "model": best["model"]},
+            "light": {"requests": sum(r["n"] or 0 for r in light), "tokens": light_tok, "api_usd": round(light_usd, 2),
+                      "quota_share": round(light_usd / subs_usd, 3) if subs_usd else None,
+                      "local_elec_usd": None if light_elec is None else round(light_elec, 4),
+                      "kwh": None if light_kwh is None else round(light_kwh, 3),
+                      "co2_kg": None if light_kwh is None or not g else round(light_kwh * g, 3)},
+            "month": {"local_tokens": total_local, "saved_usd": round(max(0.0, local_value - local_elec), 2),
+                      "kwh": round(local_kwh, 3), "co2_kg": round(local_kwh * g, 3) if g else None,
+                      "compare": compare[0][0] if compare else None},
+            "grid_kg_per_kwh": g}
+
+
+def local_cost_lines(r):
+    """一兩句話：這個月本地模型替你省了多少、花多少電；輕量請求如果都走本地可以再省多少。"""
+    out = []
+    mo, lt = r["month"], r["light"]
+    if mo["local_tokens"] and mo["compare"]:
+        txt = T("lc_saved") % (fmt_usd(mo["saved_usd"]), mo["compare"], mo["kwh"])
+        if mo["co2_kg"] is not None:
+            txt += T("lc_co2") % mo["co2_kg"]
+        out.append(txt)
+    if lt["requests"] and r["best"]:
+        txt = T("lc_light") % {"n": lt["requests"], "model": r["best"]["model"], "machine": r["best"]["machine"],
+                              "usd": fmt_usd(lt["api_usd"]),
+                              "quota": "%.1f%%" % (100 * lt["quota_share"]) if lt["quota_share"] is not None else "?",
+                              "elec": fmt_usd(lt["local_elec_usd"] or 0)}
+        out.append(txt)
+    return out
+
+
+def render_local_cost(r, label=""):
+    lines = [T("lc_title") % label, ""]
+    if not r["models"]:
+        lines.append("  " + T("lc_none"))
+    else:
+        head = "  %s %s %8s %s %s" % (cell(T("lc_model"), 22), cell(T("b_machine"), 12), "tokens",
+                                      " " * max(0, 10 - vlen(T("lc_power"))) + T("lc_power"),
+                                      " " * max(0, 9 - vlen(T("lc_hw"))) + T("lc_hw"))
+        head += "".join(" %18s" % ("vs " + n)[:18] for n in r["compare"])
+        lines.append(head)
+        for x in r["models"]:
+            row = "  %s %s %8s %10s %9s" % (cell(x["model"], 22), cell(x["machine"], 12), fmt_tok(x["tokens"]),
+                                            "-" if x.get("elec_usd_per_mtok") is None else fmt_usd(x["elec_usd_per_mtok"]),
+                                            "-" if not x.get("depreciation_usd_per_mtok") else fmt_usd(x["depreciation_usd_per_mtok"]))
+            for v in x["vs"]:
+                txt = T("lc_x") % v["times_cheaper"] if v["times_cheaper"] else "-"
+                if v["breakeven_mtok_per_month"]:
+                    txt += " / %sM" % v["breakeven_mtok_per_month"]
+                row += " %18s" % txt
+            if x.get("source") == "bench":
+                row += "  " + T("lc_bench")
+            lines.append(row)
+        lines.append("  " + T("lc_per"))
+        if any(x.get("elec_usd_per_mtok") is None for x in r["models"]):
+            lines.append("  " + T("lc_unknown"))
+    lines.append("")
+    lines += ["  " + x for x in local_cost_lines(r)]
+    if r["missing_prices"]:
+        lines.append("  " + T("lc_missing") % ", ".join(r["missing_prices"]))
+    if r["grid_kg_per_kwh"]:
+        lines.append("  " + T("lc_grid") % r["grid_kg_per_kwh"])
+    return "\n".join(lines)
+
+
 def local_overview(db, machines_state, energy, t=None):
     """本地模型一覽：每台機器的每個模型一列——狀態、現在多快、今天和本月的 token，
     以及「這些 token 照 API 價格值多少」。也列出載入了但這個月還沒用過的模型。"""
@@ -5323,6 +5504,7 @@ def dashboard_state(db):
     st["ledger_empty"] = not st["sources"] and ledger_empty(db)
     st["devices"] = devices_report(db, start, end, t)
     st["timeline"] = timeline_data(db, t=t)
+    st["local_cost"] = local_cost_report(db, start, end, t=t)
     return st
 
 
@@ -5709,6 +5891,15 @@ UI = {
         "win": {"5h": "5-hour limit", "week": "weekly limit"}, "used_up": "used up", "used_pct": "%d%% used",
         "today_worth": "today %s worth", "today_spent": "today %s",
         "sum_value": "Usage value: %s this month, %s today (at API prices)",
+        "lc_title": "Local models vs the cloud %s", "lc_none": "No local model usage or --bench results yet.",
+        "lc_model": "model", "lc_power": "power/1M", "lc_hw": "+hw/1M", "lc_x": "%gx cheaper",
+        "lc_bench": "(from --bench)", "lc_per": "per 1M tokens; vs = how many times cheaper than the API model, / = break-even tokens a month with hardware",
+        "lc_unknown": "- = power unknown for that machine; set its watts (computai --doctor) or run computai --bench",
+        "lc_saved": "This month local models saved you %s (at %s prices) and used %.2f kWh", "lc_co2": " (%.2f kg CO2e)",
+        "lc_light": "If this month's %(n)d light requests had gone to %(model)s on %(machine)s: %(usd)s at API prices "
+                    "and %(quota)s of your subscription usage saved, for %(elec)s of electricity",
+        "lc_missing": "no exact price for %s in prices.ini, so it is not compared (add a section for it)",
+        "lc_grid": "carbon at %g kg CO2e/kWh ([energy] grid_kg_per_kwh)",
         "gd_limit": "%s: %d%% left, resets in %s", "gd_budget": "this month is heading for $%d, over the $%d budget",
         "gd_hint": "Prefer fewer, smaller subagents and finish what is open.",
         "gd_strict": "Strict mode: no new subagents until it resets. Finish in this session or check with the user.",
@@ -5817,7 +6008,7 @@ UI = {
         "wr_models_k": "TOP MODELS", "wr_models_p": "Your most used models, by share of tokens.",
         "wr_sessions_k": "SESSIONS", "wr_sessions_p": "The biggest one moved %s tokens over %s.",
         "wr_cache_k": "SAVED BY PROMPT CACHE", "wr_cache_p": "Cache hits cost a fraction of normal input.",
-        "wr_local_k": "LOCAL MODELS", "wr_local_p": "Tokens on your own hardware, %.1f kWh measured.",
+        "wr_local_k": "LOCAL MODELS", "wr_local_saved": "Tokens on your own hardware. They saved you %s and used %.1f kWh.", "wr_local_p": "Tokens on your own hardware, %.1f kWh measured.",
         "wr_vs_month": "VS LAST MONTH", "wr_vs_year": "VS LAST YEAR", "wr_vs_p": "In tokens. The same stretch before had %s.",
         "wr_vs_value": "Value: %s.", "wr_card_k": "YOUR WRAPPED",
         "wr_hint": "click, tap or press space for the next one", "wr_replay": "replay",
@@ -5939,6 +6130,15 @@ UI = {
         "win": {"5h": "5 小時額度", "week": "每週額度"}, "used_up": "已用完", "used_pct": "已用 %d%%",
         "today_worth": "今天價值 %s", "today_spent": "今天 %s",
         "sum_value": "用量價值：本月 %s、今天 %s（照 API 價格算）",
+        "lc_title": "本地模型 vs 雲端 %s", "lc_none": "還沒有本地模型的用量，也沒有 --bench 的紀錄。",
+        "lc_model": "模型", "lc_power": "電費/1M", "lc_hw": "+折舊/1M", "lc_x": "便宜 %g 倍",
+        "lc_bench": "（--bench 估的）", "lc_per": "每 100 萬 token；vs = 比那個 API 模型便宜幾倍，/ = 算上硬體時每個月要跑多少 token 才打平",
+        "lc_unknown": "- = 那台機器的功耗不知道；設定瓦數（computai --doctor）或跑 computai --bench",
+        "lc_saved": "這個月本地模型替你省了 %s（照 %s 的價格），花了 %.2f 度電", "lc_co2": "（%.2f 公斤 CO2e）",
+        "lc_light": "這個月 %(n)d 個輕量請求如果都丟給 %(machine)s 上的 %(model)s：省下 API 價格 %(usd)s、"
+                    "訂閱用量的 %(quota)s，只花 %(elec)s 的電",
+        "lc_missing": "prices.ini 裡沒有 %s 的價格（要完全同名），所以沒有比較；加一節就會出現",
+        "lc_grid": "碳排用每度 %g 公斤 CO2e 算（[energy] grid_kg_per_kwh）",
         "gd_limit": "%s 剩 %d%%，%s 後重置", "gd_budget": "這個月預估 $%d，超過預算 $%d",
         "gd_hint": "少派、派小一點的 subagent，先把手上的做完。",
         "gd_strict": "嚴格模式：重置前不再派新的 subagent。在這個 session 裡做完，或先問使用者。",
@@ -6047,7 +6247,7 @@ UI = {
         "wr_models_k": "最常用的模型", "wr_models_p": "依 token 佔比排序。",
         "wr_sessions_k": "對話數", "wr_sessions_p": "最大的一場用了 %s 個 token，歷時 %s。",
         "wr_cache_k": "快取省下的錢", "wr_cache_p": "命中快取的輸入只要正常價格的一小部分。",
-        "wr_local_k": "本地模型", "wr_local_p": "個 token 跑在你自己的硬體上，實測 %.1f 度電。",
+        "wr_local_k": "本地模型", "wr_local_saved": "個 token 跑在你自己的硬體上，替你省了 %s，花了 %.1f 度電。", "wr_local_p": "個 token 跑在你自己的硬體上，實測 %.1f 度電。",
         "wr_vs_month": "和上個月比", "wr_vs_year": "和去年比", "wr_vs_p": "以 token 計。上一段同樣長的時間是 %s。",
         "wr_vs_value": "價值：%s。", "wr_card_k": "你的回顧",
         "wr_hint": "點一下、輕觸或按空白鍵看下一張", "wr_replay": "重播",
@@ -7331,6 +7531,8 @@ def render_hud(st, width, height, frame, view):
     elif view == "local":
         body += local_gauges(st, width) if not _ascii else []
         body += local_panel(st, width) or panel(ptitle(3, T("l_title")), "", [dim(" " + T("b_none"))], width)
+        for ln in local_cost_lines(st.get("local_cost") or {"month": {"local_tokens": 0}, "light": {"requests": 0}}):
+            body += ["  " + x for x in wrap(ln, width - 4)]   # 真實成本和分流建議（computai --local-cost 看細節）
         body += [dim("  " + T("local_tip"))]
     elif view == "spend":
         body += usage_panel(st, width) + alerts_panel(st, width) + advice_panel(st, width)
@@ -8827,6 +9029,12 @@ def bench(db, only=None):
                 row["j_per_token"] = round(row["power_w"] / row["tok_s"], 3)
                 if price and to_usd:
                     row["usd_per_mtok"] = round(row["j_per_token"] * 1e6 / 3.6e6 * price * to_usd, 4)
+    t = int(now())   # 留下紀錄：--local-cost 沒有實際用量時，用跑分估本地模型的速度和電費
+    db.executemany("INSERT OR REPLACE INTO bench_runs (ts, machine, service, model, tok_s, power_w, j_per_token, usd_per_mtok) "
+                   "VALUES (?,?,?,?,?,?,?,?)", [(t, r["machine"], r.get("service") or "", r.get("model") or "", r["tok_s"],
+                                                r["power_w"], r["j_per_token"], r["usd_per_mtok"])
+                                               for r in rows if r.get("tok_s")])
+    db.commit()
     return {"rows": rows, "api_cheapest": {"model": api[0][1], "usd_per_mtok": api[0][0]} if api else None,
             "tokens": BENCH_TOKENS, "price_per_kwh": price, "currency": ps["currency"]}
 
@@ -9107,7 +9315,15 @@ def wrapped(db, start, end, label, kind="month", prices=None, plan_table=None, c
            "top_models": top, "sessions": len(sessions), "biggest_session": biggest,
            "cache_savings_usd": round(saved, 2), "local_tokens": local, "kwh": round(kwh, 2),
            "equivalents": equivalents(output),
-           "daily": [[d, round(days[d], 2)] for d in sorted(days)], "previous": None, "busiest_timeline_svg": None}
+           "daily": [[d, round(days[d], 2)] for d in sorted(days)], "previous": None, "busiest_timeline_svg": None,
+           "local_saved_usd": None}
+    if local:   # 本地模型替你省了多少（照小雲端模型的價格扣掉電費）
+        try:
+            lc = local_cost_report(db, start, end, prices=prices, t=t)
+            out["local_saved_usd"] = lc["month"]["saved_usd"] if lc["month"]["compare"] else None
+            out["local_kwh"] = lc["month"]["kwh"]
+        except Exception:
+            pass
     if busiest:   # 最忙那天的 agent 時間軸（跟卡片一樣，沒有專案名和機器名）
         try:
             y_, m_, d_ = (int(x) for x in busiest[0].split("-"))
@@ -9177,7 +9393,9 @@ def wrapped_slides(w):
     if w["cache_savings_usd"] >= 0.01:
         add("cache", T("wr_cache_k"), fmt_usd(w["cache_savings_usd"]), T("wr_cache_p"))
     if w["local_tokens"] or w["kwh"]:
-        add("local", T("wr_local_k"), fmt_tok(w["local_tokens"]), T("wr_local_p") % w["kwh"])
+        add("local", T("wr_local_k"), fmt_tok(w["local_tokens"]),
+            T("wr_local_saved") % (fmt_usd(w["local_saved_usd"]), w.get("local_kwh") or 0)
+            if w.get("local_saved_usd") else T("wr_local_p") % w["kwh"])
     pv = w["previous"]
     if pv and pv["tokens_change_pct"] is not None:
         punch = T("wr_vs_p") % fmt_tok(pv["tokens"])
@@ -11098,6 +11316,9 @@ def parse_args(argv=None):
                         "(HTTPS, your devices only); the server itself stays on 127.0.0.1")
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
+    p.add_argument("--local-cost", action="store_true",
+                   help="what local models really cost (power, hardware, carbon) versus small cloud models, and what "
+                        "this month's light requests would save if they ran locally")
     p.add_argument("--timeline", action="store_true",
                    help="today's agent sessions as a timeline (with --svg FILE: a shareable SVG without project or machine names)")
     p.add_argument("--hook", choices=["claude-pretool", "claude-stop"],
@@ -11235,7 +11456,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -11296,6 +11517,13 @@ def run(args, db):
     if args.bench:
         b = bench(db, [args.machine] if args.machine else None)
         emit(b, render_bench(b), args.json)
+        return 0
+    if args.local_cost:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        start, end, label = pick_range(args)
+        r = local_cost_report(db, start, end)
+        emit(r, render_local_cost(r, label), args.json)
         return 0
     if args.timeline:
         if not args.no_sync:
