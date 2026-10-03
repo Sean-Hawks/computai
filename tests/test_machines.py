@@ -59,6 +59,11 @@ class Snapshot(unittest.TestCase):
         self.assertEqual(d["services"][0]["counters"]["llamacpp"], {"prompt": 5000.0, "generation": 1200.0})
         self.assertEqual(d["services"][0]["running"], 0.0)
 
+    def test_gpu_model_name(self):
+        g = self.m.parse_gpu("0, GPU-x, 38, 2729, 16376, 35, 32.38, NVIDIA GeForce RTX 4070 Ti SUPER")
+        self.assertEqual((g["model"], g["util"], g["power"]), ("RTX 4070 Ti SUPER", 38.0, 32.38))
+        self.assertIsNone(self.m.parse_gpu("0, GPU-x, 38, 2729, 16376, 35, 32.38")["model"])
+
     def test_unreachable(self):
         self.assertIsNone(self.m.snapshot("nowhere", self.svc))
 

@@ -3593,19 +3593,30 @@ WEB_HTML = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark light">
 <title>ComputAI</title>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <header>
-  <h1>ComputAI</h1>
-  <div id="line" class="line">loading...</div>
+  <div class="brand">COMPUTAI<span>where your compute and AI money goes</span></div>
+  <div id="line"></div>
+  <div id="clock"></div>
 </header>
 <main>
-  <section id="compute"><h2>Compute</h2><div class="body"></div></section>
-  <section id="usage"><h2>AI usage</h2><div class="body"></div></section>
-  <section id="alerts"><h2>Alerts</h2><div class="body"></div></section>
+  <div id="tiles" class="tiles"></div>
+  <div id="alerts"></div>
+  <section class="cols">
+    <div>
+      <h2 class="sec">Compute</h2>
+      <div id="machines" class="nodes"></div>
+      <div id="cloud"></div>
+    </div>
+    <div>
+      <h2 class="sec">AI usage</h2>
+      <div id="usage"></div>
+    </div>
+  </section>
 </main>
 <footer id="foot"></footer>
 <script src="/app.js"></script>
@@ -3613,51 +3624,90 @@ WEB_HTML = """<!doctype html>
 </html>
 """
 
+# 版面和配色照 slurmtop 84cd35d 的網頁（GitHub 深色主題、等寬字、卡片、依熱度上色的長條和 SVG 走勢）
 WEB_CSS = """
-:root { --bg: #fcfcfb; --card: #ffffff; --ink: #0b0b0b; --muted: #52514e; --line: #e4e3df;
-        --accent: #2a78d6; --warn: #b42318; --track: #ecebe7; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #121211; --card: #1a1a19; --ink: #ffffff; --muted: #c3c2b7; --line: #2c2c2a;
-          --accent: #3987e5; --warn: #f97066; --track: #2c2c2a; }
-}
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink);
-       font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans TC", sans-serif; }
-header { padding: 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; }
-h1 { font-size: 20px; margin: 0; }
-.line { color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-main { display: grid; gap: 12px; padding: 0 16px 16px; grid-template-columns: minmax(0, 1fr); }
-@media (min-width: 900px) { main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-                            #alerts { grid-column: 1 / -1; } }
-section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
-          min-width: 0; }
-h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
-.row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0;
-       border-top: 1px solid var(--line); flex-wrap: wrap; }
-.row:first-child { border-top: 0; }
-.name { font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
-.num { font-variant-numeric: tabular-nums; text-align: right; margin-left: auto; }
-.sub { color: var(--muted); font-size: 13px; width: 100%; overflow-wrap: anywhere; }
-.meter { width: 100%; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
-.meter > i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
-.alert { color: var(--warn); padding: 6px 0; overflow-wrap: anywhere; }
-.alert::before { content: "\\26A0  "; }
-.empty { color: var(--muted); }
-footer { color: var(--muted); font-size: 12px; padding: 0 16px 24px; }
+:root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --dim:#8b949e;
+  --accent:#56d3f0; --mag:#c792ea; --warn:#f1c40f; --red:#e74c3c; --ok:#2ecc71; }
+@media (prefers-color-scheme: light) { :root { --bg:#f6f8fa; --panel:#ffffff; --line:#d0d7de;
+  --text:#1f2328; --dim:#656d76; --accent:#0969da; --mag:#8250df; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text);
+  font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,"Noto Sans Mono CJK TC",monospace; }
+header { display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; padding:10px 16px;
+  border-bottom:1px solid var(--line); }
+.brand { font-weight:700; color:var(--accent); letter-spacing:.08em; }
+.brand span { color:var(--dim); margin-left:10px; letter-spacing:0; font-weight:400; font-size:12px; }
+#line { flex:1; color:var(--text); min-width:0; overflow-wrap:anywhere; }
+#clock { color:var(--dim); }
+main { padding:12px 16px; display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
+.tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+.tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; min-width:0; }
+.tile .k { color:var(--dim); font-size:12px; }
+.tile .v { font-size:20px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#alerts:empty { display:none; }
+.alert { padding:6px 10px; border-radius:6px; margin:0 0 6px; border-left:4px solid var(--warn);
+  background:color-mix(in srgb, var(--warn) 12%, var(--panel)); overflow-wrap:anywhere; }
+.alert.red { border-color:var(--red); background:color-mix(in srgb, var(--red) 14%, var(--panel)); }
+.cols { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
+@media (min-width: 1000px) { .cols { grid-template-columns:minmax(0,3fr) minmax(0,2fr); } }
+h2.sec { margin:0 0 8px; font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; }
+.nodes { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr)); gap:12px; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px;
+  margin-bottom:12px; min-width:0; }
+.nodes .card { margin-bottom:0; }
+.card h3 { display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; margin:0 0 8px; font-size:14px; }
+.card h3 .sub { color:var(--dim); font-weight:400; margin-left:auto; font-size:12px; }
+.led { width:9px; height:9px; border-radius:50%; display:inline-block; }
+.tag { font-size:11px; padding:0 5px; border-radius:4px; border:1px solid var(--line); color:var(--dim); }
+.tag.ai { color:#000; background:var(--ok); border-color:var(--ok); font-weight:700; }
+.tag.stale { color:var(--warn); border-color:var(--warn); }
+.row { display:grid; grid-template-columns:56px minmax(0,1fr) 64px; gap:8px; align-items:center; margin:3px 0; }
+.row .lab { color:var(--dim); } .row .num { text-align:right; white-space:nowrap; }
+.bar { height:10px; background:var(--line); border-radius:5px; overflow:hidden; }
+.bar > i { display:block; height:100%; border-radius:5px; }
+.gpu { display:grid; grid-template-columns:28px minmax(0,1fr) 42px 84px 84px; gap:7px; align-items:center;
+  padding:4px 0; border-top:1px dashed var(--line); }
+.gpu > span { white-space:nowrap; } .gpu .model { grid-column:2 / -1; color:var(--dim); font-size:12px;
+  margin-top:-2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.svc { display:flex; flex-wrap:wrap; gap:4px 10px; padding:5px 0 0; border-top:1px dashed var(--line);
+  margin-top:4px; align-items:baseline; }
+.svc .k { color:var(--mag); } .svc .m { overflow-wrap:anywhere; }
+.muted { color:var(--dim); } .ok { color:var(--ok); } .num { font-variant-numeric:tabular-nums; }
+svg { display:block; width:100%; }
+.src { padding:6px 0; border-top:1px solid var(--line); } .src:first-of-type { border-top:0; }
+.src .top { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; }
+.src .top b { flex:1; } .src .cost { color:var(--accent); font-weight:700; font-size:16px; }
+.legend { color:var(--dim); font-size:12px; }
+table { width:100%; border-collapse:collapse; } th { text-align:left; color:var(--dim); font-weight:600; }
+td, th { padding:3px 8px 3px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
+.tablewrap { overflow-x:auto; }
+footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
+@media (max-width: 520px) {
+  .gpu { grid-template-columns:28px minmax(0,1fr) 42px; } .gpu > :nth-child(4), .gpu > :nth-child(5) { display:none; }
+  main { padding:8px; } header { padding:8px; } .tile .v { font-size:18px; } }
 """
 
 WEB_JS = r"""
 "use strict";
-const $ = (sel) => document.querySelector(sel);
-function el(tag, cls, text) {
+// 資料裡的字串（機器、模型、專案名稱）一律用 textContent 放進頁面，不把資料當 HTML 解析
+const $ = (s) => document.querySelector(s);
+function el(tag, attrs, ...kids) {
   const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text !== undefined && text !== null) e.textContent = String(text);   // 一律 textContent，不插 HTML
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") e.className = v; else if (k === "style") e.style.cssText = v; else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k !== null && k !== undefined && k !== false) e.append(k instanceof Node ? k : String(k));
   return e;
 }
-const usd = (v) => v === null || v === undefined ? "?" :
-  "$" + (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : v.toFixed(2));
-const pct = (v) => v === null || v === undefined ? "-" : Math.round(v) + "%";
+function heat(p) {
+  p = Math.max(0, Math.min(100, p || 0));
+  const mix = (a, b, t) => a.map((x, i) => Math.round(x + (b[i] - x) * t));
+  const c = p <= 60 ? mix([46, 204, 113], [241, 196, 15], p / 60) : mix([241, 196, 15], [231, 76, 60], (p - 60) / 40);
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+const dash = (v, f) => (v === null || v === undefined) ? "-" : f(v);
+const pct = (v) => dash(v, (x) => x.toFixed(0) + "%");
+const usd = (v) => dash(v, (x) => "$" + (Math.abs(x) >= 1000 ? Math.round(x).toLocaleString() : x.toFixed(2)));
 function tok(n) {
   n = n || 0;
   for (const [d, s] of [[1e9, "B"], [1e6, "M"], [1e3, "k"]]) if (Math.abs(n) >= d) return (n / d).toFixed(1) + s;
@@ -3666,66 +3716,173 @@ function tok(n) {
 function dur(s) {
   if (s === null || s === undefined) return "";
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  return d ? d + "d" + h + "h" : h ? h + "h" + String(m).padStart(2, "0") + "m" : m + "m";
+  return d ? `${d}d${h}h` : h ? `${h}h${String(m).padStart(2, "0")}m` : m ? `${m}m` : `${s}s`;
 }
-function row(name, value, sub, meter) {
-  const r = el("div", "row");
-  r.append(el("span", "name", name), el("span", "num", value));
-  if (meter !== undefined && meter !== null) {
-    const m = el("div", "meter"), i = el("i");
-    i.style.width = Math.max(0, Math.min(100, meter)) + "%";
-    m.append(i); r.append(m);
+function bar(p) { return el("div", {class: "bar"}, el("i", {style: `width:${Math.max(0, Math.min(100, p || 0))}%;background:${heat(p)}`})); }
+function spark(vals, w, h, opts) {
+  opts = opts || {};
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`); svg.setAttribute("preserveAspectRatio", "none");
+  svg.style.height = h + "px";
+  const v = (vals || []).map((x) => x === null || x === undefined ? 0 : x);
+  if (v.length < 2) return svg;
+  const top = opts.top || 100;
+  const step = w / (v.length - 1);
+  const y = (x) => (h - Math.max(0, Math.min(1, x / top)) * (h - 2) - 1).toFixed(1);
+  const pts = v.map((x, i) => `${(i * step).toFixed(1)},${y(x)}`);
+  const color = opts.color || heat(100 * v[v.length - 1] / top);
+  if (opts.fill !== false) {
+    const area = document.createElementNS(NS, "polygon");
+    area.setAttribute("points", `0,${h} ${pts.join(" ")} ${w},${h}`);
+    area.setAttribute("fill", color); area.setAttribute("fill-opacity", "0.18");
+    svg.append(area);
   }
-  if (sub) r.append(el("div", "sub", sub));
-  return r;
+  const line = document.createElementNS(NS, "polyline");
+  line.setAttribute("points", pts.join(" ")); line.setAttribute("fill", "none");
+  line.setAttribute("stroke", color); line.setAttribute("stroke-width", "1.5");
+  line.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.append(line);
+  return svg;
 }
-function fill(id, nodes, empty) {
-  const body = $("#" + id + " .body");
-  body.replaceChildren(...(nodes.length ? nodes : [el("div", "empty", empty)]));
+function bars(vals, w, h, labels) {     // 14 天花費：每天一根，hover 看金額
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`); svg.setAttribute("preserveAspectRatio", "none");
+  svg.style.height = h + "px";
+  const top = Math.max(...vals, 0.01), bw = w / vals.length;
+  vals.forEach((v, i) => {
+    const r = document.createElementNS(NS, "rect"), bh = Math.max(v > 0 ? 1.5 : 0, (h - 1) * v / top);
+    r.setAttribute("x", (i * bw + 1).toFixed(1)); r.setAttribute("width", Math.max(bw - 2, 1).toFixed(1));
+    r.setAttribute("y", (h - bh).toFixed(1)); r.setAttribute("height", bh.toFixed(1)); r.setAttribute("rx", "1.5");
+    r.setAttribute("fill", "var(--accent)");
+    const t = document.createElementNS(NS, "title"); t.textContent = `${labels[i]}: ${usd(v)}`; r.append(t);
+    svg.append(r);
+  });
+  return svg;
 }
+function tile(k, v, sub, color) {
+  return el("div", {class: "tile"}, el("div", {class: "k"}, k),
+            el("div", {class: "v", style: color ? `color:${color}` : ""}, v), sub ? el("div", {class: "k"}, sub) : null);
+}
+function rowBar(lab, p, num) { return el("div", {class: "row"}, el("span", {class: "lab"}, lab), bar(p), el("span", {class: "num"}, num)); }
+const NAMES = {claude: "Claude Code", codex: "Codex", local: "Local models", cloud: "Cloud GPUs",
+               "anthropic-api": "Anthropic API", "openai-api": "OpenAI API"};
+
+function machineCard(m, energy) {
+  const load = m.gpu_util !== null ? m.gpu_util : (m.cpu_pct || 0);
+  const temps = m.gpus.map((g) => g.temp).filter((t) => t !== null && t !== undefined);
+  const sub = [m.gpus.length ? `${m.gpus.length}× ${m.gpus[0].model || m.gpus[0].vendor}` : "no GPU",
+               m.power_w !== null ? Math.round(m.power_w) + " W" : null,
+               temps.length ? Math.max(...temps).toFixed(0) + "°C" : null].filter(Boolean).join(" · ");
+  const card = el("div", {class: "card", style: `border-color:${heat(load)}55`},
+    el("h3", {}, el("span", {class: "led", style: `background:${heat(load)}`}), m.machine,
+       el("span", {class: "tag"}, m.host === "local" ? "LOCAL" : "SSH"),
+       m.ai_active ? el("span", {class: "tag ai"}, "AI") : null,
+       m.age > 300 ? el("span", {class: "tag stale"}, dur(m.age) + " ago") : null,
+       el("span", {class: "sub"}, sub)));
+  card.append(rowBar("CPU", m.cpu_pct, pct(m.cpu_pct)), spark(m.history.cpu, 300, 22));
+  if (m.mem_total) {
+    const p = 100 * (m.mem_used || 0) / m.mem_total;
+    card.append(rowBar("MEM", p, `${((m.mem_used || 0) / 1024).toFixed(0)}/${(m.mem_total / 1024).toFixed(0)}G`));
+  }
+  for (const g of m.gpus) {
+    const mem = g.mem_total ? `${((g.mem_used || 0) / 1024).toFixed(1)}/${(g.mem_total / 1024).toFixed(0)}G` : "";
+    card.append(el("div", {class: "gpu"}, el("b", {}, "G" + g.idx),
+      el("div", {}, bar(g.util), spark(g.history, 200, 16, {fill: false})),
+      el("span", {class: "num"}, pct(g.util)), el("span", {class: "muted"}, mem),
+      el("span", {style: g.temp !== null && g.temp !== undefined ? `color:${heat((g.temp - 35) * 2)}` : ""},
+         dash(g.temp, (x) => x.toFixed(0) + "°C") + " " + dash(g.power, (x) => x.toFixed(0) + "W"))));
+  }
+  const ph = m.history.power.filter((x) => x !== null);
+  if (ph.length) {
+    card.append(el("div", {class: "row"}, el("span", {class: "lab"}, "PWR"),
+      spark(ph, 200, 18, {top: Math.max(...ph, 1), color: "var(--mag)"}),
+      el("span", {class: "num", style: "color:var(--mag)"}, Math.round(m.power_w || 0) + " W")));
+    if (energy && energy.kwh) card.append(el("div", {class: "muted"},
+      `${energy.kwh.toFixed(energy.kwh < 0.1 ? 3 : 2)} kWh this month · AI ${energy.ai_share === null ? "-" : Math.round(energy.ai_share * 100) + "%"}` +
+      (energy.j_per_token ? ` · ${energy.j_per_token.toFixed(2)} J/token` : "")));
+  }
+  for (const s of m.services) {
+    const loaded = m.loaded.filter((x) => x.service === s.kind && (x.port === undefined || x.port === s.port));
+    const models = loaded.map((x) => x.name + (x.vram_mb ? ` (${x.vram_mb.toLocaleString()} MB)` : "")).join(", ");
+    card.append(el("div", {class: "svc"}, el("span", {class: "k"}, `${s.kind}:${s.port}`),
+      el("span", {class: m.ai_active ? "ok" : "muted"}, m.ai_active ? "● busy" : "○ idle"),
+      el("span", {class: "m"}, models || "no model loaded"),
+      m.recent.requests ? el("span", {class: "muted"}, `${m.recent.requests} req · ${m.recent.tok_s} tok/s (5 min)`) : null));
+  }
+  if (!m.services.length) card.append(el("div", {class: "muted"}, "no inference server found"));
+  return card;
+}
+
+function usageCard(st) {
+  const card = el("div", {class: "card"});
+  const lim = {};
+  for (const l of st.limits) (lim[l.source] = lim[l.source] || []).push(l);
+  for (const s of st.sources) {
+    const p = s.plan;
+    const box = el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, NAMES[s.source] || s.source),
+      el("span", {class: "cost"}, usd(s.cost_usd)),
+      p ? el("span", {class: "muted", style: `color:${(p.value_ratio || 0) >= 1 ? "var(--ok)" : "var(--warn)"}`},
+             `${p.name} ${usd(p.fee_in_range)} → ${(p.value_ratio || 0).toFixed(1)}×`) : null));
+    for (const l of (lim[s.source] || []).sort((a, b) => (a.window_minutes || 0) - (b.window_minutes || 0)))
+      box.append(rowBar(l.name, l.used_percent, pct(l.used_percent)),
+                 l.resets_in !== null ? el("div", {class: "legend"}, `resets in ${dur(l.resets_in)}`) : null);
+    delete lim[s.source];
+    const series = (st.daily.sources || {})[s.source];
+    if (series && series.some((x) => x > 0))
+      box.append(bars(series, 280, 34, st.daily.days), el("div", {class: "legend"}, `last 14 days · today ${usd(series[series.length - 1])}`));
+    box.append(el("div", {class: "legend"}, `${tok(s.tokens)} tokens · ${tok(s.requests)} requests`));
+    card.append(box);
+  }
+  for (const [src, rows] of Object.entries(lim))
+    for (const l of rows) card.append(el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, NAMES[src] || src)),
+                                      rowBar(l.name, l.used_percent, pct(l.used_percent))));
+  if (!st.sources.length && !st.limits.length) card.append(el("div", {class: "muted"}, "No usage yet."));
+  return card;
+}
+
+function cloudCard(st) {
+  if (!st.cloud.length) return null;
+  const rows = st.cloud.map((c) => el("tr", {}, el("td", {}, `${c.provider}/${c.name}`), el("td", {}, `${c.gpu} ×${c.gpu_count || 1}`),
+    el("td", {}, c.status), el("td", {style: c.gpu_util !== null ? `color:${heat(c.gpu_util)}` : ""}, pct(c.gpu_util)),
+    el("td", {}, c.billing ? usd(c.usd_per_hour) + "/h" : "-")));
+  return el("div", {class: "card"}, el("h3", {}, "Cloud GPUs"), el("div", {class: "tablewrap"},
+    el("table", {}, el("thead", {}, el("tr", {}, ...["Instance", "GPU", "Status", "GPU use", "Price"].map((h) => el("th", {}, h)))),
+       el("tbody", {}, ...rows))));
+}
+
 function render(st) {
   $("#line").textContent = st.line_text;
-  const compute = [];
-  for (const m of st.machines) {
-    const bits = ["CPU " + pct(m.cpu_pct), "GPU " + pct(m.gpu_util)];
-    if (m.power_w !== null) bits.push(Math.round(m.power_w) + " W");
-    if (m.ai_active) bits.push("inference");
-    const loaded = m.loaded.map((x) => x.name + (x.vram_mb ? " (" + x.vram_mb + " MB)" : "")).join(", ");
-    compute.push(row(m.machine, bits.join(" · "), loaded ? "loaded: " + loaded : "", m.gpu_util));
-  }
-  for (const e of st.energy) if (e.kwh) compute.push(row(e.machine + " this month",
-    e.kwh.toFixed(e.kwh < 0.1 ? 3 : 2) + " kWh", "AI share " + (e.ai_share === null ? "-" : Math.round(e.ai_share * 100) + "%") +
-    (e.j_per_token ? " · " + e.j_per_token.toFixed(2) + " J/token" : "")));
-  for (const c of st.cloud) compute.push(row(c.provider + "/" + c.name,
-    c.billing ? usd(c.usd_per_hour) + "/h" : c.status,
-    c.gpu + " x" + (c.gpu_count || 1) + " · GPU " + pct(c.gpu_util), c.gpu_util));
-  fill("compute", compute, "No machines yet. Add them under [machines] in config.ini.");
-
-  const usage = [];
-  for (const l of st.limits) usage.push(row(l.source + " " + l.name + " limit", pct(l.used_percent),
-    l.resets_in === null ? "" : "resets in " + dur(l.resets_in), l.used_percent));
-  for (const s of st.sources) {
-    const sub = [s.requests + " requests", tok(s.tokens) + " tokens"];
-    if (s.plan) sub.push(s.plan.name + " " + usd(s.plan.fee_in_range) + " -> " + (s.plan.value_ratio || 0).toFixed(1) + "x");
-    usage.push(row(s.source, usd(s.cost_usd), sub.join(" · ")));
-  }
-  usage.push(row("Today", usd(st.today_usd)));
-  usage.push(row("Month-end forecast", usd(st.forecast.projected_usd),
-    "subscriptions " + usd(st.forecast.subscriptions_usd) + " + " + usd(st.forecast.daily_rate_usd) + "/day"));
-  fill("usage", usage, "");
-  fill("alerts", st.alerts.map((a) => el("div", "alert", a.message)), "No alerts.");
-  $("#foot").textContent = "ComputAI " + st.version + " · " + st.month + " · updated " +
-    new Date(st.time * 1000).toLocaleTimeString();
+  $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString();
+  const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
+  const f = st.forecast;
+  const tiles = [tile("Today", usd(st.today_usd)), tile("This month", usd(st.total_cost_usd), "API-equivalent"),
+                 tile("Forecast", usd(f.projected_usd), `${f.days_left.toFixed(0)} days left`, f.over_budget ? "var(--red)" : null)];
+  for (const l of st.line.limits) tiles.push(tile(`${l.label} ${l.window}`, pct(l.used_percent),
+    l.resets_in !== null ? `resets in ${dur(l.resets_in)}` : "", heat(l.used_percent)));
+  if (st.machines.length) tiles.push(tile("Power", Math.round(watts) + " W", `${st.machines.length} machines`));
+  $("#tiles").replaceChildren(...tiles);
+  $("#alerts").replaceChildren(...st.alerts.map((a) => el("div", {class: "alert" + (a.kind.startsWith("cloud") || a.kind === "machine_unreachable" ? " red" : "")}, "⚠ " + a.message)));
+  const energy = Object.fromEntries(st.energy.map((e) => [e.machine, e]));
+  $("#machines").replaceChildren(...(st.machines.length ? st.machines.map((m) => machineCard(m, energy[m.machine]))
+    : [el("div", {class: "card muted"}, "No machines yet. Add them under [machines] in config.ini.")]));
+  const cc = cloudCard(st);
+  $("#cloud").replaceChildren(...(cc ? [cc] : []));
+  $("#usage").replaceChildren(usageCard(st));
+  $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · prices from prices.ini`;
+  document.title = `${st.line_text} · ComputAI`;
 }
 async function tick() {
   try {
     const r = await fetch("/api/state", {cache: "no-store"});
     if (r.ok) render(await r.json());
-  } catch (e) { $("#foot").textContent = "offline: " + e; }
+  } catch (e) { $("#clock").textContent = "offline"; }
 }
 tick();
 setInterval(tick, REFRESH_MS);
 """
+
 
 def web_handler(state, bind, interval):
     """移植自 slurmtop 84cd35d 的 web_handler：安全標頭、只聽本機時檢查 Host 擋 DNS rebinding。"""
