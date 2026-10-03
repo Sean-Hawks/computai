@@ -4314,7 +4314,15 @@ def report_data(db, start, end, label):
     return {"summary": s, "days": [dict(day=k, **v) for k, v in sorted(days.items())],
             "projects": breakdown(db, start, end, "project")[:15],
             "machines": machine_report(db, start, end), "analysis": analyze(db, start, end, label),
-            "limits": current_limits(db)}
+            "limits": current_limits(db), "local": local_models(db, start, end)}
+
+
+def local_models(db, start, end):
+    """本地推論：每台機器、每個模型的 token。"""
+    return [dict(r) for r in db.execute(
+        "SELECT project AS machine, model, session AS via, SUM(input + cache_read) AS prompt, SUM(output) AS output, "
+        "SUM(requests) AS requests FROM usage WHERE source = 'local' AND ts >= ? AND ts < ? "
+        "GROUP BY project, model, session ORDER BY SUM(output) DESC", (start, end))]
 
 
 def render_report_text(r):
@@ -4464,6 +4472,14 @@ def render_report_html(r):
                 e(m["machine"]), m["covered_hours"], m["kwh"],
                 "-" if m["ai_share"] is None else "%d%%" % round(100 * m["ai_share"]),
                 m["energy_cost"], e(m["currency"]), "-" if m["j_per_token"] is None else "%.2f" % m["j_per_token"]))
+        h.append("</table></div>")
+    if r.get("local"):
+        h.append("<h2>Local models</h2><div class=\"wrap\"><table><tr><th>Model</th><th>Machine</th><th>Counted by</th>"
+                 "<th>Prompt</th><th>Output</th><th>Requests</th></tr>")
+        for x in r["local"]:
+            h.append("<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
+                e(x["model"]), e(x["machine"]), e(x["via"]), fmt_tok(x["prompt"]), fmt_tok(x["output"]),
+                fmt_tok(x["requests"]) if x["requests"] else "-"))
         h.append("</table></div>")
     h.append("<h2>Analysis</h2><pre>%s</pre>" % e(render_analysis(r["analysis"])))
     h.append('<p class="muted">Month-end forecast %s. API-equivalent cost uses the prices in prices.ini.</p>'

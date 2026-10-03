@@ -175,10 +175,12 @@ class Report(unittest.TestCase):
                                           "plans": [], "cache": {"hit_ratio": None, "rewrites": 0, "expired": 0,
                                                                  "wasted_usd": 0, "sessions": []}, "machines": []},
              "limits": []}
+        r["local"] = [{"model": "qwen<3>", "machine": "box", "via": "proxy", "prompt": 10, "output": 20, "requests": 1}]
         m.render_analysis = lambda a: "ok"
         html = m.render_report_html(r)
         self.assertNotIn("<script>", html)
         self.assertIn("&lt;script&gt;", html)
+        self.assertIn("<td>qwen&lt;3&gt;</td><td>box</td><td>proxy</td>", html)
 
 
 class DefaultAction(unittest.TestCase):
