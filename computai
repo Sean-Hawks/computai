@@ -307,11 +307,14 @@ def ensure_config():
     """設定檔目錄裡缺的檔案補上範本；已經存在的檔案不動。"""
     d = config_dir()
     os.makedirs(d, exist_ok=True)
+    created = False
     for name, text in (("config.ini", DEFAULT_CONFIG), ("prices.ini", DEFAULT_PRICES)):
         path = os.path.join(d, name)
         if not os.path.exists(path):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
+            created = created or name == "config.ini"
+    return created
 
 
 # 這幾段是清單（每行一個方案或一台機器）：使用者的檔案有這一段，就整段以檔案為準，
@@ -5825,7 +5828,10 @@ def main(argv=None):
         print("config: " + config_dir())
         print("ledger: " + data_dir())
         return 0
-    ensure_config()
+    first = ensure_config()
+    if first and not (args.json or args.setup or args.statusline or args.line or args.mcp) and sys.stderr.isatty():
+        sys.stderr.write("computai: first run - settings are in %s. Run `computai --setup` to tailor them "
+                         "(plans, machines, power), or `computai --doctor` to see what is detected.\n" % config_dir())
     db = open_ledger()
     try:
         return run(args, db)
