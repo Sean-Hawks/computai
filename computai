@@ -4307,7 +4307,13 @@ def usage_panel(st, width):
                 bits.append(rgb(AMBER, T("plan_unset")))
         else:
             bits = [rgb(MAG, T("spent") % fmt_usd(x["cost_usd"]))]
-        lines.append(" %s %s" % (bold(cell(name, 14)), dim(sym(" \u00b7 ", " | ")).join(bits)))
+        sep = dim(sym(" \u00b7 ", " | "))
+        row = " %s %s" % (bold(cell(name, 14)), sep.join(bits))
+        if vlen(row) <= width - 2:
+            lines.append(row)
+        else:  # 放不下就把月費、回本換到下一行，對齊在名字後面，不要被框線切掉
+            lines.append(" %s %s" % (bold(cell(name, 14)), bits[0]))
+            lines.append(" " * 16 + sep.join(bits[1:]))
         for r in sorted(lim.pop(src, []), key=lambda r: r["window_minutes"] or 0):
             used = r["used_percent"]
             lv = limit_level(used)
@@ -4681,6 +4687,7 @@ h2.sec { margin:0 0 8px; font-size:12px; color:var(--dim); text-transform:upperc
 .tag.ai { color:#000; background:var(--ok); border-color:var(--ok); font-weight:700; }
 .tag.stale { color:var(--warn); border-color:var(--warn); }
 .row { display:grid; grid-template-columns:56px minmax(0,1fr) 64px; gap:8px; align-items:center; margin:3px 0; }
+.row.lim { grid-template-columns:minmax(90px,max-content) minmax(0,1fr) max-content; }
 .row .lab { color:var(--dim); } .row .num { text-align:right; white-space:nowrap; }
 .bar { height:10px; background:var(--line); border-radius:5px; overflow:hidden; }
 .bar > i { display:block; height:100%; border-radius:5px; }
@@ -4709,6 +4716,7 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
   .brand span { display:none; } #clock { margin-left:auto; } }
 
 /* 兩個主題共用：總結列、面板的標題列／來源列、依用途的顏色 class */
+.verdict:empty { display:none; }
 .verdict { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; padding:12px 14px;
   border:1px solid var(--line); border-left:4px solid var(--ok); border-radius:6px; background:var(--panel); }
 .verdict .word { font-weight:700; letter-spacing:.14em; color:var(--ok); }
@@ -4863,7 +4871,7 @@ function tile(k, v, sub, level, rail) {   // 讀數：標籤、大數字（依�
             rail !== undefined ? bar(rail, level) : null, sub ? el("div", {class: "s"}, sub) : null);
 }
 function rowBar(lab, p, num, level) {
-  return el("div", {class: "row"}, el("span", {class: "lab"}, lab), bar(p, level),
+  return el("div", {class: "row" + (level !== undefined ? " lim" : "")}, el("span", {class: "lab"}, lab), bar(p, level),
             el("span", {class: "num" + (level ? " lv-" + level : "")}, num));
 }
 function hd(title, right, rightLevel) {    // 面板標題列：左邊是什麼、右邊現在怎樣
@@ -4881,7 +4889,7 @@ function verdictBand(v) {
   box.replaceChildren(...kids);
 }
 let t = {src: {}};
-const fmt = (s, ...a) => { let i = 0; return s.replace(/%(\.\d)?[sdf]/g, (m, p) => { const v = a[i++]; return p && typeof v === "number" ? v.toFixed(+p.slice(1)) : String(v); }); };
+const fmt = (s, ...a) => { let i = 0; return s.replace(/%%|%(\.\d)?[sdf]/g, (m, p) => { if (m === "%%") return "%"; const v = a[i++]; return p && typeof v === "number" ? v.toFixed(+p.slice(1)) : String(v); }); };
 
 function machineCard(m, energy) {
   const load = m.gpu_util !== null ? m.gpu_util : (m.cpu_pct || 0);
