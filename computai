@@ -3299,6 +3299,30 @@ def side_by_side(a, b, gap=2):
 HISTORY = 40  # sparkline 用最近幾次取樣
 
 
+# 常見模型大小在 4-bit 量化（Q4_K_M）下大約要多少記憶體（GB，含一點 context）。粗估，給「現在放得下多大的模型」用。
+MODEL_SIZES = ((1.5, 1.5), (4, 3.0), (8, 5.5), (14, 9.5), (32, 20.0), (70, 42.0), (120, 70.0), (235, 140.0))
+
+
+def fits(m):
+    """這台機器現在還放得下多大的模型（十億參數，4-bit）。NVIDIA／AMD 看空的 VRAM；
+    Mac 的 GPU 用統一記憶體，看沒在用的記憶體的 75%（macOS 預設只讓 GPU 用掉大約這麼多）。"""
+    gpus = m.get("gpus") or []
+    discrete = [g for g in gpus if g.get("vendor") != "apple" and g.get("mem_total")]
+    if discrete:
+        free = max((g["mem_total"] - (g.get("mem_used") or 0)) for g in discrete) / 1024.0
+        total = sum(g["mem_total"] - (g.get("mem_used") or 0) for g in discrete) / 1024.0
+    elif m.get("mem_total") and any(g.get("vendor") == "apple" for g in gpus):
+        free = total = max(0.0, (m["mem_total"] - (m.get("mem_used") or 0)) / 1024.0 * 0.75)
+    else:
+        return None
+    best = None
+    for params, need in MODEL_SIZES:
+        if need <= free or (len(discrete) > 1 and need <= total * 0.9):
+            best = params
+    return {"free_gb": round(free, 1), "params_b": best, "multi_gpu": bool(best and len(discrete) > 1 and
+                                                                         dict(MODEL_SIZES)[best] > free)}
+
+
 def latest_samples(db, t=None, n=HISTORY):
     """每台機器最新的狀態，加上最近 n 次取樣的走勢（CPU、GPU、功耗、每張卡）和最近 5 分鐘的 token 速率。"""
     t = now() if t is None else t
@@ -3338,6 +3362,7 @@ def latest_samples(db, t=None, n=HISTORY):
                                 "power": [x["power_w"] for x in rows], "ai": [x["ai_active"] for x in rows]},
                     # 請求數和 token 是最近 5 分鐘，速率是最近 1 分鐘（正在跑的時候才看得出快慢）
                     "recent": {"requests": rec["n"], "output": rec["o"], "tok_s": round(rec["o1"] / 60.0, 1)}})
+        out[-1]["fits"] = fits(out[-1])
     return out
 
 
@@ -3510,7 +3535,8 @@ UI = {
         "compact": "compact: enlarge the window for details", "no_gpu": "no GPU",
         "no_machines": "no machines yet: add them under [machines] in config.ini",
         "foot": ["q quit", "-n SEC refresh", "computai --web for the browser", "--analyze for advice"],
-        "gpus_n": "%d GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "local": "Local models",
+        "gpus_n": "%d GPUs", "fits": "%.1f GB free: room for a ~%s model (4-bit)",
+        "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "local": "Local models",
                                      "cloud": "Cloud GPUs", "anthropic-api": "Anthropic API",
                                      "openai-api": "OpenAI API"},
         "w_today": "Today", "w_month": "This month", "w_forecast": "Forecast", "w_days_left": "%d days left",
@@ -3540,7 +3566,8 @@ UI = {
         "compact": "精簡模式：視窗放大可以看細節", "no_gpu": "無 GPU",
         "no_machines": "還沒有機器：在 config.ini 的 [machines] 加上去",
         "foot": ["q 離開", "-n 秒數 更新間隔", "computai --web 開網頁版", "--analyze 看建議"],
-        "gpus_n": "%d 張 GPU", "src": {"claude": "Claude Code", "codex": "Codex", "local": "本地模型",
+        "gpus_n": "%d 張 GPU", "fits": "還有 %.1f GB：放得下約 %s 的模型（4-bit）",
+        "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "local": "本地模型",
                                       "cloud": "雲端 GPU", "anthropic-api": "Anthropic API",
                                       "openai-api": "OpenAI API"},
         "w_today": "今天", "w_month": "本月", "w_forecast": "月底預估", "w_days_left": "還有 %d 天",
@@ -3673,6 +3700,10 @@ def machine_panel(m, width, energy=None, error=None):
         lines.append(" %s %s %s%s" % (rgb(MAG, "%s:%s" % key), state, names, rate))
     if not m.get("services"):
         lines.append(dim(" " + T("no_server")))
+    f = m.get("fits")
+    if f:
+        lines.append(dim(" " + (T("fits") % (f["free_gb"], "%gB" % f["params_b"]) if f["params_b"]
+                                else T("fits_none") % f["free_gb"]) + (" " + T("fits_multi") if f["multi_gpu"] else "")))
     return panel(left, right, lines, width, load)
 
 
@@ -4120,6 +4151,8 @@ function machineCard(m, energy) {
         : m.recent.tok_s ? el("span", {class: "muted"}, fmt(t.rate_tok, m.recent.tok_s)) : null));
   }
   if (!m.services.length) card.append(el("div", {class: "muted"}, t.no_server));
+  if (m.fits) card.append(el("div", {class: "legend"}, (m.fits.params_b ? fmt(t.fits, m.fits.free_gb, m.fits.params_b + "B")
+                                                       : fmt(t.fits_none, m.fits.free_gb)) + (m.fits.multi_gpu ? " " + t.fits_multi : "")));
   return card;
 }
 

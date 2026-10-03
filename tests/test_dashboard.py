@@ -209,3 +209,16 @@ class DefaultAction(unittest.TestCase):
                 self.assertNotIn("live", called, argv)
         finally:
             db.close()
+
+
+class Fits(unittest.TestCase):
+    def test_fits(self):
+        m = helpers.load()
+        f = m.fits({"gpus": [{"vendor": "nvidia", "mem_total": 16376, "mem_used": 2729}]})
+        self.assertEqual((f["free_gb"], f["params_b"], f["multi_gpu"]), (13.3, 14, False))
+        two = m.fits({"gpus": [{"vendor": "nvidia", "mem_total": 24576, "mem_used": 0}] * 2})
+        self.assertEqual((two["params_b"], two["multi_gpu"]), (70, True))   # 兩張 24 GB 合起來放得下 70B
+        mac = m.fits({"mem_total": 32768, "mem_used": 20480, "gpus": [{"vendor": "apple", "mem_total": 32768}]})
+        self.assertEqual((mac["free_gb"], mac["params_b"]), (9.0, 8))
+        self.assertIsNone(m.fits({"gpus": []}))
+        self.assertIsNone(m.fits({"gpus": [{"vendor": "nvidia", "mem_total": 16000, "mem_used": 15500}]})["params_b"])
