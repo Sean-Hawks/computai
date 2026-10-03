@@ -113,6 +113,8 @@ class Card(unittest.TestCase):
         self.assertEqual(self.m.github_owner(repo), "octocat")
         svg = self.m.render_card_svg(self.card(), handle=self.m.github_owner(repo))
         self.assertIn("SYS.OCTOCAT :: AI_OPS", svg)
+        self.assertIn("GEN BY COMPUTAI", svg)
+        self.assertNotIn("GEN BY COMPUTAI", self.m.render_card_svg(self.card(), credit=False))
 
     def test_agent_ops(self):
         db = self.m.open_ledger(":memory:")

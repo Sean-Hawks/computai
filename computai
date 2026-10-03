@@ -144,6 +144,8 @@ style = netrunner
 colors =
 # Card language (en, zh); empty follows [general] lang.
 lang =
+# A small "GEN BY COMPUTAI" on the card.
+credit = yes
 
 [notify]
 # Tell me when something changes, once per change: a limit reaches 80% or runs out, a limit resets
@@ -6169,6 +6171,7 @@ def card_settings(cp=None):
             else "netrunner",
             "colors": card_colors(g("colors")),
             "lang": g("lang").lower()[:2] if g("lang").lower()[:2] in UI else None,
+            "credit": g("credit", "yes").lower() not in ("no", "false", "0", "off"),
             "push": g("push", "no").lower() in ("yes", "true", "1", "on")}
 
 
@@ -7327,7 +7330,7 @@ def card_persona(key, lang):
     return name.upper() if lang == "en" else name
 
 
-def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netrunner", colors=None):
+def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netrunner", colors=None, credit=True):
     """GitHub 個人頁卡片（900x390），cyberpunk HUD：切角霓虹外框和光暈、掃描線、警示條紋、片假名副標、
     色差殘影的大數字、反白的區段標籤、13 週熱力圖（有掃描光）、分段等級環、agent 工作指標（工時、最多同時、
     最長連續、快取命中）、各來源佔比、裝備欄、成就徽章，分隔線是近 30 天的脈搏。
@@ -7496,9 +7499,12 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netr
         facts.append(tx["streak"] % c["streak"])
     if c["cache_savings_usd"] >= 1:
         facts.append(tx["cache"] % fmt_usd(c["cache_savings_usd"]))
-    while facts and vlen("  //  ".join(facts)) * 7.6 > W - 68:
+    room = W - 68 - (130 if credit else 0)
+    while facts and vlen("  //  ".join(facts)) * 7.6 > room:
         facts.pop()
     o.append(text(34, 350, "  //  ".join(facts), 11, p["text"], spacing=1))
+    if credit:   # 小小的署名：別人看到卡片才知道去哪裡拿
+        o.append(text(W - 34, 350, "GEN BY COMPUTAI", 9, p["gray"], anchor="end", spacing=2))
     x = 34
     for b in c["badges"]:
         label_ = "◆ " + (card_persona(b[8:], lang) if b.startswith("persona:") else b)
@@ -7567,7 +7573,7 @@ def publish_card(db, period, path, push=False, prices=None, plan_table=None):
     lines = []
     for theme, name in (("dark", names[0]), ("light", names[1])):
         with open(os.path.join(root, name), "w", encoding="utf-8") as f:
-            f.write(render_card_svg(c, theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"]))
+            f.write(render_card_svg(c, theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"], credit=card_settings()["credit"]))
         lines.append("wrote %s" % os.path.join(root, name))
     r = git("add", "--", *names)
     if r.returncode:
@@ -8754,12 +8760,12 @@ def run(args, db):
                 return 0
         if args.svg:
             with open(args.svg, "w", encoding="utf-8") as f:
-                f.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"]))
+                f.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"], credit=card_settings()["credit"]))
             print("computai: wrote %s" % args.svg)
         elif args.json:
             emit(c, "", True)
         else:
-            sys.stdout.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"]))
+            sys.stdout.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"], credit=card_settings()["credit"]))
         return 0
     if args.recap is not None:
         if not args.no_sync:
