@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 
@@ -106,6 +107,10 @@ class Sampling(unittest.TestCase):
         self.assertEqual(s[0]["power_w"], 310.5 + 60.2 + 100)
         self.assertEqual(s[1]["power_w"], 320.0 + 100)     # 第二張卡讀不到功耗
         self.assertAlmostEqual(s[1]["cpu_pct"], 50.0)
+        det = json.loads(s[0]["detail"])
+        self.assertEqual([g["util"] for g in det["gpus"]], [85.0, 0.0])
+        self.assertEqual((det["mem_total"], det["load"], det["ncpu"]), (64000, [1.0, 0.8, 0.5], 16))
+        self.assertEqual(det["services"][0]["kind"], "vllm")
         self.assertEqual([x["ai_active"] for x in s], [1, 1])  # 有請求在跑、計數器在動
         rep = self.m.machine_report(self.db, 0, 2000)[0]
         joules = (470.7 + 420.0) / 2 * 60

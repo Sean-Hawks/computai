@@ -476,6 +476,7 @@ CREATE TABLE IF NOT EXISTS samples (
     ai_active INTEGER NOT NULL DEFAULT 0,
     loaded TEXT NOT NULL DEFAULT '[]',
     counters TEXT NOT NULL DEFAULT '{}',
+    detail TEXT,
     PRIMARY KEY (machine, ts)
 );
 CREATE TABLE IF NOT EXISTS cloud (
@@ -516,11 +517,17 @@ def open_ledger(path=None, shared=False):
     db = sqlite3.connect(path, timeout=30, check_same_thread=not shared)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
-    cols = [r[1] for r in db.execute("PRAGMA table_info(files)")]
-    if "offset" not in cols:  # 舊版帳本：補上欄位，下次同步從頭讀一次就有讀到哪裡的紀錄
-        db.execute("ALTER TABLE files ADD COLUMN offset INTEGER NOT NULL DEFAULT 0")
-        db.execute("ALTER TABLE files ADD COLUMN state TEXT")
+    # 舊版帳本：補上後來加的欄位
+    add_columns(db, "files", {"offset": "INTEGER NOT NULL DEFAULT 0", "state": "TEXT"})
+    add_columns(db, "samples", {"detail": "TEXT"})
     return db
+
+
+def add_columns(db, table, cols):
+    have = {r[1] for r in db.execute("PRAGMA table_info(%s)" % table)}
+    for name, ddl in cols.items():
+        if name not in have:
+            db.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, name, ddl))
 
 
 def add_usage(db, rows):
@@ -1568,6 +1575,12 @@ def snapshot(host, services):
         d["mem_total"], d["mem_used"] = int(mt), int(mu)
     except ValueError:
         d["mem_total"] = d["mem_used"] = 0
+    try:
+        ln = secs.get("load", "").splitlines()
+        d["load"] = [float(x) for x in ln[0].split()[:3]]
+        d["ncpu"] = int(ln[1])
+    except (ValueError, IndexError):
+        d["load"], d["ncpu"] = None, None
     gpus = [g for g in map(parse_gpu, secs.get("gpu", "").splitlines()) if g]
     gpus += parse_amdgpu(secs.get("amdgpu", ""), len(gpus))
     gpus += parse_ioreg(secs.get("applegpu", ""), d["mem_total"], len(gpus))
@@ -1785,12 +1798,17 @@ def record_sample(db, m, d, ts):
     busy_gpu = any(g["vendor"] != "apple" and (g["util"] or 0) >= AI_GPU_UTIL for g in gpus)
     active = bool(rows or running or proxied or touched or (loaded and busy_gpu))
     power = estimate_power(m, gpu_power, util, pct)
+    # 畫面要用的細節：每張 GPU、整台記憶體、負載、每個服務
+    detail = {"gpus": gpus, "mem_used": d.get("mem_used"), "mem_total": d.get("mem_total"),
+              "load": d.get("load"), "ncpu": d.get("ncpu"),
+              "services": [{"kind": x["kind"], "port": x["port"], "running": x["running"],
+                            "models": [mo["name"] for mo in x["models"]]} for x in d.get("services") or []]}
     db.execute("INSERT OR REPLACE INTO samples (machine, ts, cpu_raw, cpu_pct, gpu_util, gpu_mem_used, "
-               "gpu_mem_total, gpu_power_w, power_w, ai_active, loaded, counters) "
-               "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+               "gpu_mem_total, gpu_power_w, power_w, ai_active, loaded, counters, detail) "
+               "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                (m["name"], int(ts), json.dumps(cpu) if cpu and cpu[0] == "raw" else None, pct, util,
                 mem_used, mem_total, gpu_power, power, int(active), json.dumps(loaded),
-                json.dumps(counters)))
+                json.dumps(counters), json.dumps(detail)))
     add_usage(db, rows)
     return rows
 
