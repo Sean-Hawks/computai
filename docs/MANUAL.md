@@ -72,6 +72,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
 | `--card --setup` | Set up the GitHub profile card in a few questions (finds or clones the profile repo, writes the first card, adds it to the README). |
 | `--watch` | No screen: keep the ledger fresh and send notifications (see Notifications). |
+| `--limit-reset claude\|codex` | Mark a subscription's limits as reset now (after an early reset the logs can't show); the next real reading replaces it. |
 | `--notify-test` | Send a test notification. |
 | `--install-watch` / `--uninstall-watch` | Start `--watch` automatically at login, or stop doing so. |
 | `--bench [--machine NAME]` | Run each local model for a few seconds: tokens/s, watts, J/token, electricity per 1M tokens versus the API. |
