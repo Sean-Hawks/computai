@@ -104,7 +104,7 @@ computai --once --lang zh         # 中文、印一次
 computai --wrapped 2026-09        # Spotify-Wrapped-style recap of a month (or 2026 for a year)
 computai --wrapped --html story.html --svg card.svg   # story page + 1200x630 share card
 computai --card --svg card.svg    # small card for your GitHub profile README (--card-theme light)
-computai --card --publish ~/Documents/me   # commit the card into your profile repo (no push without --push)
+computai --card --publish ~/code/me/assets   # commit the card into your profile repo (no push without --push)
 ```
 
 Every command takes `--json`. The first run writes `config.ini` and `prices.ini` to
@@ -114,6 +114,32 @@ electricity price and API prices. Every price carries the date it was checked.
 Status bars: `computai --line` for tmux and SwiftBar, `computai --statusline` as Claude Code's
 status line (that is also how ComputAI learns Claude's limit percentages). See
 [docs/one-line.md](docs/one-line.md).
+
+## Your AI usage on your GitHub profile
+
+A card for your profile README (`github.com/<you>/<you>`). It is rendered from your own ledger on your own machine, not by a web service:
+
+- the token count and its value at API prices;
+- a 13-week activity heatmap;
+- a level and rank earned from all-time tokens;
+- your top models, streak, peak hour and cache savings;
+- badges unlocked from real data.
+
+![ComputAI profile card](docs/images/card-computai.svg)
+
+```sh
+computai --setup      # the "GitHub profile card" step finds your profile repo and prints the README snippet
+```
+
+Once it is set up, `computai` (and `--watch` after `computai --install-watch`) rewrites the card once a day and commits it. It pushes too if you said so; before pushing it rebases onto anything a bot pushed meanwhile. The card contains only totals and model names: no project names, paths or prompts.
+
+| `amber` | `matrix` |
+|---|---|
+| ![amber](docs/images/card-amber.svg) | ![matrix](docs/images/card-matrix.svg) |
+| `synthwave` | `mono` |
+| ![synthwave](docs/images/card-synthwave.svg) | ![mono](docs/images/card-mono.svg) |
+
+Pick a style with `computai --set card.style=matrix`, or your own gradient with `computai --set 'card.colors=#ff6b6b, #ffd93d'`. Every style has a light version for light-mode visitors (`computai-card-light.svg`). The title shows `SYS.<your GitHub account>` unless you set `card.handle`.
 
 ## Privacy and security
 

@@ -99,6 +99,32 @@ computai --card --publish ~/Documents/me   # 把卡片 commit 進你的個人頁
 狀態列：tmux、SwiftBar 用 `computai --line`；Claude Code 的 statusLine 設成 `computai --statusline`
 （Claude 的額度百分比只能從這裡取得）。見 [docs/one-line.md](docs/one-line.md)。
 
+## 把 AI 用量放上 GitHub 個人頁
+
+這是一張給個人頁 README（`github.com/<帳號>/<帳號>`）用的卡片，由你自己電腦上的帳本產生，不經過任何網路服務。內容有：
+
+- token 數，以及照 API 價格算的價值；
+- 13 週活動熱力圖；
+- 用累計 token 換算的等級和稱號；
+- 最常用的模型、連續天數、高峰時段、快取省下的錢；
+- 依真實資料解鎖的成就徽章。
+
+![ComputAI 個人頁卡片](docs/images/card-computai.svg)
+
+```sh
+computai --setup      # 「GitHub 個人頁卡片」這一步會找到你的個人頁 repo，並印出要貼進 README 的那段
+```
+
+設定好之後，`computai`（以及 `computai --install-watch` 之後的背景程式）每天重寫並 commit 一次卡片；你同意的話也會推上去，推之前會先接上機器人推的 commit。卡片只有總數和模型名稱，沒有專案名稱、路徑或對話內容。
+
+| `amber` | `matrix` |
+|---|---|
+| ![amber](docs/images/card-amber.svg) | ![matrix](docs/images/card-matrix.svg) |
+| `synthwave` | `mono` |
+| ![synthwave](docs/images/card-synthwave.svg) | ![mono](docs/images/card-mono.svg) |
+
+換主題：`computai --set card.style=matrix`；自訂漸層：`computai --set 'card.colors=#ff6b6b, #ffd93d'`。每個主題都有給淺色模式訪客看的淺色版（`computai-card-light.svg`）。標題預設顯示 `SYS.<你的 GitHub 帳號>`，可以用 `card.handle` 改。
+
 ## 隱私與安全
 
 - 只讀 log 裡的用量欄位，prompt 和回應不會讀進帳本、不會儲存、也不會傳到任何地方。
