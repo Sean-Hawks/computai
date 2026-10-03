@@ -208,3 +208,35 @@ class Insights(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old)
             sb.close()
+
+
+class Recap(unittest.TestCase):
+    def test_recap(self):
+        sb = helpers.Sandbox()
+        old = dict(os.environ)
+        try:
+            os.makedirs(sb.config)
+            with open(os.path.join(sb.config, "config.ini"), "w") as f:
+                f.write("[plans]\nclaude = Max, 100, x\n")
+            os.environ.update(COMPUTAI_CONFIG_DIR=sb.config, TZ="UTC")
+            if hasattr(__import__("time"), "tzset"):
+                __import__("time").tzset()
+            m = helpers.load()
+            db = m.open_ledger(":memory:")
+            day = lambda mo, d: m.calendar_ts(2026, mo, d, 12)
+            m.add_usage(db, [dict(source="claude", uid=str(i), ts=day(3, 1 + i), model="claude-opus-5-5",
+                                  project="/secret/project", output=1000000) for i in range(3)] +
+                            [dict(source="claude", uid="x", ts=day(5, 1), model="claude-opus-5-5", output=5000000)])
+            r = m.recap(db, 2026)
+            self.assertEqual((r["active_days"], r["longest_streak"]), (4, 3))
+            self.assertEqual(r["busiest_day"], "2026-05-01")
+            self.assertEqual(r["subscription_fees_usd"], 200.0)       # 有用量的 2 個月 × $100
+            self.assertEqual(r["value_ratio"], round(160 / 200.0, 1))
+            html = m.render_recap_html(r)
+            self.assertNotIn("secret", html + m.render_recap(r))     # 拿去分享的，不放專案名稱
+            self.assertIn("2026", html)
+            db.close()
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            sb.close()

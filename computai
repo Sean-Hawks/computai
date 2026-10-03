@@ -4521,6 +4521,90 @@ def render_report_html(r):
     return "\n".join(h)
 
 
+# ---- 年度回顧（--recap）
+
+def recap(db, year):
+    """一年的回顧：要拿去分享的，所以不放專案名稱和機器名稱。"""
+    start, end = local_ts(year, 1, 1), local_ts(year + 1, 1, 1)
+    s = summary(db, start, end, plan_table={})
+    days = {}
+    for g in breakdown(db, start, end, "day"):
+        days[g["day"]] = days.get(g["day"], 0.0) + g["cost_usd"]
+    active = sorted(d for d, v in days.items() if v > 0)
+    streak = best = 0
+    prev = None
+    for d in active:
+        t = time.mktime(time.strptime(d, "%Y-%m-%d"))
+        streak = streak + 1 if prev is not None and abs(t - prev - 86400) < 7200 else 1
+        best = max(best, streak)
+        prev = t
+    models = {}
+    for src in s["sources"]:
+        for m in src["models"]:
+            if src["source"] in ("cloud",):
+                continue
+            models[m["model"]] = models.get(m["model"], 0) + m["input"] + m["cache_read"] + m["output"]
+    tokens = sum(sum(src["totals"][c] for c in ("input", "cache_read", "cache_write_5m", "cache_write_1h", "output"))
+                 for src in s["sources"] if src["source"] != "cloud")
+    months = max(1, len({d[:7] for d in active}))
+    fees = sum(p["usd"] for p in plans().values()) * months
+    subs = sum(src["cost_usd"] for src in s["sources"] if src["source"] in SUBSCRIPTION_SOURCES)
+    energy = machine_report(db, start, end)
+    busiest = max(days.items(), key=lambda kv: kv[1]) if days else None
+    return {"year": year, "tokens": tokens, "api_equivalent_usd": round(s["total_cost_usd"], 2),
+            "subscription_usage_usd": round(subs, 2), "subscription_fees_usd": round(fees, 2),
+            "value_ratio": round(subs / fees, 1) if fees else None, "active_days": len(active),
+            "longest_streak": best, "busiest_day": busiest[0] if busiest else None,
+            "busiest_day_usd": round(busiest[1], 2) if busiest else None,
+            "top_models": [k for k, _ in sorted(models.items(), key=lambda kv: -kv[1])[:3]],
+            "output_tokens": sum(src["totals"]["output"] for src in s["sources"]),
+            "local_tokens": sum(src["totals"]["input"] + src["totals"]["output"] for src in s["sources"]
+                                if src["source"] == "local"),
+            "kwh": round(sum(r["kwh"] for r in energy), 2)}
+
+
+def render_recap(r):
+    lines = ["ComputAI %d recap" % r["year"], "",
+             "  %s tokens through AI tools, worth %s at API prices" % (fmt_tok(r["tokens"]), fmt_usd(r["api_equivalent_usd"]))]
+    if r["value_ratio"] is not None:
+        lines.append("  subscriptions: paid about %s, used %s worth (%.1fx)" % (
+            fmt_usd(r["subscription_fees_usd"]), fmt_usd(r["subscription_usage_usd"]), r["value_ratio"]))
+    lines.append("  %d active days, longest streak %d days" % (r["active_days"], r["longest_streak"]))
+    if r["busiest_day"]:
+        lines.append("  busiest day: %s (%s)" % (r["busiest_day"], fmt_usd(r["busiest_day_usd"])))
+    if r["top_models"]:
+        lines.append("  favourite models: %s" % ", ".join(r["top_models"]))
+    if r["local_tokens"] or r["kwh"]:
+        lines.append("  local models: %s tokens, %.1f kWh measured" % (fmt_tok(r["local_tokens"]), r["kwh"]))
+    return "\n".join(lines)
+
+
+def render_recap_html(r):
+    import html
+    e = html.escape
+    stats = [("tokens", fmt_tok(r["tokens"])), ("at API prices", fmt_usd(r["api_equivalent_usd"])),
+             ("subscription value", "-" if r["value_ratio"] is None else "%.1fx" % r["value_ratio"]),
+             ("active days", str(r["active_days"])), ("longest streak", "%d days" % r["longest_streak"]),
+             ("busiest day", r["busiest_day"] or "-")]
+    tiles = "".join('<div class="t"><b>%s</b><span>%s</span></div>' % (e(v), e(k)) for k, v in stats)
+    models = " \u00b7 ".join(e(m) for m in r["top_models"]) or "-"
+    return ("""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>ComputAI %(year)d</title><style>
+body { margin:0; min-height:100vh; display:grid; place-items:center; background:#0d1117; color:#e6edf3;
+  font:15px/1.4 ui-monospace,SFMono-Regular,Menlo,"Noto Sans Mono CJK TC",monospace; padding:16px; box-sizing:border-box; }
+.card { width:min(560px,100%%); border-radius:18px; padding:28px; box-sizing:border-box;
+  background:linear-gradient(145deg,#161b22,#1f2a37); border:1px solid #30363d; }
+h1 { margin:0; font-size:15px; color:#56d3f0; letter-spacing:.12em; }
+.y { font-size:56px; font-weight:800; line-height:1; margin:6px 0 18px; }
+.g { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; }
+.t b { display:block; font-size:24px; color:#fff; } .t span { color:#8b949e; font-size:12px; }
+.m { margin-top:18px; color:#c792ea; overflow-wrap:anywhere; } .f { margin-top:16px; color:#8b949e; font-size:12px; }
+</style></head><body><div class="card"><h1>COMPUTAI RECAP</h1><div class="y">%(year)d</div>
+<div class="g">%(tiles)s</div><div class="m">%(models)s</div>
+<div class="f">where your compute and AI money goes</div></div></body></html>
+""" % {"year": r["year"], "tiles": tiles, "models": models})
+
+
 # ---- CSV 匯出（--csv）
 
 CSV_COLS = ("time", "source", "model", "project", "session", "requests", "input", "cache_read",
@@ -4692,6 +4776,8 @@ def parse_args(argv=None):
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
     p.add_argument("--html", metavar="FILE", help="with --report: write the report as an HTML page")
+    p.add_argument("--recap", nargs="?", const=0, type=int, metavar="YEAR",
+                   help="a year in review (default: this year); with --html, a shareable card")
     p.add_argument("--csv", metavar="FILE", help="write every usage record in the range to a CSV file")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
@@ -4748,7 +4834,7 @@ def local_hostname():
 
 
 ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "report", "once", "discover", "csv", "mcp")
+           "report", "once", "discover", "csv", "mcp", "recap")
 
 
 def run(args, db):
@@ -4814,6 +4900,17 @@ def run(args, db):
         r = payback(db, args.payback, args.gpu_watts, args.hours_per_day, args.rent_per_hour)
         emit(r, render_payback(r), args.json)
         return 0 if not r.get("error") else 1
+    if args.recap is not None:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        r = recap(db, args.recap or time.localtime(now()).tm_year)
+        if args.html:
+            with open(args.html, "w", encoding="utf-8") as f:
+                f.write(render_recap_html(r))
+            print("computai: wrote %s" % args.html)
+            return 0
+        emit(r, render_recap(r), args.json)
+        return 0
     if args.csv:
         if not args.no_sync:
             sync(db, quiet=True)
