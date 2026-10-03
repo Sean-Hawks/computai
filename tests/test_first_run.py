@@ -20,6 +20,10 @@ class FirstRun(unittest.TestCase):
         self.assertIn("no-claude", r.stdout)                  # 照 CLAUDE_CONFIG_DIR 找
         self.assertNotIn("--sync", r.stdout)                  # 已經同步過了，不要再叫人跑 --sync
 
+    def test_no_limits_says_how_to_connect(self):
+        r = self.sb.run("--once", COLUMNS="100")
+        self.assertIn("install and log in to the claude or codex CLI", " ".join(r.stdout.split()))
+
     def test_short_ticker_does_not_repeat(self):
         m = helpers.load()
         st = {"machines": [], "limits": [], "today_usd": 0.0}

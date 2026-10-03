@@ -5331,6 +5331,8 @@ def hero_panel(st, width, frame=0):
             name = T("src").get(x["source"], x["source"])
             for i, ln in enumerate(wrap(unlinked_hint(x["source"]), max(20, width - vlen(name) - 6))):
                 lines.append(" %s  %s" % (bold(name) if i == 0 else " " * vlen(name), dim(ln)))
+    if not limits and not any(x["source"] in SUBSCRIPTION_SOURCES for x in st["sources"]):   # 一個額度都沒有：說怎麼接
+        lines += [""] + [" " + dim(ln) for ln in wrap(T("q_none"), max(20, width - 6))]
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
