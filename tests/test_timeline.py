@@ -71,6 +71,15 @@ class Timeline(unittest.TestCase):
         self.assertIn("longest wait: 32m from 00:28", text)
         self.assertIn("\u21b6claude alpha", text)                              # 從昨天接續的記號
 
+    def test_svg_has_no_project_or_machine_names(self):
+        svg = self.m.render_timeline_svg(self.m.timeline_data(self.db, prices={}))
+        self.assertTrue(svg.startswith("<svg"))
+        __import__("xml.etree.ElementTree").etree.ElementTree.fromstring(svg)   # 是合法的 XML
+        for name in ("alpha", "beta", "laptop", "gpubox", "/w/"):
+            self.assertNotIn(name, svg)
+        self.assertIn("Claude 1", svg)
+        self.assertIn("qwen3:8b", svg)
+
     def test_tab_in_live_view(self):
         st = self.m.dashboard_state(self.db)
         text = self.m.render_live(st, 60, theme_name="cyber", height=30, view="timeline")
