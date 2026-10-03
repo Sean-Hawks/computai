@@ -70,6 +70,8 @@ usd_to_local = 0
 lang = auto
 # Look of the terminal and web dashboards: cyber (calm dark instrument, docs/DESIGN.md) or classic.
 theme = cyber
+# Show limits as what is left (left, like Codex shows it) or what is used (used).
+limits = left
 # Play the short start-up animation of the live dashboard (cyber theme). --no-intro skips it once.
 intro = yes
 local_currency = TWD
@@ -3562,7 +3564,8 @@ def read_statusline_stdin():
 def render_line(info, sep="\uff5c"):
     out = []
     for p in info["limits"]:
-        txt = "%s %d%%" % (p["label"], round(p["used_percent"]))
+        txt = (T("line_left") % (p["label"], round(shown_pct(p["used_percent"]))) if _limit_view == "left"
+               else "%s %d%%" % (p["label"], round(p["used_percent"])))
         if p["used_percent"] >= 90 and p["resets_in"] is not None:
             txt += " (%s)" % fmt_dur(p["resets_in"])
         out.append(txt)
@@ -3745,6 +3748,16 @@ def braille(vals, width, top=None, rows=1, color=None):
             line += chr(0x2800 + code)
         out.append(rgb(color or CYAN, line))
     return out
+
+
+def limit_gauge(r, width):
+    """額度的量表：left 模式像油表，長條是剩下的、越用越短，白線標出這個週期還剩多少時間；
+    長條比白線短，代表用得比時間快。used 模式反過來。"""
+    used = r["used_percent"] or 0.0
+    el = r.get("elapsed_pct")
+    if _limit_view == "left":
+        return gauge(max(0.0, 100.0 - used), width, limit_level(used), None if el is None else 100.0 - el)
+    return gauge(used, width, limit_level(used), el)
 
 
 def gauge(pct, width, level="brand", marker=None):
@@ -4092,7 +4105,10 @@ def dashboard_state(db):
     today = summary(db, ts, te, plan_table={})
     line = line_parts(db)
     energy = machine_report(db, start, end)
+    global _limit_view
+    _limit_view = limit_view()
     st = {"version": __version__, "time": int(t), "month": label, "lang": _lang, "ui": UI[_lang], "theme": _theme,
+          "limit_view": _limit_view,
             "line": line, "line_text": render_line(line, " | "),
             "header": re.sub(r"\033\[[0-9;]*m", "", " \u00b7 ".join(header_parts({"line": line}))),
             "today_usd": round(today["total_cost_usd"], 2),
@@ -4358,7 +4374,10 @@ UI = {
         "sum_value": "Usage value: %s this month, %s today (at API prices)",
         "sum_pay": "You will actually pay about %s this month (plans + cloud + electricity)",
         "over_budget": "over the %s budget",
-        "hdr_limit": "%s %s %d%% used", "hdr_reset": "resets in %s", "hdr_today": "today's usage worth %s",
+        "hdr_limit": "%s %s %d%% used", "hdr_left": "%s %s %d%% left", "pct_left": "%d%% left",
+        "line_left": "%s %d%% left", "w_left": "LEFT", "w_used": "USED",
+        "v_low": "%s %s has only %d%% left", "v_low_r": "%s %s has only %d%% left - resets in %s",
+        "nt_low": "%s %s has only %d%% left.", "hdr_reset": "resets in %s", "hdr_today": "today's usage worth %s",
         "power_now": "drawing %s now", "gpu_avg": "GPU avg %s",
         "advice": "ADVICE", "w_advice": "Advice",
         "i_reset": " (it resets in %s)", "i_alt": "; meanwhile %s still has %d%% left",
@@ -4386,7 +4405,8 @@ UI = {
         "q_title": "LIMITS", "q_wait": "resets in %s",
         "q_eta": "at this pace it runs out in %s (resets in %s)", "q_proj": "at this pace about %(pct)d%% by the reset in %(reset)s",
         "q_unlinked": "limits not connected: set Claude Code's statusLine to `computai --statusline`",
-        "q_foot": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
+        "q_foot": "\u2503 = time left in the window; a bar shorter than it is burning faster than time",
+        "q_foot_used": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
         "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
         "v_used_up": "%s %s is used up - resets in %s",
         "lr_note": "until the next real reading", "v_used_up_old": "%s %s was used up when last seen %s ago - use it once to refresh, or computai --limit-reset if it reset early",
@@ -4526,7 +4546,10 @@ UI = {
         "sum_value": "用量價值：本月 %s、今天 %s（照 API 價格算）",
         "sum_pay": "這個月實際約要付 %s（月費＋雲端＋電費）",
         "over_budget": "超過 %s 的預算",
-        "hdr_limit": "%s %s已用 %d%%", "hdr_reset": "%s 後重置", "hdr_today": "今天用量價值 %s",
+        "hdr_limit": "%s %s已用 %d%%", "hdr_left": "%s %s剩 %d%%", "pct_left": "剩 %d%%",
+        "line_left": "%s 剩%d%%", "w_left": "剩下", "w_used": "已用",
+        "v_low": "%s %s只剩 %d%%", "v_low_r": "%s %s只剩 %d%%，%s 後重置",
+        "nt_low": "%s %s只剩 %d%%。", "hdr_reset": "%s 後重置", "hdr_today": "今天用量價值 %s",
         "power_now": "目前 %s", "gpu_avg": "GPU 平均 %s",
         "advice": "建議", "w_advice": "建議",
         "i_reset": "（%s 後重置）", "i_alt": "；這段時間可以先用 %s（還剩 %d%%）",
@@ -4554,7 +4577,8 @@ UI = {
         "q_title": "額度", "q_wait": "%s 後重置",
         "q_eta": "照目前速度 %s 後用完（%s 後才重置）", "q_proj": "照目前速度，%(reset)s 後重置時約 %(pct)d%%",
         "q_unlinked": "額度還沒接上：把 Claude Code 的 statusLine 設成 computai --statusline",
-        "q_foot": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
+        "q_foot": "\u2503 標出這個週期還剩多少時間；長條比它短，代表用得比時間快",
+        "q_foot_used": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
         "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
         "v_used_up": "%s %s用完了，%s 後重置",
         "lr_note": "直到下次讀到真的數字", "v_used_up_old": "%s %s上次看到是用完（%s 前）；用一次就會更新，提早重置了可以用 computai --limit-reset",
@@ -4844,14 +4868,15 @@ def hero_panel(st, width, frame=0):
     for r in limits:
         used = r["used_percent"] or 0
         lv = limit_level(used)
-        big = bigtext("%d%%" % round(used))
+        big = bigtext("%d%%" % round(shown_pct(used)))
         col = tone(lv) if lv != "brand" else MAG
-        label = "%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]))
+        label = "%s %s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]),
+                              T("w_left") if _limit_view == "left" else T("w_used"))
         state = (" " + bold(rgb(RED, T("used_up")))) if used >= LIMIT_FAIL else ""
         note = limit_note(r)
         w = max(tw, vlen(big[0]))
         tiles.append([dim(cell(label, w - vlen(state)) ) + state] + [bold(rgb(col, x)) for x in big] +
-                     [gauge(used, w, lv, r.get("elapsed_pct"))] + wrap_colored(note, w))
+                     [limit_gauge(r, w)] + wrap_colored(note, w))
     today = bigtext(fmt_usd(st["today_usd"]).replace(",", ""))
     tiles.append([dim(T("h_today"))] + [bold(rgb(CYAN, x)) for x in today] + [""] +
                  [dim(T("h_month") % fmt_usd(st["total_cost_usd"]))])
@@ -4877,7 +4902,7 @@ def hero_panel(st, width, frame=0):
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
-    foot = dim(T("q_foot").replace("\u2503", sym("\u2503", "|"))) if any(r.get("elapsed_pct") is not None for r in limits) else ""
+    foot = dim(T("q_foot" if _limit_view == "left" else "q_foot_used").replace("\u2503", sym("\u2503", "|"))) if any(r.get("elapsed_pct") is not None for r in limits) else ""
     return panel(ptitle(1, T("q_title")), state, lines, width, 0, foot=foot, level="fail" if full else None)
 
 
@@ -4904,9 +4929,9 @@ def quota_panel(st, width):
         used = r["used_percent"] or 0
         lv = limit_level(used)
         name = names[id(r)]
-        pct = T("used_up") if used >= LIMIT_FAIL else "%d%%" % round(used)
+        pct = T("used_up") if used >= LIMIT_FAIL else pct_word(used)
         pct = bold(rgb(tone(lv), pct)) if lv != "brand" else bold(pct)
-        lines.append(" %s %s  %s" % (cell(name, name_w), gauge(used, gw, lv, r.get("elapsed_pct")), pct))
+        lines.append(" %s %s  %s" % (cell(name, name_w), limit_gauge(r, gw), pct))
         note = limit_note(r)
         if note:
             lines.append(" " * (name_w + 2) + note)
@@ -4918,7 +4943,7 @@ def quota_panel(st, width):
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
-    foot = dim(T("q_foot").replace("\u2503", sym("\u2503", "|"))) if any(r.get("elapsed_pct") is not None for r in limits) else ""
+    foot = dim(T("q_foot" if _limit_view == "left" else "q_foot_used").replace("\u2503", sym("\u2503", "|"))) if any(r.get("elapsed_pct") is not None for r in limits) else ""
     return panel(bold(T("q_title")), state, lines, width, 0, foot=foot, level="fail" if full else None)
 
 
@@ -5064,6 +5089,24 @@ def advice_panel(st, width):
 
 
 LIMIT_WARN, LIMIT_FAIL = 80.0, 99.5
+_limit_view = "left"   # 額度顯示「剩下多少」（像 Codex 自己的畫面）或「用了多少」；[general] limits = left|used
+
+
+def limit_view(cp=None):
+    cp = cp or load_config()
+    v = (cp.get("general", "limits", fallback="left") or "left").strip().lower()
+    return "used" if v == "used" else "left"
+
+
+def shown_pct(used):
+    """畫面上要寫的百分比：left 模式是剩下多少。"""
+    used = used or 0.0
+    return max(0.0, 100.0 - used) if _limit_view == "left" else used
+
+
+def pct_word(used):
+    """「剩 61%」或「已用 39%」。"""
+    return T("pct_left" if _limit_view == "left" else "used_pct") % round(shown_pct(used))
 LIMIT_STALE = 6 * 3600   # 額度只有在用 Claude／Codex 時才會更新；超過這麼久沒看到新的就標出「幾小時前看到的」
 QUOTA_PANEL = True  # 額度有自己的面板（quota_panel），訂閱面板就只講錢
 
@@ -5081,8 +5124,9 @@ def verdict(st):
         elif used >= LIMIT_FAIL:
             items.append(("fail", T("v_used_up") % (src, win, reset) if reset else T("v_used_up_nr") % (src, win)))
         elif used >= LIMIT_WARN:
-            items.append(("warn", T("v_high_r") % (src, win, round(used), reset) if reset
-                          else T("v_high") % (src, win, round(used))))
+            k = "v_low" if _limit_view == "left" else "v_high"
+            items.append(("warn", T(k + "_r") % (src, win, round(shown_pct(used)), reset) if reset
+                          else T(k) % (src, win, round(shown_pct(used)))))
     for a in st.get("alerts") or []:
         k = a["kind"]
         if k == "machine_unreachable":
@@ -5228,7 +5272,8 @@ def header_parts(st):
     parts = []
     for p_ in st["line"]["limits"]:
         used = p_["used_percent"]
-        txt = T("hdr_limit") % (p_["label"], limit_label(p_["window"]), round(used))
+        txt = T("hdr_left" if _limit_view == "left" else "hdr_limit") % (p_["label"], limit_label(p_["window"]),
+                                                                          round(shown_pct(used)))
         if used >= 90 and p_["resets_in"] is not None:
             txt += " (" + T("hdr_reset") % fmt_dur(p_["resets_in"]) + ")"
         parts.append(rgb(RED, txt) if used >= 99.5 else txt)
@@ -5824,8 +5869,11 @@ function quotaCard(st) {   // 額度：粗量表、大百分比、白線標出�
   const have = new Set(rows.map((r) => r.source));
   const kids = rows.map((r) => {
     const lv = limitLevel(r.used_percent), reset = r.resets_in !== null ? dur(r.resets_in) : null;
-    const g = el("div", {class: "g" + (lv ? " lv-" + lv : "")}, el("i", {style: `width:${Math.max(r.used_percent > 0 ? 1 : 0, Math.min(100, r.used_percent))}%`}));
-    if (r.elapsed_pct !== null && r.elapsed_pct !== undefined) g.append(el("b", {style: `left:calc(${r.elapsed_pct}% - 1px)`, title: t.q_foot}));
+    const left = st.limit_view !== "used";   // 預設像 Codex 一樣看「剩下多少」：長條越用越短
+    const shown = left ? Math.max(0, 100 - r.used_percent) : r.used_percent;
+    const g = el("div", {class: "g" + (lv ? " lv-" + lv : "")}, el("i", {style: `width:${Math.max(shown > 0 ? 1 : 0, Math.min(100, shown))}%`}));
+    if (r.elapsed_pct !== null && r.elapsed_pct !== undefined)
+      g.append(el("b", {style: `left:calc(${left ? 100 - r.elapsed_pct : r.elapsed_pct}% - 1px)`, title: t.q_foot}));
     let note = reset ? fmt(t.resets, reset) : "", cls = "n";
     const old = r.age > 21600 ? fmt(t.q_seen, dur(r.age)) : "";   // 太久沒更新：標出是幾小時前看到的
     if (r.used_percent >= 99.5) { note = reset ? fmt(t.q_wait, reset) : ""; cls += " lv-fail"; }
@@ -5833,7 +5881,7 @@ function quotaCard(st) {   // 額度：粗量表、大百分比、白線標出�
     else if (r.projected_pct !== null && r.projected_pct !== undefined) note = fmtn(t.q_proj, {pct: r.projected_pct, reset: reset});
     if (old) note = note ? `${note} · ${old}` : old;
     return el("div", {class: "q"}, el("span", {class: "lab"}, `${t.src[r.source] || r.source} ${winLabel(r.name)}`), g,
-              el("span", {class: "p" + (lv ? " lv-" + lv : "")}, r.used_percent >= 99.5 ? t.used_up : pct(r.used_percent)),
+              el("span", {class: "p" + (lv ? " lv-" + lv : "")}, r.used_percent >= 99.5 ? t.used_up : fmt(left ? t.pct_left : t.used_pct, Math.round(shown))),
               note ? el("span", {class: cls}, note) : null);
   });
   for (const s of st.sources) if (s.subscription && !have.has(s.source))
@@ -6345,7 +6393,7 @@ def notify_events(db, st):
                 out.append(("fail", T("nt_full") % (src, win, reset) + more))
             elif lv == "high" and was[0] == "ok":
                 pace = (" " + T("nt_pace") % fmt_dur(r["eta_full"])) if r.get("eta_full") else ""
-                out.append(("warn", T("nt_high") % (src, win, round(used)) + pace))
+                out.append(("warn", (T("nt_low") if _limit_view == "left" else T("nt_high")) % (src, win, round(shown_pct(used))) + pace))
         t = st.get("time") or now()
         for a in st["alerts"]:
             key = "alert:%s:%s" % (a["kind"], a.get("machine") or a.get("id") or "")

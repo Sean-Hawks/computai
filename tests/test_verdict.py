@@ -24,7 +24,7 @@ class Verdict(unittest.TestCase):
         self.assertEqual(v["level"], "fail")
         self.assertEqual(v["items"][0], ("fail", "Codex weekly limit is used up - resets in 5h08m"))
         self.assertEqual([x[0] for x in v["items"]], ["fail", "warn", "warn"])
-        self.assertIn("Claude Code 5-hour limit is 85% used", v["items"][1][1])
+        self.assertIn("Claude Code 5-hour limit has only 15% left", v["items"][1][1])
 
     def test_unreachable_and_budget(self):
         st = {"limits": [], "alerts": [{"kind": "machine_unreachable", "machine": "wsl", "message": "timeout"}],

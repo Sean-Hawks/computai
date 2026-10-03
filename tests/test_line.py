@@ -28,12 +28,12 @@ class Line(unittest.TestCase):
         r = self.sb.run("--line", **self.env)
         self.assertEqual(r.returncode, 0, r.stderr)
         # 5 小時視窗在 NOW 之前就重置了（0%），每週視窗最後一筆是 10%
-        self.assertEqual(r.stdout.strip(), "Codex 10%｜today $0.0")
+        self.assertEqual(r.stdout.strip(), "Codex 90% left｜today $0.0")
 
     def test_statusline_records_claude_limits(self):
         r = self.statusline("max.json")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue(r.stdout.startswith("Claude 42%｜"), r.stdout)
+        self.assertTrue(r.stdout.startswith("Claude 58% left｜"), r.stdout)
         # 之後單純的 --line 也看得到 Claude 的額度
         d = json.loads(self.sb.run("--line", "--json", **self.env).stdout)
         claude = [p for p in d["limits"] if p["source"] == "claude"][0]
@@ -47,7 +47,7 @@ class Line(unittest.TestCase):
     def test_high_usage_shows_countdown(self):
         m = helpers.load()
         info = {"limits": [{"label": "Codex", "used_percent": 97.0, "resets_in": 7200}], "today_usd": 123.4}
-        self.assertEqual(m.render_line(info, " | "), "Codex 97% (2h00m) | today $123")
+        self.assertEqual(m.render_line(info, " | "), "Codex 3% left (2h00m) | today $123")
 
 
 if __name__ == "__main__":

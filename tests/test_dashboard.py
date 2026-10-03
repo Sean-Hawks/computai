@@ -36,7 +36,7 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(st["machines"][0]["machine"], "mac")
         self.assertEqual(st["machines"][0]["loaded"][0]["name"], "qwen3:0.6b")
         self.assertTrue(any(a["kind"] == "idle_model" for a in st["alerts"]))
-        self.assertIn("Codex 97% (1h00m)", st["line_text"])
+        self.assertIn("Codex 3% left (1h00m)", st["line_text"])
         self.assertEqual(st["verdict"]["level"], "warn")              # 97% 和閒置的模型：注意
         self.assertEqual(st["verdict"]["items"][0][0], "warn")
 

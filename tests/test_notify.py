@@ -29,7 +29,7 @@ class Notify(unittest.TestCase):
 
     def test_crossing_80(self):
         self.step([lim("claude", "5h", 50)])
-        self.assertEqual(self.step([lim("claude", "5h", 82)]), [("warn", "Claude Code 5-hour limit is 82% used.")])
+        self.assertEqual(self.step([lim("claude", "5h", 82)]), [("warn", "Claude Code 5-hour limit has only 18% left.")])
 
     def test_unreachable_waits_and_does_not_flap(self):
         a = {"kind": "machine_unreachable", "machine": "wsl", "message": "wsl: ssh timeout ..."}

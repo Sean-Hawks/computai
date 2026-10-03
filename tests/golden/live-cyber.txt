@@ -1,15 +1,15 @@
  ◢◤ C O M P U T A I ◥◣  AI COMPUTE LEDGER         ● 2/2 NODES ONLINE  ⠀⠀⠀⠀⠀⣿⣿⣿  2026-09-21 14:13:20 
- [WATCH] Codex weekly limit is 93% used - resets in 8h20m
+ [WATCH] Codex weekly limit has only 7% left - resets in 8h20m
 
 ┌── ◢01 LIMITS ────────────────────────────────────────────────────────────────── 1 nearly used up ┐
-│ Codex weekly limit           Claude Code 5-hour limit     TODAY'S USAGE VALUE                    │
-│ █▀█ ▀▀█ ▀ █                  █ █ ▀▀█ ▀ █                  ▄█▀ ▄█  ▄█      █▀▀ █▀█                │
-│ ▀▀█ ▀▀█ ▄▀                   ▀▀█ █▀▀ ▄▀                    █▄  █   █      ▀▀█ █ █                │
-│ ▀▀▀ ▀▀▀ ▀ ▀                    ▀ ▀▀▀ ▀ ▀                  ▀▀  ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀                │
-│ ████████████████████████|░   ███████████░░░|░░░░░░░░░░░                                          │
+│ Codex weekly limit LEFT      Claude Code 5-hour limit L   TODAY'S USAGE VALUE                    │
+│ ▀▀█ ▀ █                      █▀▀ █▀█ ▀ █                  ▄█▀ ▄█  ▄█      █▀▀ █▀█                │
+│  ▄▀ ▄▀                       ▀▀█ █▀█ ▄▀                    █▄  █   █      ▀▀█ █ █                │
+│  ▀  ▀ ▀                      ▀▀▀ ▀▀▀ ▀ ▀                  ▀▀  ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀                │
+│ █|░░░░░░░░░░░░░░░░░░░░░░░░   ███████████|███░░░░░░░░░░░                                          │
 │ at this pace about 98% by    at this pace about 74% by    this month $15.50                      │
 │ the reset in 8h20m           the reset in 2h10m                                                  │
-└── ┃ = how much of the window has passed; a bar beyond it is burning faster than time ────────────┘
+└── ┃ = time left in the window; a bar shorter than it is burning faster than time ────────────────┘
 
  ◢02 COMPUTE  2 machines · drawing 431 W now ⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿ · GPU avg 56%
 ┌── ◢gpubox ⠋ busy ────────────────────────────────────────────────────── 2x nvidia · 410 W · 70°C ┐
