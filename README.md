@@ -47,6 +47,9 @@ On top of the ledger: cache-efficiency analysis (which sessions keep re-writing 
 cache and what that cost), a month-end forecast with an optional budget, a plan simulator,
 a GPU payback calculator and time-of-use electricity prices (Taipower two-tier presets).
 
+Not sure whether to hand a task to Claude, Codex or a local model? `$(computai --pick) "tidy up this PR"` uses
+whichever limit is about to reset unused, avoids one that will run out early, and sends light tasks to a local model.
+
 Using Claude or Codex on more than one computer? Point them at a shared folder (`[devices] folder`) or pull
 over SSH and the ledger counts all of them, usage numbers only ([how](docs/MULTI-DEVICE.md)).
 

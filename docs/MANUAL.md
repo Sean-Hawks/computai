@@ -445,12 +445,37 @@ plain `git push` (so the branch needs an upstream). In the profile `README.md`:
 
 The card shows a snapshot; run the command again (for example from cron) to refresh it.
 
+## Which agent now (`--pick`)
+
+ComputAI knows how much of each limit is left, when it resets and whether a local model is free, so it can
+decide for you:
+
+```sh
+$(computai --pick) "tidy up this PR"              # runs claude, codex or a local model
+computai --pick --task light                      # light tasks may go to a local model
+computai --pick --json                            # tool, command, reason and the full ranking
+```
+
+stdout is only the command (`claude`, `codex`, `ollama run MODEL`, or `ssh HOST ollama run MODEL` for a model on
+another machine); the one-line reason goes to stderr. The rules, in order:
+
+1. A limit that resets soon (within an hour, or the last 15% of its window) with at least 20% left: use it now,
+   it is wasted after the reset.
+2. Light tasks: a local Ollama model, which costs no quota.
+3. The subscription with the most room that won't run out early at the current pace.
+4. One that will run out early.
+5. Heavy tasks fall back to a local model last. A used-up limit is never picked.
+
+It only reads the ledger (no network, no SSH), so it is fast enough for `$(...)`. The home screen's advice
+also says when a limit is about to reset with plenty left, and agents can ask the same question through the
+MCP tool `pick`.
+
 ## MCP server (for agents)
 
 `computai --mcp` speaks the Model Context Protocol on stdin/stdout, so an agent can check its own
 budget before starting something expensive. Tools: `usage_summary` (a month's cost per source and
 model), `limits`, `budget` (month-end forecast and today), `machines` (GPU use, loaded models, what
-still fits) and `advice`. All read-only. Register it with your agent as a stdio server whose command is
+still fits), `advice` and `pick` (which agent should take this subtask; see below). All read-only. Register it with your agent as a stdio server whose command is
 `computai --mcp` (for Claude Code, something like `claude mcp add computai -- computai --mcp`; for
 Codex, an `[mcp_servers.computai]` entry with `command = "computai"` and `args = ["--mcp"]`).
 
