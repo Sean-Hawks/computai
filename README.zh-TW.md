@@ -5,6 +5,14 @@
 
 [English](README.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Manual](docs/MANUAL.md)
 
+![終端機 live 畫面](docs/images/live.png)
+
+`computai --web` 在瀏覽器看同樣的內容（也有手機排版），加上 `--lang zh` 就是中文介面：
+
+![網頁版](docs/images/web.png)
+
+*（截圖用的是示範資料。）*
+
 ## 能做什麼
 
 | | 資料來源 | 看得到什麼 |

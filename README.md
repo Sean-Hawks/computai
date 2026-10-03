@@ -21,6 +21,14 @@ codex
   ...
 ```
 
+![Live terminal dashboard](docs/images/live.png)
+
+`computai --web` gives the same view in a browser (phone layout included):
+
+![Web dashboard](docs/images/web.png)
+
+*(Screenshots use demo data.)*
+
 ## What it does
 
 | | Source | What you get |
