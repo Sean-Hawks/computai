@@ -70,6 +70,10 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--statusline` | For Claude Code's `statusLine`: records Claude's limits from stdin, prints `--line`. |
 | `--live [-n SEC]` | Live terminal dashboard: one panel per machine (bars and sparklines for CPU, memory, every GPU and power, plus its inference servers), AI usage with limit bars and 14-day cost trends, and alerts. Two columns on wide terminals, one line per machine when the window is short. `q` quits. |
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
+| `--watch` | No screen: keep the ledger fresh and send notifications (see Notifications). |
+| `--notify-test` | Send a test notification. |
+| `--install-watch` / `--uninstall-watch` | Start `--watch` automatically at login, or stop doing so. |
+| `--bench [--machine NAME]` | Run each local model for a few seconds: tokens/s, watts, J/token, electricity per 1M tokens versus the API. |
 | `--theme cyber\|classic` | Calm dark cyberpunk instrument (default, see [DESIGN.md](DESIGN.md)) or the slurmtop look, for the terminal, web, report and recap (or `[general] theme`). |
 | `--lang zh` | Traditional Chinese for the live and web dashboards and `--line` (or `[general] lang = zh`). The default `lang = auto` follows the system language; on macOS it uses the system's preferred language, because terminals such as cmux and Ghostty set `LANG=en_US` regardless. `COMPUTAI_LANG=en` or `lang = en` forces English. |
 | `--web [[HOST:]PORT]` | Browser dashboard (phone layout), `/api/state` JSON and `/metrics` for Prometheus. Default `127.0.0.1:8765`. |
@@ -253,16 +257,55 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 
 ## Dashboards
 
-- `computai` / `--live`: COMPUTE (a panel per machine, coloured by load like slurmtop: CPU, memory,
-  each GPU with utilisation, VRAM, temperature and power, a power trend, and each inference server
-  with its loaded models and token rate), AI USAGE and ALERTS, refreshed every `-n` seconds.
-  `--once` prints it once; it falls back to ASCII when the terminal can't draw block characters.
+- `computai` / `--live`, top to bottom:
+  - **Verdict**: ALL CLEAR, WATCH or ALERT and the worst problem in plain words
+    ("Codex weekly limit is used up - resets in 4h43m · +1 more").
+  - **LIMITS**: a thick gauge per limit window with its percentage. A white `┃` marks how much of the
+    window has passed, so a bar beyond it is burning faster than time. Under it: "at this pace it runs out
+    in 1h20m" or "about 65% by the reset". A subscription with usage but no limit data says how to connect it.
+  - **COMPUTE**: a panel per machine (CPU, memory, each GPU, power, inference servers and their models).
+    Its data source and age are on the bottom border.
+  - **AI subscriptions & spend**: value at API prices versus the monthly fee, and what you actually pay.
+  - **ALERTS** and **ADVICE**.
+
+  It refreshes every `-n` seconds. `--once` prints it once; it falls back to ASCII when the terminal
+  can't draw block characters.
 - `--web`: open `http://127.0.0.1:8765/`. To see it on a phone, keep it on loopback and use an
   SSH tunnel (`ssh -L 8765:127.0.0.1:8765 host`) or `tailscale serve 8765`. `--web 0.0.0.0:8765`
   exposes your usage, project names and machines to the network and prints a warning.
 - `/metrics`: gauges prefixed `computai_` (month cost and tokens per source, limit use, machine
   CPU/GPU/power, cloud price and GPU use, forecast, alerts by kind).
 - `--report --html FILE`: a single HTML file you can keep or send.
+
+## Notifications
+
+ComputAI tells you when something changes, once per change:
+
+- a limit reaches 80%, with when it runs out at this pace;
+- a limit runs out, and how much the other subscription has left;
+- **a limit resets and you can use it again**;
+- a machine stops answering, a model holds memory unused, or a cloud GPU idles while billing;
+- the month goes over budget.
+
+Notifications run inside `computai`, `--web` and `--watch`. The state lives in the ledger, so restarting
+or running several copies does not repeat anything. The first run only records how things are.
+
+- `[notify] desktop = yes` (default) uses macOS Notification Center, `notify-send` on Linux, or a
+  Windows balloon.
+- `[notify] chat = yes` also posts to Discord / Telegram (`DISCORD_WEBHOOK_URL`,
+  `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`).
+- `computai --notify-test` sends one to check.
+- `computai --install-watch` starts `--watch` at login: launchd on macOS, `systemd --user` on Linux,
+  Task Scheduler on Windows. `--uninstall-watch` removes it.
+
+## Local model benchmark
+
+`computai --bench [--machine NAME]` sends the same fixed prompt to every running inference server for a
+few seconds. It measures tokens per second, samples the machine's power while it generates, and works
+out joules per token and the electricity per million tokens. It compares that with the cheapest output
+price in `prices.ini`; hardware is not counted. Only usage fields are read from the answers.
+
+Macs need `idle_watts` / `max_watts` (or a smart plug) for the power columns.
 
 ## MCP server (for agents)
 

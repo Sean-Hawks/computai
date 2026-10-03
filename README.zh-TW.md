@@ -3,7 +3,7 @@
 **一眼看完你的算力和 AI 花費。** Claude、ChatGPT 訂閱，homelab 上的本地模型和機器，
 租的雲端 GPU，放在同一本帳裡：token、GPU 小時、度電和錢。
 
-[English](README.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Manual](docs/MANUAL.md)
+[English](README.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Manual](docs/MANUAL.md) · [ComputAI 出現在哪裡](docs/SURFACES.md)
 
 ![終端機 live 畫面](docs/images/live.png)
 
@@ -79,6 +79,8 @@ computai --cloud                  # RunPod / Vast.ai / Lambda
 computai --proxy                  # 統計 Ollama 的 token：127.0.0.1:11435 -> :11434
 computai --payback 1800 --gpu-watts 450
 computai --discover               # 看看哪些機器讀得到
+computai --bench                  # 每個本地模型的速度和每百萬 token 電費
+computai --install-watch          # 額度快用完、用完、重置時通知我（登入就在背景跑）
 computai --once --lang zh         # 中文、印一次
 ```
 

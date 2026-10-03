@@ -4,7 +4,7 @@
 subscriptions, the local models on your homelab, the machines they run on and the cloud
 GPUs you rent: tokens, GPU hours, kWh and money, side by side.
 
-[繁體中文說明](README.zh-TW.md) · [Manual](docs/MANUAL.md) · [使用手冊](docs/MANUAL.zh-TW.md)
+[繁體中文說明](README.zh-TW.md) · [Manual](docs/MANUAL.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Where ComputAI shows up](docs/SURFACES.md)
 
 ```
 $ computai --summary --month 2026-09
@@ -98,6 +98,8 @@ computai --cloud                  # RunPod / Vast.ai / Lambda
 computai --proxy                  # count Ollama tokens on 127.0.0.1:11435 -> :11434
 computai --payback 1800 --gpu-watts 450
 computai --discover               # which of my machines can ComputAI read?
+computai --bench                  # tokens/s and electricity per 1M tokens for each local model
+computai --install-watch          # notify me when a limit runs low, runs out or resets (at login)
 computai --once --lang zh         # 中文、印一次
 ```
 

@@ -63,6 +63,10 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--statusline` | 給 Claude Code 的 `statusLine` 用：從 stdin 記下 Claude 的額度，印出 `--line`。 |
 | `--live [-n 秒]` | 終端機 live 畫面：每台機器一個面板（CPU、記憶體、每張 GPU、功耗的長條和走勢，以及推論服務），AI 用量（額度長條、14 天花費走勢），警示。寬的終端機分兩欄，視窗太矮時每台機器縮成一行。按 `q` 離開。 |
 | `--once` | 印一次 live 畫面就結束（會先讀 log、取樣機器）。 |
+| `--watch` | 不開畫面：在背景更新帳本並送通知（見「通知」）。 |
+| `--notify-test` | 送一則測試通知。 |
+| `--install-watch`／`--uninstall-watch` | 登入時自動在背景跑 `--watch`，或取消。 |
+| `--bench [--machine 名稱]` | 每個本地模型跑幾秒：每秒 token、功耗、每 token 焦耳、每百萬 token 電費和 API 比較。 |
 | `--theme cyber\|classic` | 深色、安靜的 cyberpunk 儀器風格（預設，見 [DESIGN.md](DESIGN.md)）或 slurmtop 樣式，終端機、網頁、月報、回顧卡都會套用（也可以設 `[general] theme`）。 |
 | `--lang zh` | live 畫面、網頁版和 `--line` 用繁體中文（也可以設 `[general] lang = zh`）。預設 `lang = auto` 跟系統語言走；macOS 以系統偏好的語言為準，因為 cmux、Ghostty 等終端機不管系統語言都會設 `LANG=en_US`。想固定英文就設 `COMPUTAI_LANG=en` 或 `lang = en`。 |
 | `--web [[位址:]埠]` | 瀏覽器版（手機排版）、`/api/state` JSON、給 Prometheus 的 `/metrics`。預設 `127.0.0.1:8765`。 |
@@ -229,8 +233,14 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
 
 ## 總帳畫面
 
-- `computai`／`--live`：算力（每台機器一個面板，框線顏色跟著負載變，跟 slurmtop 一樣：CPU、記憶體、
-  每張 GPU 的使用率／VRAM／溫度／功耗、功耗走勢，以及每個推論服務載入的模型和 token 速率）、AI 用量、警示，
+- `computai`／`--live`，由上到下：
+  - **總結列**：一切正常、注意或警告，加上最嚴重的那件事（「Codex 每週額度用完了，4h43m 後重置 · 另外還有 1 件」）。
+  - **額度**：每個額度視窗一條粗量表和百分比。白色的 `┃` 標出這個週期過了多久，長條超過它就代表用得比時間快。
+    下一行寫「照目前速度 1h20m 後用完」或「重置時約 65%」。有用量卻沒有額度資料的訂閱，會告訴你怎麼接上。
+  - **算力**：每台機器一個面板（CPU、記憶體、每張 GPU、功耗、推論服務和模型），下框線寫資料來源和多久前讀的。
+  - **AI 訂閱與花費**：照 API 價格算的用量價值、月費、實際要付多少。
+  - **警示**和**建議**。
+
   每 `-n` 秒更新。`--once` 只印一次；終端機畫不出方塊字時自動改用 ASCII。
 - `--web`：打開 `http://127.0.0.1:8765/`。要在手機上看，保持只聽 loopback，用 SSH tunnel
   （`ssh -L 8765:127.0.0.1:8765 主機`）或 `tailscale serve 8765`。`--web 0.0.0.0:8765` 會把你的用量、
@@ -238,6 +248,36 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
 - `/metrics`：`computai_` 開頭的 gauge（每個來源的當月花費和 token、額度使用率、機器 CPU／GPU／功耗、
   雲端價格和 GPU 使用率、預測、各類警示數量）。
 - `--report --html 檔名`：一個可以保存或寄出的 HTML 檔。
+
+## 通知
+
+有事情改變時，ComputAI 會主動告訴你，每件事只講一次：
+
+- 額度到 80%（附照目前速度什麼時候用完）；
+- 額度用完（附另一個訂閱還剩多少）；
+- **額度重置、可以繼續用了**；
+- 機器連不上、模型佔著記憶體沒在用、雲端 GPU 閒著還在計費；
+- 這個月超過預算。
+
+通知在 `computai`、`--web`、`--watch` 裡都會跑。狀態存在帳本裡，重開程式或同時跑好幾個都不會重複；
+第一次執行只記下現況。
+
+- `[notify] desktop = yes`（預設）：macOS 通知中心、Linux 的 `notify-send`、Windows 的氣泡通知。
+- `[notify] chat = yes`：也送到 Discord／Telegram（`DISCORD_WEBHOOK_URL`、`TELEGRAM_BOT_TOKEN` +
+  `TELEGRAM_CHAT_ID`）。
+- `computai --notify-test`：送一則試試看。
+- `computai --install-watch`：登入就在背景跑 `--watch`（macOS 用 launchd、Linux 用 `systemd --user`、
+  Windows 用工作排程器）。`--uninstall-watch` 移除。
+
+## 本地模型跑分
+
+`computai --bench [--machine 名稱]` 對每個正在跑的推論服務，用同一段固定題目連續生成幾秒鐘。
+
+- 量每秒幾個 token，並在生成時取樣功耗。
+- 算出每 token 幾焦耳、每百萬 token 的電費，再和 `prices.ini` 裡最便宜的 API 輸出價格比（不算硬體成本）。
+- 只讀回應裡的用量欄位。
+
+Mac 要設定 `idle_watts`／`max_watts`（或接智慧插座）才有功耗欄位。
 
 ## MCP server（給 agent 用）
 
