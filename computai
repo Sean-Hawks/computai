@@ -1311,13 +1311,41 @@ def untrusted(text):
     return _CTRL.sub("", text or "")
 
 
-def run_cmd(argv, stdin=None, timeout=20):
+def run_cmd(argv, stdin=None, timeout=20, errors=None):
+    """跑指令回傳 stdout。給了 errors（list）就把失敗原因（stderr 最後一行或逾時）放進去。"""
     try:
-        p = subprocess.run(argv, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        p = subprocess.run(argv, input=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            text=True, timeout=timeout)
+        if errors is not None and p.returncode != 0:
+            lines = [ln.strip() for ln in untrusted(p.stderr or "").splitlines() if ln.strip()]
+            errors.append(lines[-1][:200] if lines else "exit status %d" % p.returncode)
         return p.stdout or ""
-    except (OSError, subprocess.SubprocessError):
+    except subprocess.TimeoutExpired:
+        if errors is not None:
+            errors.append("no answer within %d s" % timeout)
         return ""
+    except (OSError, subprocess.SubprocessError) as e:
+        if errors is not None:
+            errors.append(str(e)[:200])
+        return ""
+
+
+# 每台機器最近一次讀不到的原因（給警示和 --sample 用）
+ssh_errors = {}
+
+
+def ssh_hint(msg):
+    """把 ssh 的錯誤訊息翻成下一步該做什麼。"""
+    if "Host key verification failed" in msg:
+        return "its host key is not in known_hosts under this name; use the name or IP you already " \
+               "ssh to, or run `ssh HOST` once by hand"
+    if "Permission denied" in msg:
+        return "key login was refused; passwordless SSH (ssh -o BatchMode=yes HOST true) must work"
+    if "no answer" in msg:
+        return "it did not answer in time (Tailscale SSH waiting for a browser check?)"
+    if "Could not resolve" in msg:
+        return "the name does not resolve; try its Tailscale IP or MagicDNS name"
+    return ""
 
 
 SHELL_PICK = "command -v bash >/dev/null 2>&1 && exec bash -s || exec sh -s"
@@ -1348,7 +1376,14 @@ def run_script(host, script, timeout=25):
         # 不放 /tmp：多人共用的機器上，別人可以在 /tmp 先建一個同名的 socket。
         argv += ["-o", "ControlMaster=auto", "-o", "ControlPath=" + os.path.join(cdir, "%C"),
                  "-o", "ControlPersist=120"]
-    return run_cmd(argv + ["--", host, "sh -c '%s'" % SHELL_PICK], stdin=script, timeout=timeout)
+    errs = []
+    out = run_cmd(argv + ["--", host, "sh -c '%s'" % SHELL_PICK], stdin=script, timeout=timeout,
+                  errors=errs)
+    if errs and not out:
+        ssh_errors[host] = errs[-1]
+    else:
+        ssh_errors.pop(host, None)
+    return out
 
 
 _fx_calls = {}
@@ -1779,8 +1814,22 @@ def sample_machines(db, only=None, timeout=25):
         d = results.get(m["name"])
         if d:
             record_sample(db, m, d, ts)
+            machine_errors.pop(m["name"], None)
+        else:
+            why = ssh_errors.get(m["host"]) or "no data"
+            hint = ssh_hint(why)
+            machine_errors[m["name"]] = "%s (%s): cannot read: %s%s" % (
+                m["name"], m["host"], why, ("; " + hint) if hint else "")
     db.commit()
     return {m["name"]: results.get(m["name"]) for m in ms}
+
+
+machine_errors = {}
+
+
+def machine_alerts():
+    return [{"kind": "machine_unreachable", "machine": k, "message": v}
+            for k, v in sorted(machine_errors.items())]
 
 
 def price_at(ts, ps):
@@ -2985,7 +3034,7 @@ def dashboard_state(db):
             "limits": current_limits(db), "machines": latest_samples(db, t),
             "energy": energy, "cloud": latest_cloud(db),
             "forecast": forecast(db, t, month_machines=energy),
-            "alerts": idle_alerts(db, t) + cloud_alerts(db, t)}
+            "alerts": machine_alerts() + idle_alerts(db, t) + cloud_alerts(db, t)}
 
 
 def _prom_label(v):
@@ -3770,7 +3819,7 @@ def run(args, db):
         sample_machines(db)
         if not args.summary:
             start, end, label = pick_range(args)
-            rep, al = machine_report(db, start, end), idle_alerts(db)
+            rep, al = machine_report(db, start, end), machine_alerts() + idle_alerts(db)
             emit({"machines": rep, "alerts": al}, render_machines(rep, al), args.json)
             return 0
     if args.line:

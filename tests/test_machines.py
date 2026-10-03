@@ -219,3 +219,43 @@ class SshControl(unittest.TestCase):
         finally:
             os.environ.clear()
             os.environ.update(old)
+
+
+class SshErrors(unittest.TestCase):
+    def test_hints(self):
+        m = helpers.load()
+        self.assertIn("known_hosts", m.ssh_hint("Host key verification failed."))
+        self.assertIn("BatchMode", m.ssh_hint("user@h: Permission denied (publickey)."))
+        self.assertIn("Tailscale", m.ssh_hint("no answer within 25 s"))
+        self.assertEqual(m.ssh_hint("something else"), "")
+
+    def test_run_cmd_collects_stderr(self):
+        m = helpers.load()
+        errs = []
+        out = m.run_cmd(["sh", "-c", "echo 'Host key verification failed.' >&2; exit 255"], errors=errs)
+        self.assertEqual(out, "")
+        self.assertEqual(errs, ["Host key verification failed."])
+        errs = []
+        m.run_cmd(["sh", "-c", "sleep 5"], timeout=1, errors=errs)
+        self.assertEqual(errs, ["no answer within 1 s"])
+
+    def test_unreachable_machine_becomes_alert(self):
+        sb = helpers.Sandbox()
+        old = dict(os.environ)
+        try:
+            os.makedirs(sb.config)
+            with open(os.path.join(sb.config, "config.ini"), "w") as f:
+                f.write("[machines]\nbox = nowhere\n")
+            os.environ.update(COMPUTAI_CONFIG_DIR=sb.config, COMPUTAI_FIXTURES=FX)
+            m = helpers.load()
+            db = m.open_ledger(":memory:")
+            m.ssh_errors["nowhere"] = "Host key verification failed."
+            m.sample_machines(db)
+            a = m.machine_alerts()
+            self.assertEqual(a[0]["machine"], "box")
+            self.assertIn("box (nowhere): cannot read: Host key verification failed.; its host key", a[0]["message"])
+            db.close()
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            sb.close()
