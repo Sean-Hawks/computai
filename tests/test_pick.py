@@ -1,0 +1,78 @@
+import unittest
+
+from tests import helpers
+
+H = 3600
+
+
+def w(name, used, resets_in, eta=None, minutes=None):
+    return {"name": name, "used_percent": used, "resets_in": resets_in, "eta_full": eta,
+            "window_minutes": minutes or (300 if name == "5h" else 10080)}
+
+
+OLLAMA = [{"model": "qwen3:8b", "machine": "m1m", "command": "ssh m1m ollama run qwen3:8b", "busy": False}]
+
+# (說明, subs, local, task, 該選的工具, 理由)
+CASES = [
+    ("快重置又還剩很多：先用掉",
+     {"claude": [w("5h", 40, 40 * 60), w("week", 30, 3 * 86400)], "codex": [w("week", 5, 6 * 86400)]}, [], "heavy",
+     "claude", "expiring"),
+    ("快重置但只剩一點：不算",
+     {"claude": [w("5h", 90, 40 * 60)], "codex": [w("week", 50, 5 * 86400)]}, [], "heavy", "codex", "headroom"),
+    ("照速度會提早用完的避開",
+     {"claude": [w("week", 20, 4 * 86400, eta=86400)], "codex": [w("week", 60, 4 * 86400)]}, [], "heavy",
+     "codex", "headroom"),
+    ("兩個都會提早用完：選剩比較多的",
+     {"claude": [w("week", 20, 4 * 86400, eta=86400)], "codex": [w("week", 60, 4 * 86400, eta=3600)]}, [], "heavy",
+     "claude", "early"),
+    ("用完的永遠不選",
+     {"claude": [w("week", 100, 2 * 86400)], "codex": [w("week", 95, 2 * 86400, eta=600)]}, [], "heavy",
+     "codex", "early"),
+    ("輕量任務：本地模型",
+     {"claude": [w("week", 10, 4 * 86400)], "codex": [w("week", 10, 4 * 86400)]}, OLLAMA, "light",
+     "local:qwen3:8b", "local_light"),
+    ("輕量任務但有快重置的額度：先用額度",
+     {"claude": [w("5h", 10, 30 * 60)]}, OLLAMA, "light", "claude", "expiring"),
+    ("重的任務：本地模型最後才用",
+     {"claude": [w("week", 10, 4 * 86400)]}, OLLAMA, "heavy", "claude", "headroom"),
+    ("訂閱都用完：退到本地",
+     {"claude": [w("week", 100, 86400)], "codex": [w("5h", 99.6, 3 * H)]}, OLLAMA, "heavy",
+     "local:qwen3:8b", "local_fallback"),
+    ("沒有額度資料但有裝：還是可以選",
+     {"claude": []}, [], "heavy", "claude", "headroom"),
+    ("什麼都沒有",
+     {"claude": None, "codex": [w("week", 100, 86400)]}, [], "heavy", None, "none"),
+]
+
+
+class Pick(unittest.TestCase):
+    def setUp(self):
+        self.m = helpers.load()
+        self.m.set_lang("en")
+
+    def test_rules(self):
+        for desc, subs, local, task, tool, why in CASES:
+            with self.subTest(desc):
+                p = self.m.pick_agent(subs, local, task)
+                self.assertEqual((p["tool"], p["why"]), (tool, why))
+                self.assertTrue(self.m.pick_reason(p))
+
+    def test_reason_and_command(self):
+        p = self.m.pick_agent(CASES[0][1], [], "heavy")
+        self.assertEqual(p["command"], "claude")
+        self.assertEqual(self.m.pick_reason(p), "Claude Code 5-hour limit resets in 40m with 60% left - use it now or lose it")
+        p = self.m.pick_agent({}, OLLAMA, "light")
+        self.assertEqual(p["command"], "ssh m1m ollama run qwen3:8b")
+
+
+class PickCommand(unittest.TestCase):
+    def test_shell_output_is_just_the_command(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        r = sb.run("--pick", PATH="/usr/bin:/bin")
+        self.assertEqual((r.returncode, r.stdout), (1, ""))           # 沒有任何工具：不印指令，exit 1
+        self.assertIn("nothing to pick", r.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()
