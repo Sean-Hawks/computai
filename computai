@@ -4405,10 +4405,16 @@ class Updater:
         card = card_settings()
         if card["repo"] and time.time() - self.card_at >= 86400:   # 個人頁卡片一天更新一次
             self.card_at = time.time()
-            try:
-                publish_card(db, card["period"], card["repo"], push=card["push"])
-            except (SystemExit, OSError) as e:
-                warn("card update failed: %s" % e)
+            # 上次發佈時間記在帳本裡：watch、live、網頁同時開著時只有一個去推，不會互搶
+            db.execute("INSERT OR IGNORE INTO meta (key, value) VALUES ('card_published', '0')")
+            won = db.execute("UPDATE meta SET value = ? WHERE key = 'card_published' AND CAST(value AS REAL) <= ?",
+                             (str(time.time()), time.time() - 86400)).rowcount   # 原子地搶到這一天的發佈權
+            db.commit()
+            if won:
+                try:
+                    publish_card(db, card["period"], card["repo"], push=card["push"])
+                except (SystemExit, OSError) as e:
+                    warn("card update failed: %s" % e)
         if self.every["cloud"] > 0 and t - self.last["cloud"] >= self.every["cloud"]:
             self.last["cloud"] = t
             if any(secret(env) for _n, env, _f in CLOUDS):
