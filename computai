@@ -3184,8 +3184,9 @@ def latest_samples(db, t=None, n=HISTORY):
                     gpus_hist.setdefault(str(g.get("idx")), []).append(g.get("util"))
             except ValueError:
                 pass
-        rec = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(output), 0) AS o FROM usage WHERE source = 'local' "
-                         "AND project = ? AND ts > ?", (name, t - 300)).fetchone()
+        rec = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(output), 0) AS o, "
+                         "COALESCE(SUM(CASE WHEN ts > ? THEN output ELSE 0 END), 0) AS o1 FROM usage "
+                         "WHERE source = 'local' AND project = ? AND ts > ?", (t - 60, name, t - 300)).fetchone()
         out.append({"machine": name, "host": hosts.get(name, ""), "age": int(t - r["ts"]),
                     "cpu_pct": r["cpu_pct"], "gpu_util": r["gpu_util"], "gpu_mem_used": r["gpu_mem_used"],
                     "gpu_mem_total": r["gpu_mem_total"], "power_w": r["power_w"],
@@ -3198,7 +3199,8 @@ def latest_samples(db, t=None, n=HISTORY):
                                for x in json.loads(r["loaded"] or "[]")],
                     "history": {"cpu": [x["cpu_pct"] for x in rows], "gpu": [x["gpu_util"] for x in rows],
                                 "power": [x["power_w"] for x in rows], "ai": [x["ai_active"] for x in rows]},
-                    "recent": {"requests": rec["n"], "output": rec["o"], "tok_s": round(rec["o"] / 300.0, 1)}})
+                    # 請求數和 token 是最近 5 分鐘，速率是最近 1 分鐘（正在跑的時候才看得出快慢）
+                    "recent": {"requests": rec["n"], "output": rec["o"], "tok_s": round(rec["o1"] / 60.0, 1)}})
     return out
 
 
@@ -3399,7 +3401,7 @@ def machine_panel(m, width, energy=None, error=None):
                           for x in models) or dim("no model loaded")
         rate = ""
         if m["recent"]["requests"]:
-            rate = dim("  %d req, %s tok/s (5 min)" % (m["recent"]["requests"], m["recent"]["tok_s"]))
+            rate = dim("  %d req in 5 min, %s tok/s now" % (m["recent"]["requests"], m["recent"]["tok_s"]))
         lines.append(" %s %s %s%s" % (rgb(MAG, "%s:%s" % key), state, names, rate))
     if not m.get("services"):
         lines.append(dim(" no inference server found"))
@@ -3809,7 +3811,7 @@ function machineCard(m, energy) {
     card.append(el("div", {class: "svc"}, el("span", {class: "k"}, `${s.kind}:${s.port}`),
       el("span", {class: m.ai_active ? "ok" : "muted"}, m.ai_active ? "● busy" : "○ idle"),
       el("span", {class: "m"}, models || "no model loaded"),
-      m.recent.requests ? el("span", {class: "muted"}, `${m.recent.requests} req · ${m.recent.tok_s} tok/s (5 min)`) : null));
+      m.recent.requests ? el("span", {class: "muted"}, `${m.recent.requests} req in 5 min · ${m.recent.tok_s} tok/s now`) : null));
   }
   if (!m.services.length) card.append(el("div", {class: "muted"}, "no inference server found"));
   return card;
