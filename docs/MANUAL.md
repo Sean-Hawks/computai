@@ -470,7 +470,7 @@ It only reads the ledger (no network, no SSH), so it is fast enough for `$(...)`
 also says when a limit is about to reset with plenty left, and agents can ask the same question through the
 MCP tool `pick`.
 
-## Limit guard (Claude Code hooks)
+## Limit guard (Claude Code and Codex hooks)
 
 Optional hooks so the agent itself knows when a limit or the budget is running low. `computai --setup`
 asks whether to install them and shows the `settings.json` diff first.
@@ -484,6 +484,8 @@ asks whether to install them and shows the `settings.json` diff first.
 - Fast: every sync writes a small guard state to the ledger, and the hook is a generated script
   (`claude-hook.py` in the data folder) that only reads that row, in about 20 ms. No network, no prompts read.
   `computai --hook claude-pretool|claude-stop` gives the same answer, more slowly.
+- Codex uses the same hooks (`~/.codex/hooks.json`, subagents are `spawn_agent`). Codex runs a new hook only
+  after you trust it once: open `codex` and type `/hooks`.
 
 ## MCP server (for agents)
 

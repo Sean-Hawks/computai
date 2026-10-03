@@ -420,7 +420,7 @@ stdout 只有指令（`claude`、`codex`、`ollama run 模型`，別台機器上
 只讀帳本（不連網、不 SSH），放在 `$(...)` 裡也夠快。首頁的建議也會在額度快重置又還剩很多時提醒；
 agent 可以透過 MCP 的 `pick` 工具問同一個問題。
 
-## 額度護欄（Claude Code hook）
+## 額度護欄（Claude Code 和 Codex 的 hook）
 
 可選的 hook，讓 agent 自己知道額度或預算快用完了。`computai --setup` 會問要不要裝，裝之前先顯示 `settings.json` 的 diff。
 
@@ -430,6 +430,8 @@ agent 可以透過 MCP 的 `pick` 工具問同一個問題。
 - 絕不回「allow」，你自己的權限設定照常運作。出任何錯（沒有帳本、狀態太舊或壞掉）一律安靜放行。
 - 很快：每次同步會把一小份護欄狀態寫進帳本，hook 跑的是產生在資料夾裡的小腳本（`claude-hook.py`），
   只讀那一列，大約 20 ms。不連網、不讀 prompt。`computai --hook claude-pretool|claude-stop` 給一樣的答案，只是比較慢。
+- Codex 用同樣的 hook（`~/.codex/hooks.json`，派 subagent 的工具是 `spawn_agent`）。Codex 的新 hook 要先信任一次才會跑：
+  打開 `codex` 輸入 `/hooks`。
 
 ## MCP server（給 agent 用）
 
