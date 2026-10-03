@@ -1211,7 +1211,8 @@ def render_summary(s):
 # 拿掉 Slurm、行程、磁碟、網路。新增的 svc 段用 curl／wget 在機器自己身上探測推論服務，
 # 所以服務只聽 127.0.0.1 也讀得到，被監控的機器也不用裝任何東西。
 
-GPU_Q = "index,uuid,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw"
+# 型號放最後：名字裡可能有逗號，剩下的欄位全部接回去。舊的輸出（沒有型號）也看得懂。
+GPU_Q = "index,uuid,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,name"
 GPU_FIELDS = ("idx", "uuid", "util", "mem_used", "mem_total", "temp", "power")
 
 # 推論服務的預設埠和要讀的路徑。prom 類的只留下需要的 metric，避免把整頁直方圖傳回來。
@@ -1486,8 +1487,9 @@ def parse_gpu(line):
     f = [x.strip() for x in line.split(",")]
     if not f[0].isdigit():
         return None
+    name = ", ".join(f[len(GPU_FIELDS):]).strip() or None
     f += [""] * (len(GPU_FIELDS) - len(f))
-    g = _gpu(f[0], "nvidia")
+    g = _gpu(f[0], "nvidia", model=(name or "").replace("NVIDIA GeForce ", "").replace("NVIDIA ", "") or None)
     for k, v in zip(GPU_FIELDS[2:], f[2:]):
         g[k] = num(v)
     return g
@@ -3042,6 +3044,11 @@ def glyphs():
     return SPARK, "█", "░", "▕", "▏", ("╭", "╮", "╰", "╯", "─", "│")
 
 
+def sym(u, a):
+    """ASCII 模式用 a，其他時候用 u。"""
+    return a if _ascii else u
+
+
 def rgb(c, s):
     return "\033[38;2;%d;%d;%dm%s\033[0m" % (c[0], c[1], c[2], s) if _color else s
 
@@ -3320,76 +3327,191 @@ def use_color(stream=None):
     return stream.isatty() and not os.environ.get("NO_COLOR") and os.environ.get("TERM") != "dumb"
 
 
-def _sgr(code, s, on):
-    return "\033[%sm%s\033[0m" % (code, s) if on else s
+def _num(v, fmt, none="-"):
+    return none if v is None else fmt % v
 
 
-def bar(pct, width=10):
-    pct = max(0.0, min(100.0, pct or 0.0))
-    full = int(round(pct / 100.0 * width))
-    return "█" * full + "░" * (width - full)
+SOURCE_NAMES = {"claude": "Claude Code", "codex": "Codex", "local": "Local models", "cloud": "Cloud GPUs",
+                "anthropic-api": "Anthropic API", "openai-api": "OpenAI API"}
 
 
-def render_live(st, width=80, color=False):
-    """三區：算力／AI 用量／警示。"""
-    b = lambda s: _sgr("1", s, color)
-    d = lambda s: _sgr("2", s, color)
-    red = lambda s: _sgr("31", s, color)
-    width = max(40, width)
-
-    def rule(title):
-        return b("── " + title + " ") + d("─" * max(0, width - vlen(title) - 4))
-
-    out = [b("ComputAI") + "  " + time.strftime("%Y-%m-%d %H:%M", time.localtime(st["time"]))
-           + "   " + st["line_text"], ""]
-    out.append(rule("Compute"))
-    if not st["machines"] and not st["cloud"]:
-        out.append(d("  no machines sampled yet ([machines] in config.ini, or --sample)"))
-    for m in st["machines"]:
-        gpu = "-" if m["gpu_util"] is None else "%3d%%" % round(m["gpu_util"])
-        cpu = "-" if m["cpu_pct"] is None else "%3d%%" % round(m["cpu_pct"])
-        pw = "" if m["power_w"] is None else "%5.0f W" % m["power_w"]
-        state = "AI" if m["ai_active"] else "  "
-        out.append("  %s CPU %s  GPU %s %s %s  %s%s" % (
-            cell(m["machine"], 16), cpu, gpu, bar(m["gpu_util"], 8), pw, state,
-            d("  (%s ago)" % fmt_dur(m["age"])) if m["age"] > 300 else ""))
-        for x in m["loaded"]:
-            out.append(d("      %s on %s%s" % (x["name"], x["service"],
-                                              ", %s MB" % format(x["vram_mb"], ",") if x["vram_mb"] else "")))
-    for c in st["cloud"]:
-        util = "-" if c["gpu_util"] is None else "%d%%" % round(c["gpu_util"])
-        out.append("  %s %-9s %s GPU %4s  %s" % (
-            cell("%s/%s" % (c["provider"], c["name"]), 22), c["status"][:9],
-            cell("%s x%d" % (c["gpu"], c["gpu_count"] or 1), 16), util,
-            (fmt_usd(c["usd_per_hour"]) + "/h") if c["billing"] else d("not billing")))
-    for r in st["energy"]:
-        if r["kwh"]:
-            out.append(d("  %s: %.2f kWh this month, AI %s" % (
-                r["machine"], r["kwh"], "-" if r["ai_share"] is None else "%d%%" % round(100 * r["ai_share"]))))
-    out.append("")
-    out.append(rule("AI usage  " + st["month"]))
-    for x in st["sources"]:
-        plan = x.get("plan")
+def machine_panel(m, width, energy=None, error=None):
+    """一台機器的面板（版面照 slurmtop 的 node_panel）：標題列有負載燈號和摘要，
+    內容是 CPU、記憶體、每張 GPU（長條、走勢、VRAM、溫度、功耗）、功耗走勢、推論服務。"""
+    lines = []
+    led = "o" if _ascii else "◉"
+    if error and not m:
+        title = "%s %s" % (bold(rgb(CYAN, error["machine"])), rgb(RED, led))
+        return panel(title, "", ["  " + rgb(RED, error["message"].split(": ", 1)[-1])], width, 100)
+    gpus = m.get("gpus") or []
+    load = (m["gpu_util"] if m["gpu_util"] is not None else m["cpu_pct"]) or 0.0
+    where = "LOCAL" if m.get("host") == "local" else "SSH"
+    ai = " " + rgb(GREEN, "AI") if m["ai_active"] else ""
+    stale = (" " + rgb(AMBER, "%s ago" % fmt_dur(m["age"]))) if m["age"] > 300 else ""
+    left = "%s %s %s %s%s%s" % (dim("NODE"), bold(rgb(CYAN, m["machine"])), rgb(heat(load), led), dim(where), ai, stale)
+    bits = []
+    if gpus:
+        names = sorted({g.get("model") or g.get("vendor") or "GPU" for g in gpus})
+        bits.append("%dx %s" % (len(gpus), names[0]) if len(names) == 1 else "%d GPUs" % len(gpus))
+    if m["power_w"] is not None:
+        bits.append(rgb(MAG, "%.0f W" % m["power_w"]))
+    temps = [g["temp"] for g in gpus if g.get("temp") is not None]
+    if temps:
+        bits.append(rgb(temp_color(max(temps)), "%.0f°C" % max(temps)))
+    right = dim(sym(" \u00b7 ", " | ")).join(bits)
+    sp_w = 10 if width >= 70 else 6
+    cpu = m["cpu_pct"]
+    ld = m.get("load")
+    lines.append(" %s %s %s %s %s" % (rgb(CYAN, "CPU"), gradbar(cpu or 0), _num(cpu, "%5.1f%%", "    -"),
+                                       spark(m["history"]["cpu"], sp_w),
+                                       dim("load %.1f" % ld[0]) if ld else ""))
+    if m.get("mem_total"):
+        mp = 100.0 * (m["mem_used"] or 0) / m["mem_total"]
+        lines.append(" %s %s %5.1f%% %s" % (rgb(CYAN, "MEM"), gradbar(mp), mp,
+                                           dim("%.0f/%.0f GiB" % ((m["mem_used"] or 0) / 1024.0, m["mem_total"] / 1024.0))))
+    for g in gpus:
+        u = g.get("util")
+        mem = ""
+        if g.get("mem_total"):
+            mem = "%.1f/%.0fG" % ((g.get("mem_used") or 0) / 1024.0, g["mem_total"] / 1024.0)
+        temp = rgb(temp_color(g["temp"]), "%2.0f°" % g["temp"]) if g.get("temp") is not None else dim("  -")
+        pw = dim(_num(g.get("power"), "%4.0fW", "    "))
+        lines.append(" %s%s %s %s %s %s %s %s" % (rgb(CYAN, "G"), bold(str(g.get("idx"))), gradbar(u or 0),
+                                                 _num(u, "%3.0f%%", "  -"), spark(g.get("history"), sp_w),
+                                                 dim(mem), temp, pw))
+    ph = [p for p in m["history"]["power"] if p is not None]
+    if ph:
+        top = max(ph + [1.0])
         extra = ""
-        if plan:
-            extra = d("  plan %s %s -> %.1fx" % (plan["name"], fmt_usd(plan["fee_in_range"]),
-                                                 plan["value_ratio"] or 0))
-        out.append("  %-14s %9s req %9s tok %10s%s" % (x["source"], fmt_tok(x["requests"]),
-                                                      fmt_tok(x["tokens"]), fmt_usd(x["cost_usd"]), extra))
+        if energy and energy.get("kwh"):
+            extra = dim("  %.2f kWh this month, AI %s" % (
+                energy["kwh"], "-" if energy["ai_share"] is None else "%d%%" % round(100 * energy["ai_share"])))
+        lines.append(" %s %s %s%s" % (rgb(CYAN, "PWR"), rgb(MAG, "%5.0f W" % (m["power_w"] or 0)),
+                                       spark(ph, sp_w + 6, top=top), extra))
+    by_svc = {}
+    for x in m.get("loaded") or []:
+        by_svc.setdefault((x["service"], x.get("port")), []).append(x)
+    for svc in m.get("services") or []:
+        key = (svc["kind"], svc["port"])
+        models = by_svc.pop(key, [])
+        state = rgb(GREEN, sym("\u25cf", "*") + " busy") if m["ai_active"] else dim(sym("\u25cb", "o") + " idle")
+        names = ", ".join("%s%s" % (x["name"], dim(" %s MB" % format(x["vram_mb"], ",")) if x.get("vram_mb") else "")
+                          for x in models) or dim("no model loaded")
+        rate = ""
+        if m["recent"]["requests"]:
+            rate = dim("  %d req, %s tok/s (5 min)" % (m["recent"]["requests"], m["recent"]["tok_s"]))
+        lines.append(" %s %s %s%s" % (rgb(MAG, "%s:%s" % key), state, names, rate))
+    if not m.get("services"):
+        lines.append(dim(" no inference server found"))
+    return panel(left, right, lines, width, load)
+
+
+def usage_panel(st, width):
+    """AI 用量：每個來源的花費、方案價值、額度長條、最近 14 天的花費走勢。"""
+    lines = []
+    lim = {}
     for r in st["limits"]:
-        out.append("  %-14s %-6s %s %3d%%  %s" % (r["source"], r["name"], bar(r["used_percent"]),
-                                                  round(r["used_percent"]),
-                                                  "" if r["resets_in"] is None else "resets in " + fmt_dur(r["resets_in"])))
+        lim.setdefault(r["source"], []).append(r)
+    daily = st.get("daily") or {"days": [], "sources": {}}
+    bar_w = 16 if width >= 70 else 10
+    for x in st["sources"]:
+        name = SOURCE_NAMES.get(x["source"], x["source"])
+        plan = x.get("plan")
+        tail = ""
+        if plan:
+            ratio = plan["value_ratio"] or 0
+            col = GREEN if ratio >= 1 else AMBER
+            tail = dim("  %s %s -> " % (plan["name"], fmt_usd(plan["fee_in_range"]))) + rgb(col, "%.1fx" % ratio)
+        lines.append(" %s %s%s" % (bold(cell(name, 14)), rgb(CYAN, "%9s" % fmt_usd(x["cost_usd"])), tail))
+        for r in sorted(lim.pop(x["source"], []), key=lambda r: r["window_minutes"] or 0):
+            when = dim("resets in %s" % fmt_dur(r["resets_in"])) if r["resets_in"] is not None else ""
+            lines.append("   %s %s %3.0f%%  %s" % (dim(cell(r["name"], 5)), gradbar(r["used_percent"], bar_w),
+                                                 r["used_percent"], when))
+        series = daily["sources"].get(x["source"])
+        if series and any(series):
+            lines.append("   %s %s %s" % (dim(cell("14d", 5)), spark(series, len(series), top=max(series)),
+                                           dim("today %s" % fmt_usd(series[-1]))))
+        if x["source"] == "local" and x["tokens"]:
+            lines.append(dim("   %s tokens, %s requests" % (fmt_tok(x["tokens"]), fmt_tok(x["requests"]))))
+    for src, rows in lim.items():  # 有額度但這個月還沒有用量的來源
+        for r in rows:
+            lines.append(" %s %s %3.0f%%" % (bold(cell(SOURCE_NAMES.get(src, src), 14)),
+                                            gradbar(r["used_percent"], bar_w), r["used_percent"]))
+    if not lines:
+        lines.append(dim(" no usage yet - run computai --sync"))
     f = st["forecast"]
-    out.append("  today %s   month so far %s   month-end forecast %s" % (
-        fmt_usd(st["today_usd"]), fmt_usd(st["total_cost_usd"]), fmt_usd(f["projected_usd"])))
-    out.append("")
-    out.append(rule("Alerts"))
-    if not st["alerts"]:
-        out.append(d("  none"))
-    for a in st["alerts"]:
-        out.append(red("  ! ") + a["message"])
-    return "\n".join(out)
+    lines.append("")
+    lines.append(" %s %s   %s %s   %s %s" % (dim("today"), bold(fmt_usd(st["today_usd"])), dim("month"),
+                                           bold(fmt_usd(st["total_cost_usd"])), dim("forecast"),
+                                           bold(rgb(RED if f.get("over_budget") else CYAN,
+                                                    fmt_usd(f["projected_usd"])))))
+    return panel(bold("AI USAGE") + " " + dim(st["month"]), dim("API-equivalent"), lines, width, 0)
+
+
+def cloud_panel(st, width):
+    lines = []
+    for c in st["cloud"]:
+        u = c["gpu_util"]
+        lines.append(" %s %s %s %s %s" % (cell(rgb(CYAN, "%s/%s" % (c["provider"], c["name"])), 24),
+                                          cell("%s x%d" % (c["gpu"], c["gpu_count"] or 1), 16),
+                                          gradbar(u or 0, 8), _num(u, "%3.0f%%", "  ?"),
+                                          rgb(MAG, fmt_usd(c["usd_per_hour"]) + "/h") if c["billing"] else dim(c["status"])))
+    return panel(bold("CLOUD"), "", lines, width, max([c["gpu_util"] or 0 for c in st["cloud"]] or [0]))
+
+
+def alerts_panel(st, width):
+    warn_ = "!" if _ascii else "⚠"
+    lines = [" %s %s" % (rgb(RED, warn_), a["message"]) for a in st["alerts"]] or [dim(" all clear")]
+    return panel(bold("ALERTS"), dim("%d" % len(st["alerts"])) if st["alerts"] else "", lines, width,
+                 100 if st["alerts"] else 0)
+
+
+def render_live(st, width=100, color=False, ascii_=False):
+    """整個畫面：上面一行總覽，下面是算力（每台機器、雲端）、AI 用量、警示。
+    寬度夠（>= 150）就兩欄：左邊算力，右邊 AI 用量和警示；不夠就上下排。"""
+    set_style(color, ascii_)
+    width = max(60, width)
+    led = "o" if _ascii else "◉"
+    head = "%s %s  %s   %s" % (rgb(CYAN, led), bold("ComputAI"),
+                               dim(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))), st["line_text"])
+    two = width >= 150
+    col = (width - 2) // 2 if two else width
+    errors = {a["machine"]: a for a in st["alerts"] if a["kind"] == "machine_unreachable"}
+    energy = {r["machine"]: r for r in st["energy"]}
+    left = []
+    for m in st["machines"]:
+        left += machine_panel(m, col, energy.get(m["machine"]))
+    for name, e in errors.items():
+        if name not in {m["machine"] for m in st["machines"]}:
+            left += machine_panel(None, col, error=e)
+    if st["cloud"]:
+        left += cloud_panel(st, col)
+    if not left:
+        left = panel(bold("COMPUTE"), "", [dim(" no machines yet: add them under [machines] in config.ini")], col)
+    else:
+        watts = sum(m["power_w"] or 0 for m in st["machines"])
+        billing = sum(c["usd_per_hour"] or 0 for c in st["cloud"] if c["billing"])
+        bits = ["%d machine%s" % (len(st["machines"]), "" if len(st["machines"]) == 1 else "s")]
+        if watts:
+            bits.append(rgb(MAG, "%.0f W" % watts))
+        if st["cloud"]:
+            bits.append("cloud " + rgb(MAG, fmt_usd(billing) + "/h"))
+        left = [" " + bold("COMPUTE") + "  " + dim(sym(" \u00b7 ", " | ")).join(bits)] + left
+    right = usage_panel(st, col) + alerts_panel(st, col)
+    body = side_by_side(left, right) if two else left + right
+    foot = dim(sym(" \u00b7 ", " | ").join(["q quit", "-n SEC refresh", "computai --web for the browser",
+                                            "--analyze for advice"]))
+    return "\n".join([head, ""] + body + [foot])
+
+
+def can_draw_blocks(stream=None):
+    """輸出的編碼畫得出方塊和框線字元嗎（Windows 舊主控台、LANG=C 時畫不出來就用 ASCII）。"""
+    enc = getattr(stream or sys.stdout, "encoding", None) or ""
+    try:
+        "\u2588\u256d\u25c9\u00b0".encode(enc or "ascii")
+        return True
+    except (LookupError, UnicodeEncodeError):
+        return False
 
 
 def clean_strings(obj):
@@ -3427,7 +3549,8 @@ def run_live(interval, sample_every):
             with lock:
                 st = box["st"]
             cols, rows = shutil.get_terminal_size((100, 40))
-            text = render_live(clean_strings(st), cols, color) if st else "ComputAI: reading logs and machines..."
+            text = (render_live(clean_strings(st), cols, color, ascii_=not can_draw_blocks()) if st
+                    else "ComputAI: reading logs and machines...")
             lines = text.splitlines()[:rows - 1]
             sys.stdout.write("\033[H\033[2J" + "\n".join(lines) + "\n")
             sys.stdout.flush()
@@ -3920,6 +4043,8 @@ def parse_args(argv=None):
                    help="for --payback: cloud price per GPU-hour (default: your cloud history)")
     p.add_argument("--live", action="store_true",
                    help="live terminal dashboard: compute, AI usage, alerts (default on a terminal)")
+    p.add_argument("--once", action="store_true",
+                   help="print the live dashboard once and exit (after reading logs and machines)")
     p.add_argument("-n", "--interval", type=float, default=5.0, metavar="SEC",
                    help="refresh interval for --live and --web (default 5)")
     p.add_argument("--web", nargs="?", const="127.0.0.1:8765", metavar="[HOST:]PORT",
@@ -3981,7 +4106,7 @@ def local_hostname():
 
 
 ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "report")
+           "report", "once")
 
 
 def run(args, db):
@@ -3989,6 +4114,18 @@ def run(args, db):
              or args.html or args.month is not None or args.since or args.until or args.by != "model")
     if not asked and sys.stdout.isatty() and sys.stdin.isatty():
         args.live = True  # 在終端機裡只打 computai 就是 live 畫面；帶了其他選項就照選項做
+    if args.once:
+        if not args.no_sync:
+            sync(db, quiet=True)
+            if machines():
+                sample_machines(db)
+        st = clean_strings(dashboard_state(db))
+        if args.json:
+            emit(st, "", True)
+        else:
+            cols = shutil.get_terminal_size((120, 40)).columns
+            print(render_live(st, cols, use_color(), ascii_=not can_draw_blocks()))
+        return 0
     if args.live:
         db.close()
         return run_live(args.interval, args.sample_every)
