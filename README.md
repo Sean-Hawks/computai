@@ -27,7 +27,7 @@ codex
 
 ![Web dashboard](docs/images/web.png)
 
-*(Screenshots use demo data. Prefer the calmer slurmtop look? `--theme classic` or `computai --set general.theme=classic`.)*
+*(Screenshots use demo data. The default `cyber` theme follows [docs/DESIGN.md](docs/DESIGN.md): the top line says whether anything needs you, colours only mean something. Prefer the slurmtop look? `--theme classic` or `computai --set general.theme=classic`.)*
 
 ## What it does
 

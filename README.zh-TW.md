@@ -11,7 +11,7 @@
 
 ![網頁版](docs/images/web.png)
 
-*（截圖用的是示範資料。想要原本比較素的 slurmtop 樣式：`--theme classic` 或 `computai --set general.theme=classic`。）*
+*（截圖用的是示範資料。預設的 `cyber` 主題照 [docs/DESIGN.md](docs/DESIGN.md) 設計：最上面一行先告訴你有沒有事，顏色只用來表達意思。想要 slurmtop 樣式：`--theme classic` 或 `computai --set general.theme=classic`。）*
 
 ## 能做什麼
 
