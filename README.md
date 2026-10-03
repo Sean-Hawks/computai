@@ -21,7 +21,7 @@ codex
   ...
 ```
 
-![Live terminal dashboard](docs/images/live.png)
+![Live terminal dashboard: start-up check, then the HUD](docs/images/live.svg)
 
 `computai --web` gives the same view in a browser (phone layout included):
 

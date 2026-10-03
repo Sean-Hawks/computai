@@ -5,7 +5,7 @@
 
 [English](README.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Manual](docs/MANUAL.md) · [ComputAI 出現在哪裡](docs/SURFACES.md)
 
-![終端機 live 畫面](docs/images/live.png)
+![終端機 live 畫面：開機檢查，接著是 HUD](docs/images/live.svg)
 
 `computai --web` 在瀏覽器看同樣的內容（也有手機排版），加上 `--lang zh` 就是中文介面：
 
