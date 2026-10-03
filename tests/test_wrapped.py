@@ -133,3 +133,59 @@ class Wrapped(unittest.TestCase):
         blob = json.dumps(self.run_wrapped())
         self.assertNotIn("secret", blob)
         self.assertNotIn("sess-3f9a1c", blob)
+
+
+class WrappedText(unittest.TestCase):
+    def setUp(self):
+        if hasattr(time, "tzset"):
+            os.environ["TZ"] = "UTC"
+            time.tzset()
+        self.m = helpers.load()
+        self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
+        seed(self.m, self.db)
+        self.addCleanup(self.m.set_lang, "en")
+        s, e, label, kind = self.m.wrapped_period("2026-09")
+        self.w = self.m.wrapped(self.db, s, e, label, kind, PRICES, PLANS, t=self.m.calendar_ts(2026, 10, 3, 12))
+
+    def test_render_en(self):
+        self.m.set_lang("en")
+        text = self.m.render_wrapped(self.w)
+        for want in ("ComputAI Wrapped 2026-09", "Night owl", "Longest streak: 4 days", "2026-09-10", "Thursday",
+                     "The Lord of the Rings", "claude-opus-5-5", "VS LAST MONTH"):
+            self.assertIn(want, text)
+
+    def test_render_zh(self):
+        self.m.set_lang("zh")
+        text = self.m.render_wrapped(self.w)
+        for want in ("夜貓子", "最長連續 4 天", "星期四", "《魔戒》"):
+            self.assertIn(want, text)
+
+    def test_every_slide_string_exists_in_both_languages(self):
+        keys = {k for k in self.m.UI["en"] if k.startswith("wr_")}
+        self.assertEqual(keys, {k for k in self.m.UI["zh"] if k.startswith("wr_")})
+
+    def test_render_has_no_private_names(self):
+        for lang in ("en", "zh"):
+            self.m.set_lang(lang)
+            text = self.m.render_wrapped(self.w) + json.dumps(self.m.wrapped_slides(self.w))
+            self.assertNotIn("secret", text)
+            self.assertNotIn("sess-3f9a1c", text)
+
+    def test_empty_period_slides(self):
+        w = self.m.wrapped(self.db, 0, 100, "x", "month", PRICES, PLANS)
+        self.assertEqual([s["id"] for s in self.m.wrapped_slides(w)], ["intro", "none"])
+        self.assertIn("No usage", self.m.render_wrapped(w))
+
+
+class WrappedCli(unittest.TestCase):
+    def test_json_and_text(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        r = sb.run("--wrapped", "2026-09", "--no-sync", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        w = json.loads(r.stdout)
+        self.assertEqual((w["label"], w["kind"], w["tokens"]), ("2026-09", "month", 0))
+        r = sb.run("--wrapped", "2026", "--no-sync")
+        self.assertIn("ComputAI Wrapped 2026", r.stdout)
+        self.assertNotEqual(sb.run("--wrapped", "nonsense", "--no-sync").returncode, 0)

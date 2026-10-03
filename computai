@@ -4087,6 +4087,30 @@ UI = {
         "i_api": "%(src)s: paying per use would have cost only %(cost)s over the last 30 days - less than the plan",
         "i_cache": "After a pause of more than 5 minutes (or an hour), the next message re-sends the whole conversation. That happened %(n)d times this month and used %(cost)s worth of extra quota. After a long break, a new conversation (or /compact) is cheaper.",
         "i_offpeak": "%(machine)s: running AI work at night or on weekends (off-peak) would have saved %(save).2f %(cur)s",
+        "wr_title": "COMPUTAI WRAPPED", "wr_intro_month": "Your month with AI, in numbers.",
+        "wr_intro_year": "Your year with AI, in numbers.", "wr_none": "No usage recorded in this period yet.",
+        "wr_tokens_k": "TOKENS", "wr_tokens_p": "tokens went through your AI tools. %s of them were written for you.",
+        "wr_value_k": "WORTH AT API PRICES", "wr_value_p": "What it would have cost if you paid per token.",
+        "wr_value_ratio": "Your subscriptions paid back %.1fx (%s used for %s in fees).",
+        "wr_words_k": "WORDS WRITTEN FOR YOU", "wr_words_big": "%s words",
+        "wr_words_p": "About %s copies of The Lord of the Rings, or %s hours of non-stop reading.",
+        "wr_days_k": "ACTIVE DAYS", "wr_days_big": "%d days", "wr_days_p": "Longest streak: %d days in a row.",
+        "wr_busy_k": "BUSIEST DAY", "wr_busy_p": "%s of API-equivalent usage in a single day.",
+        "wr_weekday_k": "FAVOURITE WEEKDAY", "wr_weekday_p": "The day you leaned on AI the most.",
+        "wr_wd": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        "wr_hour_k": "PEAK HOUR",
+        "wr_persona_night_owl": "Night owl: your best work starts after midnight.",
+        "wr_persona_early_bird": "Early bird: first prompt before the coffee.",
+        "wr_persona_nine_to_five": "Nine to five: steady office-hours engineer.",
+        "wr_persona_evening_hacker": "Evening hacker: the real project starts after dinner.",
+        "wr_models_k": "TOP MODELS", "wr_models_p": "Your most used models, by share of tokens.",
+        "wr_sessions_k": "SESSIONS", "wr_sessions_p": "The biggest one moved %s tokens over %s.",
+        "wr_cache_k": "SAVED BY PROMPT CACHE", "wr_cache_p": "Cache hits cost a fraction of normal input.",
+        "wr_local_k": "LOCAL MODELS", "wr_local_p": "Tokens on your own hardware, %.1f kWh measured.",
+        "wr_vs_month": "VS LAST MONTH", "wr_vs_year": "VS LAST YEAR", "wr_vs_p": "In tokens. The same stretch before had %s.",
+        "wr_vs_value": "Value: %s.", "wr_card_k": "YOUR WRAPPED",
+        "wr_hint": "click, tap or press space for the next one", "wr_replay": "replay",
+        "wr_tagline": "where your compute and AI money goes",
     },
     "zh": {
         "node": "節點", "local": "本機", "ssh": "SSH", "ago": "%s 前", "load": "負載 %.1f",
@@ -4196,6 +4220,30 @@ UI = {
         "i_api": "%(src)s：過去 30 天如果改成用多少付多少，只要 %(cost)s，比月費便宜",
         "i_cache": "對話暫停超過 5 分鐘（或 1 小時）後，下一則訊息會把整段對話重新送一次。這個月發生 %(n)d 次，多用了價值 %(cost)s 的額度。休息很久之後，開新對話（或先 /compact）會比較省。",
         "i_offpeak": "%(machine)s：如果 AI 工作改在晚上或週末（離峰）跑，可以省 %(save).2f %(cur)s",
+        "wr_title": "COMPUTAI 回顧", "wr_intro_month": "你這個月和 AI 一起寫下的數字。",
+        "wr_intro_year": "你這一年和 AI 一起寫下的數字。", "wr_none": "這段期間還沒有用量紀錄。",
+        "wr_tokens_k": "TOKEN", "wr_tokens_p": "token 流過你的 AI 工具，其中 %s 是 AI 寫給你的。",
+        "wr_value_k": "照 API 價格算的價值", "wr_value_p": "如果每個 token 都付費，要花這麼多。",
+        "wr_value_ratio": "你的訂閱回本 %.1f 倍（用了 %s，月費共 %s）。",
+        "wr_words_k": "AI 為你寫的字數", "wr_words_big": "%s 字",
+        "wr_words_p": "大約是 %s 套《魔戒》，或是 %s 小時不間斷的閱讀量。",
+        "wr_days_k": "活躍天數", "wr_days_big": "%d 天", "wr_days_p": "最長連續 %d 天。",
+        "wr_busy_k": "最忙的一天", "wr_busy_p": "一天之內用掉價值 %s 的用量。",
+        "wr_weekday_k": "最愛的星期", "wr_weekday_p": "你最依賴 AI 的那一天。",
+        "wr_wd": ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"],
+        "wr_hour_k": "最忙的時段",
+        "wr_persona_night_owl": "夜貓子：最好的作品都在午夜之後。",
+        "wr_persona_early_bird": "早起的鳥：咖啡還沒喝，第一個 prompt 就送出去了。",
+        "wr_persona_nine_to_five": "朝九晚五：穩定的上班族工程師。",
+        "wr_persona_evening_hacker": "夜晚駭客：吃完晚餐，真正的專案才開始。",
+        "wr_models_k": "最常用的模型", "wr_models_p": "依 token 佔比排序。",
+        "wr_sessions_k": "對話數", "wr_sessions_p": "最大的一場用了 %s 個 token，歷時 %s。",
+        "wr_cache_k": "快取省下的錢", "wr_cache_p": "命中快取的輸入只要正常價格的一小部分。",
+        "wr_local_k": "本地模型", "wr_local_p": "個 token 跑在你自己的硬體上，實測 %.1f 度電。",
+        "wr_vs_month": "和上個月比", "wr_vs_year": "和去年比", "wr_vs_p": "以 token 計。上一段同樣長的時間是 %s。",
+        "wr_vs_value": "價值：%s。", "wr_card_k": "你的回顧",
+        "wr_hint": "點一下、輕觸或按空白鍵看下一張", "wr_replay": "重播",
+        "wr_tagline": "一眼看完你的算力和 AI 花費",
     },
 }
 _lang = "en"
@@ -6136,6 +6184,85 @@ def wrapped(db, start, end, label, kind="month", prices=None, plan_table=None, c
     return out
 
 
+def _short_num(v):
+    return "%d" % v if v >= 10 else "%.1f" % v
+
+
+def _sign(p):
+    return "%+d%%" % p
+
+
+def wrapped_slides(w):
+    """回顧的每一張投影片：{"id", "kicker"（小標）, "big"（大數字）, "punch"（一句話）, "rows"（可選）}。
+    終端機、HTML 故事頁、SVG 卡片都用同一份文字。只有彙總數字和模型名稱。"""
+    sl = []
+
+    def add(id_, kicker, big, punch, rows=None):
+        sl.append({"id": id_, "kicker": kicker, "big": big, "punch": punch, "rows": rows or []})
+
+    month = w["kind"] == "month"
+    add("intro", T("wr_title"), w["label"], T("wr_intro_month" if month else "wr_intro_year"))
+    if not w["tokens"]:
+        add("none", T("wr_tokens_k"), "0", T("wr_none"))
+        return sl
+    eq = w["equivalents"]
+    add("tokens", T("wr_tokens_k"), fmt_tok(w["tokens"]), T("wr_tokens_p") % fmt_tok(w["output_tokens"]))
+    punch = T("wr_value_p")
+    if w["value_ratio"] is not None:
+        punch += " " + T("wr_value_ratio") % (w["value_ratio"], fmt_usd(w["subscription_usage_usd"]),
+                                              fmt_usd(w["subscription_fees_usd"]))
+    add("value", T("wr_value_k"), fmt_usd(w["api_equivalent_usd"]), punch)
+    if eq["words"]:
+        add("words", T("wr_words_k"), T("wr_words_big") % fmt_tok(eq["words"]),
+            T("wr_words_p") % (_short_num(eq["lotr"]), _short_num(eq["reading_hours"])))
+    add("days", T("wr_days_k"), T("wr_days_big") % w["active_days"], T("wr_days_p") % w["longest_streak"])
+    if w["busiest_day"]:
+        add("busiest", T("wr_busy_k"), w["busiest_day"], T("wr_busy_p") % fmt_usd(w["busiest_day_usd"]))
+    if w["busiest_weekday"] is not None:
+        add("weekday", T("wr_weekday_k"), T("wr_wd")[w["busiest_weekday"]], T("wr_weekday_p"))
+    if w["peak_hour"] is not None:
+        add("hour", T("wr_hour_k"), "%02d:00" % w["peak_hour"], T("wr_persona_" + w["persona"]))
+    if w["top_models"]:
+        add("models", T("wr_models_k"), w["top_models"][0]["model"], T("wr_models_p"),
+            [[m["model"], "%d%%" % m["share_pct"]] for m in w["top_models"]])
+    if w["sessions"]:
+        b = w["biggest_session"]
+        add("sessions", T("wr_sessions_k"), str(w["sessions"]),
+            T("wr_sessions_p") % (fmt_tok(b["tokens"]), fmt_dur(b["duration_s"])))
+    if w["cache_savings_usd"] >= 0.01:
+        add("cache", T("wr_cache_k"), fmt_usd(w["cache_savings_usd"]), T("wr_cache_p"))
+    if w["local_tokens"] or w["kwh"]:
+        add("local", T("wr_local_k"), fmt_tok(w["local_tokens"]), T("wr_local_p") % w["kwh"])
+    pv = w["previous"]
+    if pv and pv["tokens_change_pct"] is not None:
+        punch = T("wr_vs_p") % fmt_tok(pv["tokens"])
+        if pv["value_change_pct"] is not None:
+            punch += " " + T("wr_vs_value") % _sign(pv["value_change_pct"])
+        add("vs", T("wr_vs_month" if month else "wr_vs_year"), _sign(pv["tokens_change_pct"]), punch)
+    rows = [[T("wr_tokens_k"), fmt_tok(w["tokens"])], [T("wr_value_k"), fmt_usd(w["api_equivalent_usd"])],
+            [T("wr_days_k"), "%d / %d" % (w["active_days"], w["longest_streak"])]]
+    if w["persona"]:
+        rows.append([T("wr_hour_k"), "%02d:00" % w["peak_hour"]])
+    if w["top_models"]:
+        rows.append([T("wr_models_k"), w["top_models"][0]["model"]])
+    add("card", T("wr_card_k"), w["label"], T("wr_persona_" + w["persona"]) if w["persona"] else "", rows)
+    return sl
+
+
+def render_wrapped(w):
+    out = ["ComputAI Wrapped %s" % w["label"], ""]
+    for s in wrapped_slides(w):
+        if s["id"] in ("intro", "card"):
+            continue
+        out.append("  %-24s %s" % (s["kicker"], s["big"]))
+        for label, val in s["rows"]:
+            out.append("      %-30s %s" % (cell(label, 30), val))
+        out.append("      " + s["punch"])
+    if len(out) == 2:
+        out.append("  " + T("wr_none"))
+    return "\n".join(out)
+
+
 # ---- 實驗室彙總（--totals 匯出、--lab 合併）
 #
 # 每個人匯出自己的月總額（只有來源、模型的金額和 token，沒有專案、session、機器以外的名稱），
@@ -6902,6 +7029,10 @@ def parse_args(argv=None):
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
     p.add_argument("--recap", nargs="?", const=0, type=int, metavar="YEAR",
                    help="a year in review (default: this year); with --html, a shareable card")
+    p.add_argument("--wrapped", nargs="?", const="", metavar="YYYY-MM|YYYY",
+                   help="a Wrapped-style recap of a month (default: this month so far) or a year; "
+                        "add --html FILE for a story page, --svg FILE for a share card")
+    p.add_argument("--svg", metavar="FILE", help="with --wrapped or --card: write an SVG card")
     p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
     p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
     p.add_argument("--lab", metavar="DIR", help="combine everyone's --totals files in a shared folder into one table")
@@ -6972,7 +7103,7 @@ def local_hostname():
 
 ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench",
-           "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
+           "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "weekly", "wake", "totals", "lab")
 
 
 def config_theme(cp=None):
@@ -7117,6 +7248,13 @@ def run(args, db):
             for name, ok_, msg in res:
                 print("computai: %s %s (%s)" % (name, "sent" if ok_ else "failed", msg))
             return 0 if all(r[1] for r in res) else 1
+        return 0
+    if args.wrapped is not None:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        start, end, label, kind = wrapped_period(args.wrapped)
+        w = wrapped(db, start, end, label, kind)
+        emit(w, render_wrapped(w), args.json)
         return 0
     if args.recap is not None:
         if not args.no_sync:
