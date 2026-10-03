@@ -2,22 +2,29 @@
  [WATCH] Codex weekly limit is 93% used - resets in 8h20m
  Claude 5-hour limit 42% used · Codex weekly limit 93% used (resets in 8h20m) · today's usage worth $11.50
 
+╭── LIMITS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────── 1 nearly used up ╮
+│ Claude Code 5-hour limit ████████████████████░░░░░░░|░░░░░░░░░░░░░░░░░░░░  42%                                                                                         │
+│                          at this pace about 74% by the reset in 2h10m                                                                                                  │
+│ Codex weekly limit       █████████████████████████████████████████████|░░  93%                                                                                         │
+│                          at this pace about 98% by the reset in 8h20m                                                                                                  │
+╰── ┃ = how much of the window has passed; a bar beyond it is burning faster than time ──────────────────────────────────────────────────────────────────────────────────╯
+
  COMPUTE  2 machines · drawing 431 W now ······█▂█▂█▂ · GPU avg 56%                   ╭── AI SUBSCRIPTIONS & SPEND 2026-09 ───────────────────── $ = value at API prices ╮
 ╭── NODE gpubox ◉ SSH AI ──────────────────────────────── 2x nvidia · 410 W · 70°C ╮  │ Claude Code    used $14.40 worth · monthly fee not set (computai --setup)        │
-│ CPU ▕██████░░░░░░▏  50.0% ·····▅·▅·▅ load 1.2                                    │  │   5-hour limit ▕███████░░░░░░░░░▏ 42% used · resets in 2h10m                     │
-│ MEM ▕████░░░░░░░░▏  32.8% 21/62 GiB                                              │  │   last 14 days ▁▁▁▁▁▁▁▁▁▁▄▁▁█ today $10.40 worth                                 │
-│ G0 ▕███████████░▏  90% ····▇▇▇▇▇▇ 29.3/80G 70°  320W                             │  │ Codex          used $1.10 worth · monthly fee not set (computai --setup)         │
-│ G1 ▕░░░░░░░░░░░░▏   - ····▁·▁·▁· 0.5/80G 35°                                     │  │   weekly limit ▕███████████████░▏ 93% used · resets in 8h20m                     │
-│ PWR   410 W ··········█▂█▂█▂  0.04 kWh this month, AI 100%                       │  │   last 14 days ▁▁▁▁▁▁▁▁▁▁▁▁▁█ today $1.10 worth                                  │
-│ vllm:8000 ● busy Qwen/Qwen3-32B                                                  │  │ Local models   438k tokens · free apart from electricity                         │
-│ 79.2 GB free: room for a ~120B model (4-bit)                                     │  │                                                                                  │
-╰──────────────────────────────────────────────────────────────────────────────────╯  │ Usage value: $15.50 this month, $11.50 today (at API prices)                     │
-╭── NODE mac ◉ SSH ──────────────────────────────────── 1x Apple M3 10-core · 21 W ╮  │ You will actually pay about $0.01 this month (plans + cloud + electricity)       │
-│ CPU ▕███░░░░░░░░░▏  20.9% ····▂▂▂▂▂▂ load 2.5                                    │  ╰──────────────────────────────────────────────────────────────────────────────────╯
-│ MEM ▕██████████░░▏  84.8% 14/16 GiB                                              │  ╭── ALERTS ────────────────────────────────────────────────────────────────────────╮
-│ G0 ▕███░░░░░░░░░▏  22% ····▃▃▃▃▃▃ 1.7/16G   -                                    │  │ all clear                                                                        │
-│ PWR    21 W ··········▅▅▅▅▅▅  0.00 kWh this month, AI 0%                         │  ╰──────────────────────────────────────────────────────────────────────────────────╯
-│ ollama:11434 ○ idle qwen3:0.6b 981 MB                                            │  ╭── ADVICE ────────────────────────────────────────────────────────────────────────╮
-│ 1.8 GB free: room for a ~1.5B model (4-bit)                                      │  │ → Codex: example advice                                                          │
+│ CPU ▕██████░░░░░░▏  50.0% ·····▅·▅·▅ load 1.2                                    │  │   last 14 days ▁▁▁▁▁▁▁▁▁▁▄▁▁█ today $10.40 worth                                 │
+│ MEM ▕████░░░░░░░░▏  32.8% 21/62 GiB                                              │  │ Codex          used $1.10 worth · monthly fee not set (computai --setup)         │
+│ G0 ▕███████████░▏  90% ····▇▇▇▇▇▇ 29.3/80G 70°  320W                             │  │   last 14 days ▁▁▁▁▁▁▁▁▁▁▁▁▁█ today $1.10 worth                                  │
+│ G1 ▕░░░░░░░░░░░░▏   - ····▁·▁·▁· 0.5/80G 35°                                     │  │ Local models   438k tokens · free apart from electricity                         │
+│ PWR   410 W ··········█▂█▂█▂  0.04 kWh this month, AI 100%                       │  │                                                                                  │
+│ vllm:8000 ● busy Qwen/Qwen3-32B                                                  │  │ Usage value: $15.50 this month, $11.50 today (at API prices)                     │
+│ 79.2 GB free: room for a ~120B model (4-bit)                                     │  │ You will actually pay about $0.01 this month (plans + cloud + electricity)       │
 ╰──────────────────────────────────────────────────────────────────────────────────╯  ╰──────────────────────────────────────────────────────────────────────────────────╯
+╭── NODE mac ◉ SSH ──────────────────────────────────── 1x Apple M3 10-core · 21 W ╮  ╭── ALERTS ────────────────────────────────────────────────────────────────────────╮
+│ CPU ▕███░░░░░░░░░▏  20.9% ····▂▂▂▂▂▂ load 2.5                                    │  │ all clear                                                                        │
+│ MEM ▕██████████░░▏  84.8% 14/16 GiB                                              │  ╰──────────────────────────────────────────────────────────────────────────────────╯
+│ G0 ▕███░░░░░░░░░▏  22% ····▃▃▃▃▃▃ 1.7/16G   -                                    │  ╭── ADVICE ────────────────────────────────────────────────────────────────────────╮
+│ PWR    21 W ··········▅▅▅▅▅▅  0.00 kWh this month, AI 0%                         │  │ → Codex: example advice                                                          │
+│ ollama:11434 ○ idle qwen3:0.6b 981 MB                                            │  ╰──────────────────────────────────────────────────────────────────────────────────╯
+│ 1.8 GB free: room for a ~1.5B model (4-bit)                                      │  
+╰──────────────────────────────────────────────────────────────────────────────────╯  
 q quit · -n SEC refresh · computai --web for the browser · --analyze for advice

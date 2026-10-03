@@ -82,7 +82,8 @@ class Golden(unittest.TestCase):
         # 有色碼的版本：cyber 的顏色依用途（docs/DESIGN.md）
         text = self.m.render_live(self.st, 100, color=True, theme_name="cyber")
         self.assertIn("48;2;251;191;36m WATCH ", text)   # 總結列：琥珀底的「注意」是唯一的反白色塊
-        self.assertEqual(text.count("48;2;"), 1)
+        self.assertEqual(text.count("38;2;0;0;0;48;2;"), 1)         # 黑字色底的字塊只有總結列
+        self.assertIn("\u2503", text)                                 # 額度量表上的時間標記
         self.assertIn("38;2;103;232;249m", text)         # 品牌青
         self.assertNotIn("\033[2m", text)                # 次要資訊用 meta 灰，不用 SGR 2
         self.assertNotIn("38;2;255;0;170m", text)        # 沒有洋紅霓虹

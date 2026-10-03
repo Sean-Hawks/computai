@@ -3,6 +3,13 @@ o ComputAI  2026-09-21 14:13:20
  Claude 5-hour limit 42% used | Codex weekly limit 93% used (resets in 8h20m)
  today's usage worth $11.50
 
++-- LIMITS ------------------------------------------------------------ 1 nearly used up +
+| Claude Code 5-hour limit ####################.......|....................  42%         |
+|                          at this pace about 74% by the reset in 2h10m                  |
+| Codex weekly limit       #############################################|..  93%         |
+|                          at this pace about 98% by the reset in 8h20m                  |
++-- | = how much of the window has passed; a bar beyond it is burning faster than time --+
+
  COMPUTE  2 machines | drawing 431 W now ......#_#_#_ | GPU avg 56%
 +-- NODE gpubox o SSH AI -------------------------------------- 2x nvidia | 410 W | 70°C +
 | CPU [######......]  50.0% .....=.=.= load 1.2                                          |
@@ -23,10 +30,8 @@ o ComputAI  2026-09-21 14:13:20
 +----------------------------------------------------------------------------------------+
 +-- AI SUBSCRIPTIONS & SPEND 2026-09 --------------------------- $ = value at API prices +
 | Claude Code    used $14.40 worth | monthly fee not set (computai --setup)              |
-|   5-hour limit [#######.........] 42% used | resets in 2h10m                           |
 |   last 14 days ..........~..# today $10.40 worth                                       |
 | Codex          used $1.10 worth | monthly fee not set (computai --setup)               |
-|   weekly limit [###############.] 93% used | resets in 8h20m                           |
 |   last 14 days .............# today $1.10 worth                                        |
 | Local models   438k tokens · free apart from electricity                               |
 |                                                                                        |

@@ -3539,6 +3539,26 @@ def heat(pct):
     return stops[-1][1]
 
 
+def gauge(pct, width, level="brand", marker=None):
+    """粗的量表（額度用）：有顏色時用背景色塗滿整格，比細線長條醒目；marker（0-100）畫一條白線標出
+    這個週期過了多久。沒有顏色時用 █ 和 ░，ASCII 用 # 和 .，標記都是 |。"""
+    pct = max(0.0, min(100.0, pct or 0.0))
+    filled = int(round(pct / 100 * width))
+    if pct > 0 and filled == 0:
+        filled = 1
+    mk = None if marker is None else min(width - 1, int(marker / 100.0 * width))
+    out = []
+    for i in range(width):
+        on = i < filled
+        if _color:
+            c = tone(level) if on else (40, 44, 50)
+            ch, fg = ("\u2503", "38;2;245;246;247;") if i == mk else (" ", "")
+            out.append("\033[%s48;2;%d;%d;%dm%s\033[0m" % (fg, c[0], c[1], c[2], ch))
+        else:
+            out.append("|" if i == mk else ("#" if _ascii else "\u2588") if on else ("." if _ascii else "\u2591"))
+    return "".join(out)
+
+
 def temp_color(t):
     if theme().get("flat"):
         return RED if t >= 90 else AMBER if t >= 80 else MAG
@@ -4023,7 +4043,11 @@ UI = {
         "a_idle": "%s: %s is loaded but has not been used for %s%s - stop it or let it unload to free the memory",
         "a_cloud_unknown": "%s %s is billing %s/h but its GPU use is unknown (set [cloud] ssh_user to read it)",
         "a_cloud_idle": "%s %s: the GPU has been idle for %s but is still billing %s/h (%s so far) - stop it if you are done",
-        "sampled": "read %s ago", "n_used_up": "%d used up", "n_high": "%d nearly used up", "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
+        "sampled": "read %s ago", "n_used_up": "%d used up", "n_high": "%d nearly used up", "q_title": "LIMITS", "q_wait": "resets in %s",
+        "q_eta": "at this pace it runs out in %s (resets in %s)", "q_proj": "at this pace about %(pct)d%% by the reset in %(reset)s",
+        "q_unlinked": "limits not connected: set Claude Code's statusLine to `computai --statusline`",
+        "q_foot": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
+        "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
         "v_used_up": "%s %s is used up - resets in %s", "v_used_up_nr": "%s %s is used up",
         "v_high": "%s %s is %d%% used", "v_high_r": "%s %s is %d%% used - resets in %s",
         "v_budget": "this month is heading for %s, over the %s budget",
@@ -4117,7 +4141,11 @@ UI = {
         "a_idle": "%s：%s 已經載入，但 %s 沒有被用到%s，關掉或讓它卸載就能釋放記憶體",
         "a_cloud_unknown": "%s %s 每小時計費 %s，但看不到 GPU 有沒有在用（設定 [cloud] ssh_user 才讀得到）",
         "a_cloud_idle": "%s %s：GPU 已經閒置 %s，還在以每小時 %s 計費（目前多花 %s），用完了就關掉",
-        "sampled": "%s 前讀取", "n_used_up": "%d 個額度用完", "n_high": "%d 個額度快用完", "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
+        "sampled": "%s 前讀取", "n_used_up": "%d 個額度用完", "n_high": "%d 個額度快用完", "q_title": "額度", "q_wait": "%s 後重置",
+        "q_eta": "照目前速度 %s 後用完（%s 後才重置）", "q_proj": "照目前速度，%(reset)s 後重置時約 %(pct)d%%",
+        "q_unlinked": "額度還沒接上：把 Claude Code 的 statusLine 設成 computai --statusline",
+        "q_foot": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
+        "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
         "v_used_up": "%s %s用完了，%s 後重置", "v_used_up_nr": "%s %s用完了",
         "v_high": "%s %s已用 %d%%", "v_high_r": "%s %s已用 %d%%，%s 後重置",
         "v_budget": "這個月預估 %s，超過 %s 的預算",
@@ -4309,6 +4337,45 @@ def limit_label(name):
     return T("win").get(name, name)
 
 
+def quota_panel(st, width):
+    """額度：每個訂閱的每個視窗一條粗量表，後面是大大的百分比，下一行用白話講速度和重置時間。
+    有用量卻沒有額度資料的訂閱（通常是 Claude 沒接 statusLine）也列出來，告訴你怎麼接。"""
+    lines = []
+    limits = sorted(st["limits"], key=lambda r: (r["source"], r["window_minutes"] or 0))
+    have = {r["source"] for r in limits}
+    names = {id(r): "%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])) for r in limits}
+    name_w = min(28, max([vlen(n) for n in names.values()] + [12]))
+    gw = max(10, min(48, width - name_w - 14))
+    for r in limits:
+        used = r["used_percent"] or 0
+        lv = limit_level(used)
+        name = names[id(r)]
+        pct = T("used_up") if used >= LIMIT_FAIL else "%d%%" % round(used)
+        pct = bold(rgb(tone(lv), pct)) if lv != "brand" else bold(pct)
+        lines.append(" %s %s  %s" % (cell(name, name_w), gauge(used, gw, lv, r.get("elapsed_pct")), pct))
+        reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
+        if used >= LIMIT_FAIL:
+            note = rgb(RED, T("q_wait") % reset) if reset else ""
+        elif r.get("eta_full"):
+            note = rgb(AMBER, T("q_eta") % (fmt_dur(r["eta_full"]), reset))
+        elif r.get("projected_pct") is not None:
+            note = dim(T("q_proj") % {"pct": r["projected_pct"], "reset": reset})
+        else:
+            note = dim(T("resets") % reset) if reset else ""
+        if note:
+            lines.append(" " * (name_w + 2) + note)
+    for x in st["sources"]:
+        if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
+            lines.append(" %s %s" % (cell(T("src").get(x["source"], x["source"]), name_w), dim(T("q_unlinked"))))
+    if not lines:
+        return []
+    full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
+    high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
+    state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
+    foot = dim(T("q_foot").replace("\u2503", sym("\u2503", "|"))) if any(r.get("elapsed_pct") is not None for r in limits) else ""
+    return panel(bold(T("q_title")), state, lines, width, 0, foot=foot, level="fail" if full else None)
+
+
 def usage_panel(st, width):
     """AI 訂閱與花費。金額分兩種，寫清楚：訂閱的是「照 API 價格算的價值」，雲端和 API 是真的花掉的錢。"""
     lines = []
@@ -4342,7 +4409,7 @@ def usage_panel(st, width):
         else:  # 放不下就把月費、回本換到下一行，對齊在名字後面，不要被框線切掉
             lines.append(" %s %s" % (bold(cell(name, 14)), bits[0]))
             lines.append(" " * 16 + sep.join(bits[1:]))
-        for r in sorted(lim.pop(src, []), key=lambda r: r["window_minutes"] or 0):
+        for r in sorted(lim.pop(src, []), key=lambda r: r["window_minutes"] or 0) if not QUOTA_PANEL else []:
             used = r["used_percent"]
             lv = limit_level(used)
             state = T("used_up") if used >= LIMIT_FAIL else T("used_pct") % used
@@ -4355,7 +4422,7 @@ def usage_panel(st, width):
             lines.append("   %s %s %s" % (dim(cell(T("d14"), 12)), spark(series, len(series), top=max(series), color=CYAN),
                                            dim(T("today_worth" if src in SUBSCRIPTION_SOURCES else "today_spent")
                                                % fmt_usd(series[-1]))))
-    for src, rows in lim.items():  # 有額度但這個月還沒有用量的來源
+    for src, rows in (lim.items() if not QUOTA_PANEL else []):  # 有額度但這個月還沒有用量的來源
         for r in rows:
             lines.append(" %s %s %s %s" % (bold(cell(T("src").get(src, src), 14)), dim(limit_label(r["name"])),
                                           gradbar(r["used_percent"], bar_w), T("used_pct") % r["used_percent"]))
@@ -4374,8 +4441,7 @@ def usage_panel(st, width):
     full = sum(1 for r in st["limits"] if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in st["limits"] if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
-    return panel(bold(T("usage")) + " " + dim(st["month"]), state, lines, width, 0,
-                 foot=dim(T("api_equiv")), level="fail" if full else None)
+    return panel(bold(T("usage")) + " " + dim(st["month"]), "", lines, width, 0, foot=dim(T("api_equiv")))
 
 
 def cloud_panel(st, width):
@@ -4424,6 +4490,7 @@ def advice_panel(st, width):
 
 
 LIMIT_WARN, LIMIT_FAIL = 80.0, 99.5
+QUOTA_PANEL = True  # 額度有自己的面板（quota_panel），訂閱面板就只講錢
 
 
 def verdict(st):
@@ -4519,7 +4586,7 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
     if st["cloud"]:
         left += cloud_panel(st, col)
     right = usage_panel(st, col) + alerts_panel(st, col) + advice_panel(st, col)
-    used = 3 + (max(len(left), len(right)) if two else len(left) + len(right)) + 1
+    used = 4 + len(quota_panel(st, width)) + (max(len(left), len(right)) if two else len(left) + len(right)) + 1
     if height and used > height and st["machines"]:
         # 放不下：機器改成一台一列的精簡版（照 slurmtop 的 dense 模式）
         rows = [machine_compact(m, col - 2) for m in st["machines"]]
@@ -4552,6 +4619,8 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
             bits.append("cloud " + rgb(MAG, fmt_usd(billing) + "/h"))
         left = [" " + bold(T("compute")) + "  " + dim(sym(" \u00b7 ", " | ")).join(bits)] + left
     body = side_by_side(left, right) if two else left + right
+    quota = quota_panel(st, width)
+    body = quota + ([""] if quota else []) + body  # 額度最重要，放在最上面、整個寬度
     foot = dim(sym(" \u00b7 ", " | ").join(T("foot")))
     return "\n".join([head, ""] + body + [foot])
 
