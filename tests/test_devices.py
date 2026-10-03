@@ -175,3 +175,23 @@ class Card(unittest.TestCase):
         svg = m.render_card_svg(c, t=t)
         self.assertIn("2 RIGS", svg)
         self.assertNotIn("secret", svg)
+
+
+class Throttle(unittest.TestCase):
+    def test_background_sync_does_not_rewrite_every_30_seconds(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        old = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
+        os.environ.update(sb.env())
+        m = helpers.load()
+        db = m.open_ledger()
+        self.addCleanup(db.close)
+        folder = os.path.join(sb.root, "share")
+        t = 1790000000
+        m.add_usage(db, [{"source": "claude", "uid": "1", "ts": t - 60, "output": 5}])
+        self.assertEqual(m.write_device_files(db, folder, t=t), 1)
+        m.add_usage(db, [{"source": "claude", "uid": "2", "ts": t - 30, "output": 5}])
+        self.assertIsNone(m.write_device_files(db, folder, t=t + 30))      # 有變，但 2 分鐘內不重寫
+        self.assertEqual(m.write_device_files(db, folder, t=t + 130), 2)
+        self.assertIsNone(m.write_device_files(db, folder, t=t + 200))     # 沒變就不寫

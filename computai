@@ -1089,6 +1089,19 @@ EXPORT_COLS = ("source", "uid", "ts", "model", "project", "input", "cache_read",
 EXPORT_INT_COLS = EXPORT_COLS[2:3] + EXPORT_COLS[5:]
 DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
 DEVICE_STALE = 600   # 超過 10 分鐘沒回報就標成過時
+# 背景每 30 秒同步一次，但共用資料夾和 SSH 不用那麼勤：心跳 1 分鐘、用量檔 2 分鐘、SSH 拉取 5 分鐘。
+# 手動 --sync 時（_devices_now）不等。
+DEVICE_EVERY = {"status": 60, "data": 120, "pull": 300}
+_devices_now = False
+
+
+def due(db, key, every, t):
+    """這件事距離上次做是否超過 every 秒；是的話記下現在。"""
+    row = db.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+    if not _devices_now and row and t - _float(row["value"], 0) < every:
+        return False
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (key, str(int(t))))
+    return True
 
 
 def device_settings(cp=None):
@@ -1210,10 +1223,13 @@ def write_device_files(db, folder, t=None):
     row = db.execute("SELECT value FROM meta WHERE key = 'device_export_sig'").fetchone()
     data = os.path.join(folder, dev + ".jsonl")
     n = None
-    if not row or row["value"] != sig or not os.path.exists(data):
+    if (not row or row["value"] != sig or not os.path.exists(data)) and \
+            (not os.path.exists(data) or due(db, "device_data_at", DEVICE_EVERY["data"], t)):
         text, n = export_usage(db, t=t)
         write_atomic(data, text)
         db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('device_export_sig', ?)", (sig,))
+    if not due(db, "device_status_at", DEVICE_EVERY["status"], t):
+        return n
     status = {"computai_device": 1, "device": dev, "name": name, "seen": int(t), "version": __version__}
     write_atomic(os.path.join(folder, dev + ".json"), json.dumps(status, ensure_ascii=False) + "\n")
     return n
@@ -1341,6 +1357,8 @@ def pull_devices(db):
     added = 0
     for m in machines():
         if m.get("usage") != "pull" or m["host"] == "local":
+            continue
+        if not due(db, "pull_at:" + m["name"], DEVICE_EVERY["pull"], now()):
             continue
         try:
             n, err = pull_device(db, m)
@@ -10719,6 +10737,8 @@ def run(args, db):
         emit(a, render_analysis(a), args.json)
         return 0
     if args.sync:
+        global _devices_now
+        _devices_now = True   # 手動同步：共用資料夾和 SSH 也馬上做
         added = sync(db, quiet=args.json)
         if args.json and not args.summary:
             print(json.dumps({"added": added}))
