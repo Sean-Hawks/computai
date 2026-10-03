@@ -257,8 +257,10 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 
 - *A model shows "?" cost*: add it to `prices.ini`.
 - *No Claude percentage*: set up `computai --statusline` (Pro/Max only).
-- *A machine never appears*: run `ssh -o BatchMode=yes HOST true`; it must work without prompts.
-  A new host key has to be accepted once by hand.
+- *A machine never appears*: `--sample`, `--live` and `--web` show why ("cannot read: ..."). Run
+  `ssh -o BatchMode=yes HOST true`; it must work without prompts. "Host key verification failed" means
+  known_hosts has the key under another name: use the name or IP you normally ssh to (for Tailscale
+  machines often the 100.x address), or run `ssh HOST` once by hand.
 - *"ignoring secrets.ini"*: `chmod 600 ~/.config/computai/secrets.ini`.
 - *Start over*: delete `ledger.sqlite`; logs are re-imported on the next run.
 - *Uninstall*: delete the `computai` file, `~/.config/computai` and `~/.local/share/computai`.

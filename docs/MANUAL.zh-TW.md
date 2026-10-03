@@ -232,7 +232,10 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
 
 - *某個模型的花費顯示「?」*：在 `prices.ini` 加上它的價格。
 - *看不到 Claude 的百分比*：設定 `computai --statusline`（限 Pro／Max）。
-- *機器一直沒出現*：執行 `ssh -o BatchMode=yes 主機 true`，必須不經提示就成功；新的 host key 要先手動接受一次。
+- *機器一直沒出現*：`--sample`、`--live`、`--web` 會顯示原因（「cannot read: ...」）。執行
+  `ssh -o BatchMode=yes 主機 true`，必須不經提示就成功。「Host key verification failed」表示 known_hosts
+  裡這台的 key 記在別的名字下：改用你平常 ssh 用的名字或 IP（Tailscale 的機器常常是 100.x 的位址），
+  或先手動 `ssh 主機` 一次。
 - *「ignoring secrets.ini」*：`chmod 600 ~/.config/computai/secrets.ini`。
 - *想重來*：刪掉 `ledger.sqlite`，下次執行會重新匯入 log。
 - *移除*：刪掉 `computai` 檔案、`~/.config/computai` 和 `~/.local/share/computai`。
