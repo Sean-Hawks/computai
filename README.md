@@ -235,6 +235,8 @@ The snippet `--card --setup` adds to your README:
 - `--web` and `--proxy` listen on `127.0.0.1` unless you say otherwise; the web server rejects
   requests for other host names (DNS rebinding).
 - Cloud and admin APIs are only ever called with read-only "list" requests.
+- Once a day, interactive commands read the first 2 KB of `computai` on GitHub to see if a newer version is out.
+  Nothing about you or your usage is sent; `[general] update_check = no` (or `COMPUTAI_NO_UPDATE_CHECK=1`) turns it off.
 
 ## Tests
 

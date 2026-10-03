@@ -232,6 +232,8 @@ computai --card --publish ~/Documents/you/assets --push
 - 金鑰只從環境變數或權限 600 的 `secrets.ini` 讀，不會出現在 log、`--json`、`/metrics` 或錯誤訊息裡。
 - `--web` 和 `--proxy` 預設只聽 `127.0.0.1`；網頁伺服器會拒絕其他網域名稱的請求（防 DNS rebinding）。
 - 雲端和 admin API 只會呼叫唯讀的「列出」請求。
+- 給人看的指令一天最多一次讀 GitHub 上 `computai` 檔案的開頭 2 KB，看有沒有新版。不會送出任何關於你或用量的資料；
+  `[general] update_check = no`（或 `COMPUTAI_NO_UPDATE_CHECK=1`）關掉。
 
 ## 測試
 
