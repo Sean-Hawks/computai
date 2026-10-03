@@ -64,6 +64,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
 | `--lang zh` | Traditional Chinese for the live and web dashboards and `--line` (or `[general] lang = zh`). |
 | `--web [[HOST:]PORT]` | Browser dashboard (phone layout), `/api/state` JSON and `/metrics` for Prometheus. Default `127.0.0.1:8765`. |
+| `--recap [YEAR] [--html FILE]` | A year in review (tokens, value, active days, streak, busiest day, favourite models, local inference); the HTML card leaves out project and machine names so it can be shared. Plan fees are counted for each month with usage, at today's `[plans]` prices. |
 | `--csv FILE` | Every usage record in the range (time, source, model, project, tokens, cost) as CSV; text starting with `= + - @` is prefixed with `'` so spreadsheets don't run it. |
 | `--report [--html FILE]` | Monthly report as text, or a self-contained HTML page with a daily cost chart. |
 | `--analyze` | Month-end forecast, plan check, cache efficiency, energy. |
