@@ -145,6 +145,11 @@ poll_minutes = 10
 # reads it. 0 turns this off.
 poll_minutes = 10
 
+[limits]
+# adaptive: ask more often while a limit burns fast (remaining % / burn rate / 4, between 1 minute and
+# poll_minutes), and once more 30 seconds after any window resets. fixed: always every poll_minutes.
+refresh = adaptive
+
 [card]
 # Keep a GitHub profile card up to date: once a day computai (and --web / --watch) writes
 # computai-card.svg + computai-card-light.svg into this git repo folder and commits them.
@@ -1293,6 +1298,89 @@ def claude_poll_minutes(cp=None):
 def codex_poll_minutes(cp=None):
     cp = cp or load_config()
     return _float(cp.get("codex", "poll_minutes", fallback="10"), 10.0)
+
+
+LIMIT_POLL_MIN = 60       # 自適應查詢最短 1 分鐘
+LIMIT_RESET_GRACE = 30    # 重置時間到了，過 30 秒再多查一次
+LIMIT_RELAX = 0.3         # 消耗變慢時新速度的權重
+
+
+def limits_refresh(cp=None):
+    """[limits] refresh：adaptive（預設，照消耗速度決定多久查一次）或 fixed（固定照 poll_minutes）。"""
+    cp = cp or load_config()
+    v = (cp.get("limits", "refresh", fallback="adaptive") or "adaptive").strip().lower()
+    return "fixed" if v == "fixed" else "adaptive"
+
+
+def poll_interval(left, rate, base):
+    """剩餘 % ÷ 消耗速度（%/秒）÷ 4，夾在 1 分鐘和設定值（秒）之間；沒在消耗或已經用完就是設定值。"""
+    if rate <= 0 or left <= 0:
+        return base
+    return max(min(LIMIT_POLL_MIN, base), min(base, left / rate / 4.0))
+
+
+def limit_burn(samples, t, base):
+    """從同一個視窗的連續樣本 [(ts, 已用 %)] 算平滑過的消耗速度（%/秒）。
+    變快立刻採用；變慢只用權重 0.3 慢慢放鬆。帳本只在數字變了才寫，所以兩筆樣本之間（和最後一筆到現在）
+    照當時的間隔應該查過、卻沒看到變化的每一次，都當成一次速度 0 的觀察。"""
+    rate = 0.0
+    for i, (ts, used) in enumerate(samples):
+        end = samples[i + 1][0] if i + 1 < len(samples) else t
+        at = ts
+        for _ in range(500):   # 速度掉到很低時間隔會拉到設定值，次數有上限
+            if rate <= 0:
+                break
+            at += poll_interval(100.0 - used, rate, base)
+            if at >= end:
+                break
+            rate *= 1 - LIMIT_RELAX
+        if i + 1 < len(samples):
+            nts, nused = samples[i + 1]
+            seen = max(0.0, (nused - used) / max(1, nts - ts))
+            rate = seen if seen >= rate else rate + LIMIT_RELAX * (seen - rate)
+    return rate
+
+
+def limit_poll_plan(db, source, last, t=None, cp=None):
+    """下次什麼時候查這個來源（claude、codex）的帳號額度，以及原因。last 是上次查的時間（epoch，沒查過是 None）。
+    回傳 {"at", "interval", "why", "args"}；這個來源沒開就回傳 None。
+    why：first（還沒查過）、fixed、idle（沒在消耗）、calm（不會很快用完）、burn（照速度快用完）、reset（剛好遇到重置）。"""
+    cp = cp or load_config()
+    t = now() if t is None else t
+    base = (claude_poll_minutes(cp) if source == "claude" else codex_poll_minutes(cp)) * 60
+    if base <= 0:
+        return None
+    rows = [r for r in current_limits(db, t) if r["source"] == source]
+    plan = {"interval": base, "why": "fixed", "args": {}}
+    if limits_refresh(cp) == "adaptive":
+        plan["why"] = "idle"
+        for r in rows:
+            if r["stale"] or not r["resets_at"]:
+                continue
+            samples = [(x["ts"], x["used_percent"] or 0.0) for x in db.execute(
+                "SELECT ts, used_percent FROM limits WHERE source = ? AND name = ? AND resets_at = ? AND ts >= ? "
+                "AND ts <= ? ORDER BY ts", (source, r["name"], r["resets_at"], t - 6 * 3600, t))]
+            rate = limit_burn(samples, t, base)
+            if rate <= 0:
+                continue
+            left = 100.0 - (r["used_percent"] or 0.0)
+            iv = poll_interval(left, rate, base)
+            if iv < plan["interval"]:
+                plan.update(interval=iv, why="burn", args={"name": r["name"], "eta": left / rate})
+            elif plan["why"] == "idle":
+                plan["why"] = "calm"
+    if last is None:
+        plan.update(at=t, why="first", args={})
+        return plan
+    plan["at"] = last + plan["interval"]
+    if plan["why"] != "fixed":   # 任何視窗一重置就多查一次，不用等到下個間隔
+        resets = [r["resets_at"] + LIMIT_RESET_GRACE for r in rows
+                  if r["resets_at"] and r["resets_at"] + LIMIT_RESET_GRACE > last]
+        if resets and min(resets) < plan["at"]:
+            r0 = min(resets)
+            name = [r["name"] for r in rows if r["resets_at"] and r["resets_at"] + LIMIT_RESET_GRACE == r0][0]
+            plan.update(at=r0, why="reset", args={"name": name})
+    return plan
 
 
 def limit_reset_rows(db, source, t=None):
