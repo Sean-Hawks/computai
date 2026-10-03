@@ -4112,6 +4112,9 @@ UI = {
         "wr_hint": "click, tap or press space for the next one", "wr_replay": "replay",
         "wr_tagline": "where your compute and AI money goes",
         "wr_days_card": "%d days, streak %d",
+        "cd_30d": "last 30 days", "cd_month": "this month", "cd_year": "this year", "cd_all": "all time",
+        "cd_tokens": "Tokens", "cd_value": "API value", "cd_model": "Top model", "cd_days": "Active days",
+        "cd_bars_days": "last 14 days", "cd_bars_months": "last 12 months", "cd_none": "no usage yet",
     },
     "zh": {
         "node": "節點", "local": "本機", "ssh": "SSH", "ago": "%s 前", "load": "負載 %.1f",
@@ -4246,6 +4249,9 @@ UI = {
         "wr_hint": "點一下、輕觸或按空白鍵看下一張", "wr_replay": "重播",
         "wr_tagline": "一眼看完你的算力和 AI 花費",
         "wr_days_card": "%d 天，連續 %d 天",
+        "cd_30d": "近 30 天", "cd_month": "本月", "cd_year": "今年", "cd_all": "全部期間",
+        "cd_tokens": "Token", "cd_value": "API 價值", "cd_model": "最常用模型", "cd_days": "活躍天數",
+        "cd_bars_days": "近 14 天", "cd_bars_months": "近 12 個月", "cd_none": "還沒有用量",
     },
 }
 _lang = "en"
@@ -6522,6 +6528,82 @@ def render_wrapped_svg(w):
     return "".join(t)
 
 
+# ---- GitHub 個人頁卡片（--card）
+#
+# 495x195 的小 SVG，像 github-readme-stats 的卡片，貼在個人 README 裡。純 SVG、行內樣式、
+# 沒有腳本、外部字型或圖片；只有彙總數字和一個模型名稱。
+
+CARD_PERIODS = ("30d", "month", "year", "all")
+CARD_THEMES = {
+    "dark": {"bg": "#0d1117", "border": "#30363d", "title": "#67e8f9", "label": "#8b949e", "value": "#e6edf3",
+             "bar": "#67e8f9"},
+    "light": {"bg": "#ffffff", "border": "#d0d7de", "title": "#0969da", "label": "#57606a", "value": "#1f2328",
+              "bar": "#0969da"},
+}
+CARD_FILES = {"dark": "computai-card.svg", "light": "computai-card-light.svg"}
+
+
+def card_data(db, period="30d", prices=None, plan_table=None, t=None):
+    """卡片要的數字。預設看最近 30 天（含今天）：滾動的區間，月初也不會是空的。"""
+    if period not in CARD_PERIODS:
+        raise SystemExit("computai: bad period %r, expected one of %s" % (period, ", ".join(CARD_PERIODS)))
+    t = now() if t is None else t
+    today = datetime.date(*time.localtime(t)[:3])
+    tomorrow = today + datetime.timedelta(days=1)
+    end = local_ts(tomorrow.year, tomorrow.month, tomorrow.day)
+    if period == "30d":
+        s = tomorrow - datetime.timedelta(days=30)
+        start, kind = local_ts(s.year, s.month, s.day), "range"
+    elif period == "month":
+        start, kind = local_ts(today.year, today.month, 1), "range"
+    elif period == "year":
+        start, kind = local_ts(today.year, 1, 1), "range"
+    else:
+        start, kind = 0, "range"
+    w = wrapped(db, start, end, period, kind, prices, plan_table if plan_table is not None else {}, compare=False, t=t)
+    daily = dict(w["daily"])
+    if period in ("30d", "month"):
+        days = [today - datetime.timedelta(days=i) for i in range(13, -1, -1)]
+        bars, bars_key = [daily.get(d.isoformat(), 0.0) for d in days], "cd_bars_days"
+    else:
+        months = []
+        y, mo = today.year, today.month
+        for _ in range(12):
+            months.append("%04d-%02d" % (y, mo))
+            y, mo = (y - 1, 12) if mo == 1 else (y, mo - 1)
+        months.reverse()
+        bars = [round(sum(v for d, v in daily.items() if d[:7] == m_), 2) for m_ in months]
+        bars_key = "cd_bars_months"
+    return {"period": period, "tokens": w["tokens"], "api_equivalent_usd": w["api_equivalent_usd"],
+            "top_model": w["top_models"][0]["model"] if w["top_models"] else None,
+            "active_days": w["active_days"], "longest_streak": w["longest_streak"],
+            "bars": bars, "bars_key": bars_key}
+
+
+def render_card_svg(c, theme="dark"):
+    th = CARD_THEMES.get(theme, CARD_THEMES["dark"])
+    rows = [(T("cd_tokens"), fmt_tok(c["tokens"])), (T("cd_value"), fmt_usd(c["api_equivalent_usd"])),
+            (T("cd_model"), clip_text(c["top_model"], 15) if c["top_model"] else "-"),
+            (T("cd_days"), T("wr_days_card") % (c["active_days"], c["longest_streak"]))]
+    out = ['<svg xmlns="http://www.w3.org/2000/svg" width="495" height="195" viewBox="0 0 495 195" role="img" '
+           'aria-label="%s">' % svg_escape("ComputAI " + T("cd_" + c["period"])),
+           '<rect x="0.5" y="0.5" width="494" height="194" rx="8" fill="%(bg)s" stroke="%(border)s"/>' % th,
+           '<g font-family="%s">' % svg_escape(SVG_FONT),
+           svg_text(25, 36, "ComputAI · " + T("cd_" + c["period"]), 15, th["title"], weight="700")]
+    y = 72
+    for label, val in rows:
+        out.append(svg_text(25, y, label, 12, th["label"]))
+        out.append(svg_text(120, y, val, 14, th["value"], weight="700"))
+        y += 28
+    if c["tokens"]:
+        out.append(svg_bars(c["bars"], 285, 62, 185, 80, th["bar"], gap=3, min_h=2))
+        out.append(svg_text(377.5, 164, T(c["bars_key"]), 11, th["label"], anchor="middle"))
+    else:
+        out.append(svg_text(377.5, 105, T("cd_none"), 13, th["label"], anchor="middle"))
+    out.append("</g></svg>\n")
+    return "".join(out)
+
+
 # ---- 實驗室彙總（--totals 匯出、--lab 合併）
 #
 # 每個人匯出自己的月總額（只有來源、模型的金額和 token，沒有專案、session、機器以外的名稱），
@@ -7292,6 +7374,11 @@ def parse_args(argv=None):
                    help="a Wrapped-style recap of a month (default: this month so far) or a year; "
                         "add --html FILE for a story page, --svg FILE for a share card")
     p.add_argument("--svg", metavar="FILE", help="with --wrapped or --card: write an SVG card")
+    p.add_argument("--card", action="store_true",
+                   help="a small SVG card for your GitHub profile README (use with --svg FILE; see --period, --card-theme)")
+    p.add_argument("--period", choices=CARD_PERIODS, default="30d",
+                   help="with --card: the last 30 days (default), this month, this year or all time")
+    p.add_argument("--card-theme", choices=sorted(CARD_THEMES), default="dark", help="with --card --svg: dark (default) or light")
     p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
     p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
     p.add_argument("--lab", metavar="DIR", help="combine everyone's --totals files in a shared folder into one table")
@@ -7362,7 +7449,7 @@ def local_hostname():
 
 ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench",
-           "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "weekly", "wake", "totals", "lab")
+           "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
 
 def config_theme(cp=None):
@@ -7523,6 +7610,19 @@ def run(args, db):
         if wrote:
             return 0
         emit(w, render_wrapped(w), args.json)
+        return 0
+    if args.card:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        c = card_data(db, args.period)
+        if args.svg:
+            with open(args.svg, "w", encoding="utf-8") as f:
+                f.write(render_card_svg(c, args.card_theme))
+            print("computai: wrote %s" % args.svg)
+        elif args.json:
+            emit(c, "", True)
+        else:
+            sys.stdout.write(render_card_svg(c, args.card_theme))
         return 0
     if args.recap is not None:
         if not args.no_sync:
