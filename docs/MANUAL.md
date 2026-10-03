@@ -477,6 +477,24 @@ priciest hour was 14:00"). It fits a 60-column terminal.
 `computai --timeline --svg FILE` writes the same chart as an SVG without project or machine names (rows read
 "Claude 1", "Codex 2" and local model names), and Wrapped shows the busiest day's timeline.
 
+## Team leaderboard (`--team`)
+
+An opt-in board for friends, with no server: everyone pushes a totals-only JSON file to one shared git repo
+(a private repo, or a GitHub Gist, which is a git repo too).
+
+```sh
+git clone <your team's repo or gist> ~/team
+computai --set team.repo=~/team --set team.handle=neo
+computai --team publish      # shows the full JSON, asks, then commits and pushes computai-team-neo.json
+computai --team              # git pull, then the board: tokens this week, change vs last week, agent hours,
+                             # most agents at once, streak
+computai --team leave        # deletes your file and pushes
+```
+
+The file holds only those four numbers for this week and last week, your handle and the time: no project
+names, paths, models, machines, IPs or sessions. Other people's files are read with a strict schema (anything
+else in them is ignored). The board also shows on the spend tab and as a Wrapped page.
+
 ## Which agent now (`--pick`)
 
 ComputAI knows how much of each limit is left, when it resets and whether a local model is free, so it can
