@@ -1,56 +1,56 @@
- ◢◤ C O M P U T A I ◥◣  AI COMPUTE LEDGER         ● 2/2 NODES ONLINE  ⠀⠀⠀⠀⠀⣿⣿⣿  2026-09-21 14:13:20 
+ ▚▚▚▚ C O M P U T A I ◢◤  AI COMPUTE LEDGER  エージェント稼働
  [WATCH] Codex weekly limit has only 7% left - resets in 8h20m
 
-┌── ◢01 LIMITS ────────────────────────────────────────────────────────────────── 1 nearly used up ┐
-│ Codex weekly limit LEFT      Claude Code 5-hour limit LEFT   TODAY'S USAGE VALUE                 │
-│ ▀▀█ ▀ █                      █▀▀ █▀█ ▀ █                     ▄█▀ ▄█  ▄█      █▀▀ █▀█             │
-│  ▄▀ ▄▀                       ▀▀█ █▀█ ▄▀                       █▄  █   █      ▀▀█ █ █             │
-│  ▀  ▀ ▀                      ▀▀▀ ▀▀▀ ▀ ▀                     ▀▀  ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀             │
-│ █|░░░░░░░░░░░░░░░░░░░░░░░░   ████████████|████░░░░░░░░░░░░                                       │
-│ at this pace about 98% by    at this pace about 74% by the   this month $15.50                   │
-│ the reset in 8h20m           reset in 2h10m                                                      │
-└── ┃ = time left in the window; a bar shorter than it is burning faster than time ────────────────┘
+◤  [LIMITS]  ──────────────────────────────────────────────────────────────────── 1 nearly used up ◥
+  Codex weekly limit LEFT      Claude Code 5-hour limit LEFT   TODAY'S USAGE VALUE                  
+  ▀▀█ ▀ █                      █▀▀ █▀█ ▀ █                     ▄█▀ ▄█  ▄█      █▀▀ █▀█              
+   ▄▀ ▄▀                       ▀▀█ █▀█ ▄▀                       █▄  █   █      ▀▀█ █ █              
+   ▀  ▀ ▀                      ▀▀▀ ▀▀▀ ▀ ▀                     ▀▀  ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀▀▀              
+  █|░░░░░░░░░░░░░░░░░░░░░░░░   ████████████|████░░░░░░░░░░░░                                        
+  at this pace about 98% by    at this pace about 74% by the   this month $15.50                    
+  the reset in 8h20m           reset in 2h10m                                                       
+◣ ┃ = time left in the window; a bar shorter than it is burning faster than time ──────────────────◢
 
- ◢02 COMPUTE  2 machines · drawing 431 W now ⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿ · GPU avg 56%
-┌── ◢gpubox ⠋ busy ────────────────────────────────────────────────────── 2x nvidia · 410 W · 70°C ┐
-│ CPU ██████░░░░░░  50.0% ⠀⠀⠀⠀⠀⣤⠀⣤⠀⣤ load 1.2                                                      │
-│ MEM ████░░░░░░░░  32.8% 21/62 GiB                                                                │
-│ G0 ███████████░  90% ⠀⠀⠀⠀⣶⣿⣶⣿⣶⣿ 29.3/80G 70°  320W                                               │
-│ G1 ░░░░░░░░░░░░   - ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ 0.5/80G 35°                                                       │
-│ PWR   410 W ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿  0.04 kWh this month, AI 100%                                       │
-│ vllm:8000 ⠋ busy Qwen/Qwen3-32B                                                                  │
-│ 79.2 GB free: room for a ~120B model (4-bit)                                                     │
-└── SSH · read 1m ago ─────────────────────────────────────────────────────────────────────────────┘
-┌── ◢mac ────────────────────────────────────────────────────────────── 1x Apple M3 10-core · 21 W ┐
-│ CPU ███░░░░░░░░░  20.9% ⠀⠀⠀⠀⣀⣀⣀⣀⣀⣀ load 2.5                                                      │
-│ MEM ██████████░░  84.8% 14/16 GiB                                                                │
-│ G0 ███░░░░░░░░░  22% ⠀⠀⠀⠀⣀⣀⣀⣀⣀⣀ 1.7/16G   -                                                      │
-│ PWR    21 W ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿  0.00 kWh this month, AI 0%                                         │
-│ ollama:11434 ○ idle qwen3:0.6b 981 MB                                                            │
-│ 1.8 GB free: room for a ~1.5B model (4-bit)                                                      │
-└── SSH · read 1m ago ─────────────────────────────────────────────────────────────────────────────┘
-┌── ◢03 LOCAL MODELS ───────────────────────────────────────────────────── 1 machine(s) generating ┐
-│ model          machine state      now         today     month                                    │
-│ Qwen/Qwen3-32B gpubox  ⠋ busy     -           438k      438k    ≈ $0.67                          │
-│ qwen3:0.6b     mac     ○ idle     -           0         0                                        │
-│                                                                                                  │
-│ Local tokens today 438k, this month 438k - worth $0.67 at API prices, electricity about $0.01    │
-└── value at claude-haiku-4 API prices; Ollama counts need computai --proxy in front of it ────────┘
-┌── ◢04 AI SUBSCRIPTIONS & SPEND 2026-09 ──────────────────────────────────────────────────────────┐
-│ Claude Code    used $14.40 worth · monthly fee not set (computai --setup)                        │
-│   last 14 days ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⠀⠀⣿ today $10.40 worth                                                 │
-│ Codex          used $1.10 worth · monthly fee not set (computai --setup)                         │
-│   last 14 days ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿ today $1.10 worth                                                  │
-│ Local models   438k tokens · free apart from electricity                                         │
-│                                                                                                  │
-│ Usage value: $15.50 this month, $11.50 today (at API prices)                                     │
-│ You will actually pay about $0.01 this month (plans + cloud + electricity)                       │
-└── $ = value at API prices ───────────────────────────────────────────────────────────────────────┘
-┌── ◢05 ALERTS ────────────────────────────────────────────────────────────────────────────────────┐
-│ ● all clear                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌── ◢06 ADVICE ────────────────────────────────────────────────────────────────────────────────────┐
-│ → Codex: example advice                                                                          │
-└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+ [COMPUTE]  2 machines · drawing 431 W now ⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿ · GPU avg 56%
+◤  ◢gpubox ⠋ busy  ────────────────────────────────────────────────────── 2x nvidia · 410 W · 70°C ◥
+  CPU ██████░░░░░░  50.0% ⠀⠀⠀⠀⠀⣤⠀⣤⠀⣤ load 1.2                                                       
+  MEM ████░░░░░░░░  32.8% 21/62 GiB                                                                 
+  G0 ███████████░  90% ⠀⠀⠀⠀⣶⣿⣶⣿⣶⣿ 29.3/80G 70°  320W                                                
+  G1 ░░░░░░░░░░░░   - ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀ 0.5/80G 35°                                                        
+  PWR   410 W ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿  0.04 kWh this month, AI 100%                                        
+  vllm:8000 ⠋ busy Qwen/Qwen3-32B                                                                   
+  79.2 GB free: room for a ~120B model (4-bit)                                                      
+◣ SSH · read 1m ago ───────────────────────────────────────────────────────────────────────────────◢
+◤  ◢mac  ────────────────────────────────────────────────────────────── 1x Apple M3 10-core · 21 W ◥
+  CPU ███░░░░░░░░░  20.9% ⠀⠀⠀⠀⣀⣀⣀⣀⣀⣀ load 2.5                                                       
+  MEM ██████████░░  84.8% 14/16 GiB                                                                 
+  G0 ███░░░░░░░░░  22% ⠀⠀⠀⠀⣀⣀⣀⣀⣀⣀ 1.7/16G   -                                                       
+  PWR    21 W ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⣿⣿⣿⣿⣿  0.00 kWh this month, AI 0%                                          
+  ollama:11434 ○ idle qwen3:0.6b 981 MB                                                             
+  1.8 GB free: room for a ~1.5B model (4-bit)                                                       
+◣ SSH · read 1m ago ───────────────────────────────────────────────────────────────────────────────◢
+◤  [LOCAL MODELS]  ─────────────────────────────────────────────────────── 1 machine(s) generating ◥
+  model          machine state      now         today     month                                     
+  Qwen/Qwen3-32B gpubox  ⠋ busy     -           438k      438k    ≈ $0.67                           
+  qwen3:0.6b     mac     ○ idle     -           0         0                                         
+                                                                                                    
+  Local tokens today 438k, this month 438k - worth $0.67 at API prices, electricity about $0.01     
+◣ value at claude-haiku-4 API prices; Ollama counts need computai --proxy in front of it ──────────◢
+◤  [AI SUBSCRIPTIONS & SPEND] 2026-09  ────────────────────────────────────────────────────────────◥
+  Claude Code    used $14.40 worth · monthly fee not set (computai --setup)                         
+    last 14 days ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣤⠀⠀⣿ today $10.40 worth                                                  
+  Codex          used $1.10 worth · monthly fee not set (computai --setup)                          
+    last 14 days ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿ today $1.10 worth                                                   
+  Local models   438k tokens · free apart from electricity                                          
+                                                                                                    
+  Usage value: $15.50 this month, $11.50 today (at API prices)                                      
+  You will actually pay about $0.01 this month (plans + cloud + electricity)                        
+◣ $ = value at API prices ─────────────────────────────────────────────────────────────────────────◢
+◤  [ALERTS]  ──────────────────────────────────────────────────────────────────────────────────────◥
+  ● all clear                                                                                       
+◣──────────────────────────────────────────────────────────────────────────────────────────────────◢
+◤  [ADVICE]  ──────────────────────────────────────────────────────────────────────────────────────◥
+  → Codex: example advice                                                                           
+◣──────────────────────────────────────────────────────────────────────────────────────────────────◢
 ▶ gpubox busy  ◆  Codex weekly limit 7% left · resets in 8h20m  ◆  Claude Code 5-hour limit 58% lef
 q quit · -n SEC refresh · computai --web for the browser · --analyze for advice
