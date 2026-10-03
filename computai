@@ -6237,6 +6237,7 @@ UI = {
         "h_mem": "MEM", "h_model": "MODEL", "h_down": "DOWN", "hm_online": "%d/%d ONLINE", "h_open": "%d OPEN",
         "m_ok": "OK", "h_yesterday": "yesterday", "h_early": "RUNS OUT EARLY", "h_load": "average load, recent",
         "m_empty": "empty in %s", "m_near": "nearly used up", "m_pace": "on pace", "m_resets": "resets %s",
+        "w_machine": "MACHINE", "w_stale": "stale", "n_open": "%d open",
         "m_unlinked": "not linked", "m_open": "open", "m_worst": "worst first", "m_month": "month",
         "m_nodes": "of %d nodes", "m_counts": "%d critical, %d warning", "m_plans": "plans + power",
         "m_timeleft": "= time left", "m_today": "today", "m_nopower": "no power meter", "m_pay": "pay",
@@ -6482,6 +6483,7 @@ UI = {
         "h_mem": "記憶體", "h_model": "模型", "h_down": "斷線", "hm_online": "%d/%d 在線", "h_open": "%d 件",
         "m_ok": "正常", "h_yesterday": "昨天", "h_early": "會提早用完", "h_load": "最近的平均負載（GPU，沒有 GPU 的看 CPU）",
         "m_empty": "%s 後用完", "m_near": "快用完了", "m_pace": "速度正常", "m_resets": "%s 後重置",
+        "w_machine": "機器", "w_stale": "太久沒回報", "n_open": "%d 件",
         "m_unlinked": "沒接上", "m_open": "待處理", "m_worst": "最嚴重的在上面", "m_month": "本月",
         "m_nodes": "/ %d 台在線", "m_counts": "%d 個故障、%d 個注意", "m_plans": "方案＋電費",
         "m_timeleft": "＝週期剩下的時間", "m_today": "今天", "m_nopower": "沒有電表", "m_pay": "實付",
@@ -8026,7 +8028,14 @@ WEB_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0b0b0c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ComputAI">
 <title>ComputAI</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-180.png">
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
@@ -8039,6 +8048,7 @@ WEB_HTML = """<!doctype html>
   <section id="quota" class="card quota"></section>
   <div id="line"></div>
   <div id="tiles" class="tiles"></div>
+  <section id="home" class="home"></section>
   <div id="alerts"></div>
   <section class="cols">
     <div>
@@ -8171,7 +8181,26 @@ html[data-theme="cyber"] .card, html[data-theme="cyber"] .tile { border-radius:6
 html[data-theme="cyber"] .card .hd .t { font-size:11px; text-transform:uppercase; letter-spacing:.14em; }
 html[data-theme="cyber"] .card .hd .t .name { font-size:14px; text-transform:none; letter-spacing:0; }
 html[data-theme="cyber"] .tile .k { font-size:11px; text-transform:uppercase; letter-spacing:.14em; }
-.tile .s { color:var(--dim); font-size:12px; margin-top:2px; }
+.tile .s { color:var(--dim); font-size:12px; margin-top:2px; overflow-wrap:anywhere; }
+.tile svg { margin-top:4px; }
+/* 首頁下半：機器表、用量組成、需要處理（跟 TUI 總覽一樣三塊；手機上疊起來） */
+.home { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
+@media (min-width: 1000px) { .home { grid-template-columns:minmax(0,5fr) minmax(0,3fr) minmax(0,4fr); } }
+.home .card { margin-bottom:0; }
+table.mt { width:100%; border-collapse:collapse; font-size:13px; }
+table.mt th { color:var(--dim); font-weight:400; text-transform:uppercase; text-align:right; font-size:11px; letter-spacing:.08em; padding:2px 6px; }
+table.mt th:nth-child(-n+2), table.mt td:nth-child(-n+2) { text-align:left; }
+table.mt td { text-align:right; padding:4px 6px; border-top:1px solid var(--line); white-space:nowrap; font-variant-numeric:tabular-nums; }
+table.mt td.model { text-align:left; white-space:normal; overflow-wrap:anywhere; color:var(--dim); }
+.mini { display:inline-block; width:34px; height:5px; background:var(--line); border-radius:3px; vertical-align:middle;
+  margin-right:6px; overflow:hidden; } .mini > i { display:block; height:100%; background:var(--text); }
+@media (max-width: 560px) { table.mt .opt { display:none; } }
+.donut { display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
+.donut svg { width:120px; height:120px; flex:none; }
+.donut ul { list-style:none; margin:0; padding:0; font-size:13px; min-width:0; }
+.donut li { display:flex; gap:8px; align-items:center; padding:2px 0; } .donut li b { margin-left:auto; padding-left:12px; }
+.att { padding:6px 0; border-top:1px solid var(--line); overflow-wrap:anywhere; } .att:first-of-type { border-top:0; }
+.att .w { font-size:11px; letter-spacing:.12em; text-transform:uppercase; margin-right:6px; }
 html[data-theme="cyber"] .tile .v { font-size:26px; line-height:1.2; font-variant-numeric:tabular-nums; }
 html[data-theme="cyber"] .tile .bar { margin-top:6px; }
 html[data-theme="cyber"] .bar { height:8px; border-radius:2px; background:transparent; border:1px solid var(--line); padding:1px; }
@@ -8452,6 +8481,89 @@ function cloudCard(st) {
        el("tbody", {}, ...rows))));
 }
 
+function donut(parts, size) {   // 用量組成：真的甜甜圈（SVG 圓弧），中間寫總額
+  const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 120 120");
+  const total = parts.reduce((a, p) => a + p.v, 0) || 1, r = 46, c = 2 * Math.PI * r;
+  const ring = document.createElementNS(NS, "circle");
+  for (const [k, v] of Object.entries({cx: 60, cy: 60, r, fill: "none", stroke: "var(--line)", "stroke-width": 14})) ring.setAttribute(k, v);
+  svg.append(ring);
+  let off = 0;
+  for (const p of parts) {
+    const seg = document.createElementNS(NS, "circle"), len = c * p.v / total;
+    for (const [k, v] of Object.entries({cx: 60, cy: 60, r, fill: "none", stroke: p.color, "stroke-width": 14,
+      "stroke-dasharray": `${Math.max(0, len - 1.5)} ${c}`, "stroke-dashoffset": -off, transform: "rotate(-90 60 60)"})) seg.setAttribute(k, v);
+    const tt = document.createElementNS(NS, "title"); tt.textContent = `${p.label}: ${usd(p.v)}`; seg.append(tt);
+    svg.append(seg); off += len;
+  }
+  const tx = document.createElementNS(NS, "text");
+  for (const [k, v] of Object.entries({x: 60, y: 65, "text-anchor": "middle", fill: "var(--text)", "font-size": 15, "font-weight": 700})) tx.setAttribute(k, v);
+  tx.textContent = usd(total); svg.append(tx);
+  return svg;
+}
+function mini(p) { const b = el("span", {class: "mini"}), i = el("i"); i.style.width = Math.max(0, Math.min(100, p || 0)) + "%"; b.append(i); return b; }
+function homeTiles(st) {   // 跟 TUI 總覽一樣的四塊：今天、本月、本地推論、功耗
+  const days = st.daily && st.daily.sources ? Object.values(st.daily.sources) : [];
+  const series = days.length ? days[0].map((_, i) => days.reduce((a, d) => a + (d[i] || 0), 0)) : [];
+  const yday = series.length >= 2 ? `${t.h_yesterday} ${usd(series[series.length - 2])}` : t.h_api_value;
+  const plans = st.sources.filter((x) => x.plan).map((x) => `${(t.src[x.source] || x.source).split(" ")[0]} ${(x.plan.value_ratio || 0).toFixed(1)}x`);
+  const f = st.forecast, ms = st.machines;
+  const rate = ms.reduce((a, m) => a + ((m.recent && m.recent.tok_s) || 0), 0);
+  const gen = ms.filter((m) => m.ai_active || (m.recent && m.recent.tok_s > 0));
+  const who = gen.length ? `● ${gen[0].machine} · ${((gen[0].loaded || [])[0] || {}).name || ""}` : `○ ${t.idle}`;
+  const watts = ms.reduce((a, m) => a + (m.power_w || 0), 0);
+  const kwh = (st.energy || []).reduce((a, e) => a + (e.kwh || 0), 0);
+  const pw = tile(t.hm_power, Math.round(watts) + " W", `${kwh.toFixed(2)} kWh · ${t.m_month}`);
+  const hist = ms.length ? ms[0].history.power.map((_, i) => ms.reduce((a, m) => a + ((m.history.power || [])[i] || 0), 0)) : [];
+  if (hist.some((x) => x > 0)) pw.insertBefore(spark(hist, 200, 26, {}), pw.lastChild);
+  return [tile(t.hm_today, usd(st.today_usd), yday),
+          tile(t.hm_month, usd(st.total_cost_usd), [plans.join(" · "), `${t.m_pay} ${usd(f.projected_usd)}${t.h_per_mo}`].filter(Boolean).join(" · "),
+               f.over_budget ? "fail" : null),
+          tile(t.h_local, `${Math.round(rate)}`, `tok/s · ${who}`, gen.length ? "ok" : null), ...(ms.length ? [pw] : [])];
+}
+function machineTable(st) {   // 機器表：狀態字＋點、CPU／GPU／記憶體小量表、功耗、正在跑的模型
+  const card = el("div", {class: "card"}, hd(t.h_nodes, fmt(t.h_online, st.machines.filter((m) => m.age < 300).length, st.machines.length)));
+  if (!st.machines.length) { card.append(el("div", {class: "muted"}, t.w_no_machines)); return card; }
+  const tb = el("table", {class: "mt"}), head = el("tr");
+  for (const [h, opt] of [["", 0], [t.w_machine, 0], ["CPU", 0], ["GPU", 0], ["MEM", 1], ["W", 0], [t.lc_model || "MODEL", 1]])
+    head.append(el("th", opt ? {class: "opt"} : {}, h));
+  tb.append(head);
+  for (const m of st.machines) {
+    const mem = m.mem_total ? 100 * m.mem_used / m.mem_total : null, busy = m.ai_active, old = m.age > 300;
+    const tr = el("tr");
+    tr.append(el("td", {class: busy ? "lv-ok" : old ? "lv-warn" : ""}, busy ? "● " + t.busy : old ? "! " + t.w_stale : "○ " + t.idle),
+              el("td", {}, m.machine),
+              el("td", {}, mini(m.cpu_pct), m.cpu_pct == null ? "-" : Math.round(m.cpu_pct) + "%"),
+              el("td", {}, mini(m.gpu_util), m.gpu_util == null ? "-" : Math.round(m.gpu_util) + "%"),
+              el("td", {class: "opt"}, mem == null ? "-" : Math.round(mem) + "%"),
+              el("td", {}, m.power_w == null ? "-" : Math.round(m.power_w)),
+              el("td", {class: "model opt"}, ((m.loaded || [])[0] || {}).name || ""));
+    tb.append(tr);
+  }
+  card.append(tb);
+  return card;
+}
+const MIX_COLORS = ["var(--text)", "var(--dim)", "var(--ok)", "var(--warn)", "var(--mag)", "var(--accent)"];
+function mixCard(st) {
+  const parts = st.sources.filter((x) => x.cost_usd > 0).sort((a, b) => b.cost_usd - a.cost_usd)
+    .map((x, i) => ({label: t.src[x.source] || x.source, v: x.cost_usd, color: MIX_COLORS[i % MIX_COLORS.length]}));
+  const card = el("div", {class: "card"}, hd(t.h_mix, st.month));
+  if (!parts.length) { card.append(el("div", {class: "muted"}, t.w_no_usage)); return card; }
+  const total = parts.reduce((a, p) => a + p.v, 0);
+  const ul = el("ul", {}, ...parts.map((p) => { const dot = el("span", {class: "led"}); dot.style.background = p.color;
+    return el("li", {}, dot, p.label, el("b", {}, `${usd(p.v)} ${Math.round(100 * p.v / total)}%`)); }));
+  card.append(el("div", {class: "donut"}, donut(parts), ul));
+  return card;
+}
+function attentionCard(st) {   // 先放警示（嚴重的在前），剩下放建議
+  const red = (a) => a.kind === "cloud_idle_billing" || a.kind === "machine_unreachable";
+  const al = [...st.alerts].sort((a, b) => red(b) - red(a));
+  const card = el("div", {class: "card"}, hd(t.h_attention, al.length ? fmt(t.n_open, al.length) : t.m_ok, al.length ? (al.some(red) ? "fail" : "warn") : "ok"));
+  for (const a of al) card.append(el("div", {class: "att"}, el("span", {class: "w " + (red(a) ? "lv-fail" : "lv-warn")}, red(a) ? t.h_fail : t.h_warn), a.message));
+  for (const x of (st.insights || []).slice(0, 4)) card.append(el("div", {class: "att"}, el("span", {class: "w"}, t.h_tip), x.text));
+  if (!al.length && !(st.insights || []).length) card.append(el("div", {class: "muted"}, t.m_ok));
+  return card;
+}
 function render(st) {
   t = st.ui || t;
   document.documentElement.dataset.theme = st.theme || "classic";
@@ -8462,24 +8574,15 @@ function render(st) {
   if (st.verdict) verdictBand(st.verdict);
   $("#quota").replaceChildren(...quotaCard(st));
   $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString(st.lang === "zh" ? "zh-TW" : "en-US");
-  const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
-  const f = st.forecast;
-  const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.w_at_api),
-                 tile(t.w_forecast, usd(f.projected_usd), fmt(t.w_days_left, Math.round(f.days_left)), f.over_budget ? "fail" : null)];
-  if (st.machines.length) tiles.push(tile(t.w_power, Math.round(watts) + " W", st.machines.length === 1 ? t.machine_1 : fmt(t.machines_n, st.machines.length)));
-  $("#tiles").replaceChildren(...tiles);
-  const red = (a) => a.kind === "cloud_idle_billing" || a.kind === "machine_unreachable";
-  $("#alerts").replaceChildren(...[...st.alerts].sort((a, b) => red(b) - red(a)).map((a) =>   // 嚴重的在前
-    el("div", {class: "alert" + (red(a) ? " red" : "")}, el("span", {class: "ic"}, "⚠ "), a.message)));
+  $("#tiles").replaceChildren(...homeTiles(st));
+  $("#home").replaceChildren(machineTable(st), mixCard(st), attentionCard(st));   // 警示和建議都在「需要處理」裡
   const energy = Object.fromEntries(st.energy.map((e) => [e.machine, e]));
   $("#machines").replaceChildren(...(st.machines.length ? st.machines.map((m) => machineCard(m, energy[m.machine]))
     : [el("div", {class: "card muted"}, t.w_no_machines)]));
   const cc = cloudCard(st);
   $("#cloud").replaceChildren(...(cc ? [cc] : []));
-  const adv = (st.insights || []).length ? el("div", {class: "card"}, FLAT() ? hd(t.w_advice) : el("h3", {}, t.w_advice),
-    ...st.insights.map((x) => el("div", {class: "advice"}, "→ " + x.text))) : null;
   const lc = localCard(st);
-  $("#usage").replaceChildren(...(lc ? [lc] : []), usageCard(st), ...(adv ? [adv] : []));
+  $("#usage").replaceChildren(...(lc ? [lc] : []), usageCard(st));
   $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
   document.title = `${st.line_text} · ComputAI`;
 }
@@ -8494,6 +8597,44 @@ setInterval(tick, REFRESH_MS);
 """
 
 
+WEB_MANIFEST = json.dumps({
+    "name": "ComputAI", "short_name": "ComputAI", "description": "where your compute and AI money goes",
+    "start_url": "/", "scope": "/", "display": "standalone", "background_color": "#0b0b0c", "theme_color": "#0b0b0c",
+    "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"},
+              {"src": "/icon-180.png", "sizes": "180x180", "type": "image/png"},
+              {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"}]})
+# 圖示：深色底上一個白色的環，右上缺一角是綠色（「還剩多少」的量表）
+WEB_ICON_SVG = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" fill="#0b0b0c"/>'
+                '<circle cx="50" cy="50" r="28" fill="none" stroke="#3a3a3a" stroke-width="12"/>'
+                '<circle cx="50" cy="50" r="28" fill="none" stroke="#f5f5f5" stroke-width="12" stroke-dasharray="132 176" '
+                'transform="rotate(-90 50 50)"/><circle cx="50" cy="50" r="28" fill="none" stroke="#4ade80" stroke-width="12" '
+                'stroke-dasharray="20 176" stroke-dashoffset="-140" transform="rotate(-90 50 50)"/></svg>')
+
+
+def web_icon_png(size):
+    """同一個圖示的 PNG（iOS 的主畫面圖示不吃 SVG）。只用標準函式庫：逐點算顏色再用 zlib 壓。"""
+    import struct
+    import zlib
+    bg, track, white, green = (11, 11, 12), (58, 58, 58), (245, 245, 245), (74, 222, 128)
+    rows = []
+    c, r_out, r_in = size / 2.0, size * 0.34, size * 0.22
+    for y in range(size):
+        row = bytearray(b"\x00")
+        for x in range(size):
+            dx, dy = x + 0.5 - c, y + 0.5 - c
+            d = math.hypot(dx, dy)
+            col = bg
+            if r_in <= d <= r_out:
+                ang = (math.degrees(math.atan2(dx, -dy)) + 360) % 360   # 從 12 點鐘順時針
+                col = white if ang < 270 else green if ang < 310 else track
+            row += bytes(col)
+        rows.append(bytes(row))
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b""))
+
+
 def web_handler(state, bind, interval, extra_hosts=()):
     """移植自 slurmtop 84cd35d 的 web_handler：安全標頭、只聽本機時檢查 Host 擋 DNS rebinding。"""
     import http.server
@@ -8505,6 +8646,16 @@ def web_handler(state, bind, interval, extra_hosts=()):
 
         def log_message(self, *a):
             pass
+
+        def send_bytes(self, code, data, ctype):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=86400")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(data)
 
         def send(self, code, body, ctype):
             data = body.encode("utf-8")
@@ -8542,6 +8693,12 @@ def web_handler(state, bind, interval, extra_hosts=()):
                 return self.send(200, metrics, "text/plain; version=0.0.4; charset=utf-8")
             if path == "/healthz":
                 return self.send(200, "ok\n", "text/plain; charset=utf-8")
+            if path == "/manifest.webmanifest":   # 用 Tailscale 打開後可以「加到主畫面」當 App
+                return self.send(200, WEB_MANIFEST, "application/manifest+json; charset=utf-8")
+            if path == "/icon.svg":
+                return self.send(200, WEB_ICON_SVG, "image/svg+xml; charset=utf-8")
+            if path == "/icon-180.png" or path == "/icon-512.png":
+                return self.send_bytes(200, web_icon_png(512 if "512" in path else 180), "image/png")
             return self.send(404, "not found\n", "text/plain; charset=utf-8")
 
         do_HEAD = do_GET
