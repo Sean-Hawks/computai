@@ -99,6 +99,8 @@ gpubox = gpubox.tailnet
 services = ollama:11434, vllm:8000
 base_watts = 80          ; GPU 以外的部分，加在量到的 GPU 功耗上
 cpu_watts = 90           ; CPU 全速時多出來的功耗，照 CPU 使用率比例加上（CPU 推論、編譯）
+plug = shelly:192.168.1.50  ; 智慧插座實測功耗：shelly、shelly1（第一代）、tasmota，
+                         ; 或 ha:sensor.x（Home Assistant，要設 HA_URL、HA_TOKEN 金鑰）
 [machine.this-computer]
 idle_watts = 6           ; 讀不到 GPU 功耗時（Mac）：照負載在閒置和滿載之間內插
 max_watts = 30
