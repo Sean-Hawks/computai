@@ -60,7 +60,9 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--sync` | Import new usage and print how many rows were added per source. |
 | `--line [--sep " · "]` | One line: each subscription's fullest limit window and today's cost. Re-reads logs at most every 30 s. |
 | `--statusline` | For Claude Code's `statusLine`: records Claude's limits from stdin, prints `--line`. |
-| `--live [-n SEC]` | Live terminal dashboard with three areas: compute, AI usage, alerts. `q` quits. |
+| `--live [-n SEC]` | Live terminal dashboard: one panel per machine (bars and sparklines for CPU, memory, every GPU and power, plus its inference servers), AI usage with limit bars and 14-day cost trends, and alerts. Two columns on wide terminals, one line per machine when the window is short. `q` quits. |
+| `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
+| `--lang zh` | Traditional Chinese for the live and web dashboards and `--line` (or `[general] lang = zh`). |
 | `--web [[HOST:]PORT]` | Browser dashboard (phone layout), `/api/state` JSON and `/metrics` for Prometheus. Default `127.0.0.1:8765`. |
 | `--report [--html FILE]` | Monthly report as text, or a self-contained HTML page with a daily cost chart. |
 | `--analyze` | Month-end forecast, plan check, cache efficiency, energy. |
@@ -232,7 +234,10 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 
 ## Dashboards
 
-- `computai` / `--live`: three areas (compute, AI usage, alerts), refreshed every `-n` seconds.
+- `computai` / `--live`: COMPUTE (a panel per machine, coloured by load like slurmtop: CPU, memory,
+  each GPU with utilisation, VRAM, temperature and power, a power trend, and each inference server
+  with its loaded models and token rate), AI USAGE and ALERTS, refreshed every `-n` seconds.
+  `--once` prints it once; it falls back to ASCII when the terminal can't draw block characters.
 - `--web`: open `http://127.0.0.1:8765/`. To see it on a phone, keep it on loopback and use an
   SSH tunnel (`ssh -L 8765:127.0.0.1:8765 host`) or `tailscale serve 8765`. `--web 0.0.0.0:8765`
   exposes your usage, project names and machines to the network and prints a warning.

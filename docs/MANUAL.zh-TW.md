@@ -54,7 +54,9 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--sync` | 匯入新的用量，印出每個來源新增幾筆。 |
 | `--line [--sep " · "]` | 一行字：每個訂閱最吃緊的額度視窗、今天的花費。最多每 30 秒重讀一次 log。 |
 | `--statusline` | 給 Claude Code 的 `statusLine` 用：從 stdin 記下 Claude 的額度，印出 `--line`。 |
-| `--live [-n 秒]` | 終端機 live 畫面，分算力、AI 用量、警示三區。按 `q` 離開。 |
+| `--live [-n 秒]` | 終端機 live 畫面：每台機器一個面板（CPU、記憶體、每張 GPU、功耗的長條和走勢，以及推論服務），AI 用量（額度長條、14 天花費走勢），警示。寬的終端機分兩欄，視窗太矮時每台機器縮成一行。按 `q` 離開。 |
+| `--once` | 印一次 live 畫面就結束（會先讀 log、取樣機器）。 |
+| `--lang zh` | live 畫面、網頁版和 `--line` 用繁體中文（也可以設 `[general] lang = zh`）。 |
 | `--web [[位址:]埠]` | 瀏覽器版（手機排版）、`/api/state` JSON、給 Prometheus 的 `/metrics`。預設 `127.0.0.1:8765`。 |
 | `--report [--html 檔名]` | 月報，文字版或一個獨立的 HTML 檔（含每日花費圖）。 |
 | `--analyze` | 月底預測、方案檢查、快取效率、電費分析。 |
@@ -209,7 +211,9 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
 
 ## 總帳畫面
 
-- `computai`／`--live`：三區（算力、AI 用量、警示），每 `-n` 秒更新。
+- `computai`／`--live`：算力（每台機器一個面板，框線顏色跟著負載變，跟 slurmtop 一樣：CPU、記憶體、
+  每張 GPU 的使用率／VRAM／溫度／功耗、功耗走勢，以及每個推論服務載入的模型和 token 速率）、AI 用量、警示，
+  每 `-n` 秒更新。`--once` 只印一次；終端機畫不出方塊字時自動改用 ASCII。
 - `--web`：打開 `http://127.0.0.1:8765/`。要在手機上看，保持只聽 loopback，用 SSH tunnel
   （`ssh -L 8765:127.0.0.1:8765 主機`）或 `tailscale serve 8765`。`--web 0.0.0.0:8765` 會把你的用量、
   專案名稱、機器公開給整個網路，會印出警告。
