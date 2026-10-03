@@ -61,6 +61,7 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--report [--html 檔名]` | 月報，文字版或一個獨立的 HTML 檔（含每日花費圖）。 |
 | `--analyze` | 月底預測、方案檢查、快取效率、電費分析。 |
 | `--payback 美元 [--gpu-watts W --hours-per-day H --rent-per-hour 美元]` | 買一張卡跟租雲端比，多久回本。 |
+| `--discover` | 從 `~/.ssh/config` 和 Tailscale 找機器，逐台試 SSH，說明連不上的原因，並印出可以貼進 `[machines]` 的設定。 |
 | `--sample` | 讀一次每台機器，印出機器表。 |
 | `--cloud` | 列出 RunPod、Vast.ai、Lambda 的機器並記下花費。 |
 | `--proxy [--listen ... --upstream ... --machine 名稱]` | Ollama 和 OpenAI 相容服務的 token 計數 proxy。 |
@@ -141,6 +142,7 @@ OPENAI_ADMIN_KEY = ...
 
 ## 機器和本地模型
 
+`computai --discover` 會從 `~/.ssh/config` 和 Tailscale 列出候選機器、逐台試 SSH，並印出要加的設定。
 `[machines]` 裡每台機器用一次 `ssh` 跑一段 POSIX `sh` 腳本來讀（`local` 就在本機跑）。
 機器上需要：`sh`，以及 `curl` 或 `wget`（看推論服務用）。SSH 要能不經提示就登入
 （`ssh -o BatchMode=yes 主機 true` 要成功）；25 秒內沒回應的機器那一輪會略過。

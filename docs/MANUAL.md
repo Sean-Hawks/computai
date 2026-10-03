@@ -67,6 +67,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--report [--html FILE]` | Monthly report as text, or a self-contained HTML page with a daily cost chart. |
 | `--analyze` | Month-end forecast, plan check, cache efficiency, energy. |
 | `--payback USD [--gpu-watts W --hours-per-day H --rent-per-hour USD]` | How long a GPU takes to pay for itself versus renting. |
+| `--discover` | Look for machines in `~/.ssh/config` and on Tailscale, try SSH to each, explain failures and print `[machines]` lines to paste. |
 | `--sample` | Read every machine once and print the machine table. |
 | `--cloud` | List RunPod, Vast.ai and Lambda instances and record their cost. |
 | `--proxy [--listen ... --upstream ... --machine NAME]` | Token-counting proxy for Ollama and OpenAI-compatible servers. |
@@ -151,7 +152,8 @@ off-peak would save.
 
 ## Machines and local models
 
-Each machine in `[machines]` is read with one `ssh` call that runs a POSIX `sh` script (or
+`computai --discover` lists candidates from `~/.ssh/config` and Tailscale, tests SSH to each and
+prints the lines to add. Each machine in `[machines]` is read with one `ssh` call that runs a POSIX `sh` script (or
 locally, for `local`). Requirements on the machine: `sh`, and `curl` or `wget` to look at
 inference servers. Use key-based SSH that works without a prompt (`ssh -o BatchMode=yes host true`
 must succeed); a machine that does not answer within 25 seconds is skipped for that round.
