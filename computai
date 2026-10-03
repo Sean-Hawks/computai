@@ -3732,13 +3732,15 @@ def dashboard_state(db):
     energy = machine_report(db, start, end)
     return {"version": __version__, "time": int(t), "month": label, "lang": _lang, "ui": UI[_lang], "theme": _theme,
             "line": line, "line_text": render_line(line, " | "),
+            "header": re.sub(r"\033\[[0-9;]*m", "", " \u00b7 ".join(header_parts({"line": line}))),
             "today_usd": round(today["total_cost_usd"], 2),
             "sources": [{"source": x["source"], "cost_usd": round(x["cost_usd"], 2),
                          "requests": x["totals"]["requests"],
                          "tokens": sum(x["totals"][c] for c in ("input", "cache_read", "cache_write_5m",
                                                                 "cache_write_1h", "output")),
                          "output": x["totals"]["output"], "plan": x.get("plan"),
-                         "plan_missing": x.get("plan_missing", False)} for x in s["sources"]],
+                         "plan_missing": x.get("plan_missing", False),
+                         "subscription": x["source"] in SUBSCRIPTION_SOURCES} for x in s["sources"]],
             "total_cost_usd": s["total_cost_usd"], "unpriced_models": s["unpriced_models"],
             "limits": current_limits(db), "machines": latest_samples(db, t),
             "energy": energy, "cloud": latest_cloud(db), "daily": daily_costs(db, 14, t),
@@ -3894,8 +3896,8 @@ UI = {
         "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "local": "Local models",
                                      "cloud": "Cloud GPUs", "anthropic-api": "Anthropic API",
                                      "openai-api": "OpenAI API"},
-        "w_today": "Today", "w_month": "This month", "w_forecast": "Forecast", "w_days_left": "%d days left",
-        "w_power": "Power", "w_compute": "Compute", "w_usage": "AI usage", "w_last14": "last 14 days",
+        "w_today": "Today's usage worth", "w_month": "Usage worth this month", "w_forecast": "You'll pay this month", "w_days_left": "%d days left",
+        "w_at_api": "at API prices", "w_power": "Power", "w_compute": "Compute", "w_usage": "AI subscriptions & spend", "w_last14": "last 14 days",
         "w_no_machines": "No machines yet. Add them under [machines] in config.ini.",
         "w_no_usage": "No usage yet.", "w_requests": "requests", "w_tokens": "tokens",
         "w_kwh_month": "kWh this month", "w_cloud": "Cloud GPUs", "w_cols": ["Instance", "GPU", "Status", "GPU use", "Price"],
@@ -3980,8 +3982,8 @@ UI = {
         "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "local": "本地模型",
                                       "cloud": "雲端 GPU", "anthropic-api": "Anthropic API",
                                       "openai-api": "OpenAI API"},
-        "w_today": "今天", "w_month": "本月", "w_forecast": "月底預估", "w_days_left": "還有 %d 天",
-        "w_power": "功耗", "w_compute": "算力", "w_usage": "AI 用量", "w_last14": "最近 14 天",
+        "w_today": "今天用量價值", "w_month": "本月用量價值", "w_forecast": "本月實際約要付", "w_days_left": "還有 %d 天",
+        "w_at_api": "照 API 價格算", "w_power": "功耗", "w_compute": "算力", "w_usage": "AI 訂閱與花費", "w_last14": "近 14 天",
         "w_no_machines": "還沒有機器。在 config.ini 的 [machines] 加上去。",
         "w_no_usage": "還沒有用量。", "w_requests": "個請求", "w_tokens": "token",
         "w_kwh_month": "本月度數", "w_cloud": "雲端 GPU", "w_cols": ["機器", "GPU", "狀態", "GPU 使用率", "價格"],
@@ -4768,31 +4770,35 @@ function machineCard(m, energy) {
   return card;
 }
 
+const winLabel = (w) => (t.win || {})[w] || w;
+
 function usageCard(st) {
   const card = el("div", {class: "card"});
   const lim = {};
   for (const l of st.limits) (lim[l.source] = lim[l.source] || []).push(l);
   for (const s of st.sources) {
     const p = s.plan;
+    const what = s.source === "local" ? fmt(t.local_free, tok(s.tokens)) : fmt(s.subscription ? t.worth : t.spent, usd(s.cost_usd));
     const box = el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, t.src[s.source] || s.source),
-      el("span", {class: "cost"}, usd(s.cost_usd)),
+      el("span", {class: "cost"}, what),
       p ? el("span", {class: "muted", style: `color:${(p.value_ratio || 0) >= 1 ? "var(--ok)" : "var(--warn)"}`},
-             `${p.name} ${usd(p.fee_in_range)} → ${(p.value_ratio || 0).toFixed(1)}×`)
+             `${fmt(t.plan_fee, usd(p.fee_in_range), p.name)} · ${fmt(t.value_x, p.value_ratio || 0)}`)
         : s.plan_missing ? el("span", {style: "color:var(--warn)"}, t.plan_unset) : null));
     for (const l of (lim[s.source] || []).sort((a, b) => (a.window_minutes || 0) - (b.window_minutes || 0)))
-      box.append(rowBar(l.name, l.used_percent, pct(l.used_percent)),
+      box.append(rowBar(winLabel(l.name), l.used_percent, l.used_percent >= 99.5 ? t.used_up : fmt(t.used_pct, Math.round(l.used_percent))),
                  l.resets_in !== null ? el("div", {class: "legend"}, fmt(t.resets, dur(l.resets_in))) : null);
     delete lim[s.source];
     const series = (st.daily.sources || {})[s.source];
     if (series && series.some((x) => x > 0))
-      box.append(bars(series, 280, 34, st.daily.days), el("div", {class: "legend"}, `${t.w_last14} · ${fmt(t.today_x, usd(series[series.length - 1]))}`));
-    box.append(el("div", {class: "legend"}, s.requests ? fmt(t.tok_req, tok(s.tokens), tok(s.requests)) : fmt(t.tok_only, tok(s.tokens))));
+      box.append(bars(series, 280, 34, st.daily.days), el("div", {class: "legend"}, `${t.w_last14} · ${fmt(s.subscription ? t.today_worth : t.today_spent, usd(series[series.length - 1]))}`));
+    if (s.source !== "local") box.append(el("div", {class: "legend"}, s.requests ? fmt(t.tok_req, tok(s.tokens), tok(s.requests)) : fmt(t.tok_only, tok(s.tokens))));
     card.append(box);
   }
   for (const [src, rows] of Object.entries(lim))
     for (const l of rows) card.append(el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, t.src[src] || src)),
-                                      rowBar(l.name, l.used_percent, pct(l.used_percent))));
+                                      rowBar(winLabel(l.name), l.used_percent, fmt(t.used_pct, Math.round(l.used_percent)))));
   if (!st.sources.length && !st.limits.length) card.append(el("div", {class: "muted"}, t.w_no_usage));
+  else card.append(el("div", {class: "legend"}, t.api_equiv));
   return card;
 }
 
@@ -4812,13 +4818,13 @@ function render(st) {
   document.documentElement.lang = st.lang === "zh" ? "zh-Hant" : "en";
   $("#h-compute").textContent = t.w_compute; $("#h-usage").textContent = t.w_usage;
   $("#tagline").textContent = t.w_tagline;
-  $("#line").textContent = st.line_text;
+  $("#line").textContent = st.header || st.line_text;
   $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString();
   const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
   const f = st.forecast;
-  const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.api_equiv),
+  const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.w_at_api),
                  tile(t.w_forecast, usd(f.projected_usd), fmt(t.w_days_left, Math.round(f.days_left)), f.over_budget ? "var(--red)" : null)];
-  for (const l of st.line.limits) tiles.push(tile(`${l.label} ${l.window}`, pct(l.used_percent),
+  for (const l of st.line.limits) tiles.push(tile(`${l.label} ${winLabel(l.window)}`, pct(l.used_percent),
     l.resets_in !== null ? fmt(t.resets, dur(l.resets_in)) : "", heat(l.used_percent)));
   if (st.machines.length) tiles.push(tile(t.w_power, Math.round(watts) + " W", st.machines.length === 1 ? t.machine_1 : fmt(t.machines_n, st.machines.length)));
   $("#tiles").replaceChildren(...tiles);
