@@ -5028,7 +5028,7 @@ UI = {
         "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "Subscriptions", "machine": "Machines",
                     "machines": "Machines", "power": "Electricity", "prices": "Prices", "secrets": "Keys",
-                    "card": "Profile card", "update": "Update"},
+                    "card": "Profile card", "update": "Update", "devices": "Devices"},
         "dr_card_off": "no GitHub profile card yet", "dr_card_missing": "the card folder %s is gone",
         "dr_card_stale": "the card was last written %s ago", "dr_card_ok": "card in %s, updated %s ago (daily %s)",
         "dr_logs": "%s logs found (%d files)", "dr_nologs": "no %s logs (looked in %s)",
@@ -5036,6 +5036,11 @@ UI = {
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
         "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
         "dr_cl_cli": "Claude account limits are read from the claude CLI at least every %d minutes (no status line needed)",
+        "dr_dev_folder": "sharing usage through %s", "dr_dev_nofolder": "the shared folder %s is missing or not writable",
+        "dr_dev_error": "%s: its usage file can't be read (%s); the last good numbers are kept",
+        "dr_dev_stale": "%s last reported %s ago", "dr_dev_ok": "%s reported %s ago (via %s)",
+        "dr_dev_pull": "%s: could not pull usage (%s)",
+        "dr_dev_none": "only this computer's Claude and Codex tokens are counted; use a shared folder to add your other computers",
         "dr_update": "computai %s is out (you have %s)", "update_note": "computai %s is out (you have %s); update: %s",
         "dr_next": "%s limits: next check %s (%s)", "dr_now": "now", "dr_in": "in %s",
         "why_first": "not read yet", "why_fixed": "fixed: every %s", "why_idle": "not being used: every %s",
@@ -5234,7 +5239,7 @@ UI = {
         "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "訂閱", "machine": "機器",
                     "machines": "機器", "power": "電價", "prices": "價格", "secrets": "金鑰",
-                    "card": "個人頁卡片", "update": "更新"},
+                    "card": "個人頁卡片", "update": "更新", "devices": "多台電腦"},
         "dr_card_off": "還沒有 GitHub 個人頁卡片", "dr_card_missing": "卡片資料夾 %s 不見了",
         "dr_card_stale": "卡片上次更新是 %s 前", "dr_card_ok": "卡片在 %s，%s 前更新（每天 %s）",
         "dr_logs": "找到 %s 的 log（%d 個檔案）", "dr_nologs": "沒有 %s 的 log（找過 %s）",
@@ -5242,6 +5247,11 @@ UI = {
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
         "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
         "dr_cl_cli": "Claude 帳號額度從 claude 程式讀，最久 %d 分鐘一次（不用設 statusline）",
+        "dr_dev_folder": "用 %s 跟其他電腦交換用量", "dr_dev_nofolder": "共用資料夾 %s 不存在或不能寫",
+        "dr_dev_error": "%s：匯出檔讀不了（%s），保留上一份好的數字",
+        "dr_dev_stale": "%s 最後一次回報是 %s 前", "dr_dev_ok": "%s %s 前回報（%s）",
+        "dr_dev_pull": "%s：拉不到用量（%s）",
+        "dr_dev_none": "只算到這台電腦的 Claude、Codex token；設一個共用資料夾就能把其他電腦加進來",
         "dr_update": "computai 有新版 %s（你的是 %s）", "update_note": "computai 有新版 %s（你的是 %s），更新：%s",
         "dr_next": "%s 額度：%s再查（%s）", "dr_now": "現在", "dr_in": "%s 後",
         "why_first": "還沒讀過", "why_fixed": "固定每 %s", "why_idle": "沒在消耗 → 每 %s",
@@ -9432,7 +9442,10 @@ class Redactor:
                 names.append(("host", m["host"]))
                 names.append(("host", host))
         names.append(("machine", local_hostname()))
+        names.append(("machine", device_settings()["name"]))
         if db is not None:
+            for (n,) in db.execute("SELECT name FROM devices WHERE name != ''"):
+                names.append(("machine", n))
             for (p,) in db.execute("SELECT DISTINCT project FROM usage WHERE project != ''"):
                 base = os.path.basename(p.rstrip("/\\"))
                 if base.lower() not in self.COMMON:
@@ -9519,6 +9532,29 @@ def doctor(db, sample=True):
             add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
         else:
             add("claude", "todo", T("dr_sl_none"), "computai --setup")
+    # 多台電腦
+    ds = device_settings()
+    if ds["folder"]:
+        ok = os.path.isdir(ds["folder"]) and os.access(ds["folder"], os.W_OK)
+        add("devices", "ok" if ok else "todo", (T("dr_dev_folder") if ok else T("dr_dev_nofolder")) % ds["folder"],
+            "" if ok else "mkdir -p " + ds["folder"])
+    for d in devices_report(db, t - 30 * 86400, t + 1, t):
+        if d["local"]:
+            continue
+        if d["error"]:
+            add("devices", "todo", T("dr_dev_error") % (d["name"], d["error"]))
+        elif d["stale"]:
+            add("devices", "tip", T("dr_dev_stale") % (d["name"], fmt_dur(d["age"]) if d["age"] is not None else "?"))
+        else:
+            add("devices", "ok", T("dr_dev_ok") % (d["name"], fmt_dur(d["age"] or 0), d["via"]))
+    for m in machines():
+        if m.get("usage") == "pull":
+            row = db.execute("SELECT value FROM meta WHERE key = ?", ("pull_error:" + m["name"],)).fetchone()
+            if row and row["value"]:
+                add("devices", "todo", T("dr_dev_pull") % (m["name"], row["value"]),
+                    "ssh -o BatchMode=yes %s 'command -v python3'" % m["host"])
+    if not ds["folder"] and not any(m.get("usage") == "pull" for m in machines()) and n_claude + n_codex:
+        add("devices", "tip", T("dr_dev_none"), "computai --set devices.folder=~/Library/Mobile\\ Documents/com~apple~CloudDocs/computai")
     # 新版
     newer = newer_version(db)
     if newer:

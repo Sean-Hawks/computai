@@ -89,6 +89,9 @@ class SharedFolder(unittest.TestCase):
         self.assertIn("(stale)", self.b.run("--summary", "--no-sync", COMPUTAI_FAKE_NOW=late).stdout)
         r = self.b.run("--summary", "--month", "2026-09", "--by", "device", "--no-sync")
         self.assertIn("alpha-mac", r.stdout)
+        r = self.b.run("--doctor", "--no-sync")
+        self.assertIn("alpha-mac reported", r.stdout)
+        self.assertNotIn("alpha-mac", self.b.run("--doctor", "--no-sync", "--redact").stdout)
         # A 的檔案壞掉：B 保留上一份好的結果，記下原因
         data = [n for n in files if n.endswith(".jsonl")][0]
         with open(os.path.join(self.share, data), "a", encoding="utf-8") as f:
