@@ -425,6 +425,22 @@ session 開著但沒在做事的那段畫成點，從昨天接續的 session 前
 `computai --timeline --svg 檔案` 輸出同一張圖的 SVG，不含專案名和機器名（列名是「Claude 1」「Codex 2」和本地模型名稱）；
 Wrapped 裡會放最忙那天的時間軸。
 
+## 小隊排行榜（`--team`）
+
+完全選擇加入、不需要伺服器的朋友排行榜：每個人把「只有總數」的 JSON 推到同一個共用 git repo
+（私人 repo，或 GitHub Gist——它也是 git repo）。
+
+```sh
+git clone <小隊的 repo 或 gist> ~/team
+computai --set team.repo=~/team --set team.handle=neo
+computai --team publish      # 先顯示完整 JSON，問過才 commit 並 push computai-team-neo.json
+computai --team              # git pull 後顯示排行：這週 token、比上週、agent 小時、最多同時、連續天數
+computai --team leave        # 刪掉自己的檔案並 push
+```
+
+檔案裡只有這週和上週的這四個數字、你的名字和時間：沒有專案名、路徑、模型、機器、IP、session。
+讀別人的檔案時只接受預期的欄位，其他一律忽略。排行榜也會出現在花費分頁和 Wrapped 裡。
+
 ## 現在用哪個 agent（`--pick`）
 
 ComputAI 知道每個額度還剩多少、多久重置、本地模型有沒有空，所以可以替你決定：
