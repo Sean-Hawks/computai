@@ -3419,7 +3419,7 @@ def machine_panel(m, width, energy=None, error=None):
                           for x in models) or dim("no model loaded")
         rate = ""
         if m["recent"]["requests"]:
-            rate = dim("  %d req in 5 min, %s tok/s now" % (m["recent"]["requests"], m["recent"]["tok_s"]))
+            rate = dim("  %d req in 5 min, %s tok/s over the last minute" % (m["recent"]["requests"], m["recent"]["tok_s"]))
         lines.append(" %s %s %s%s" % (rgb(MAG, "%s:%s" % key), state, names, rate))
     if not m.get("services"):
         lines.append(dim(" no inference server found"))
@@ -3524,7 +3524,18 @@ def render_live(st, width=100, color=False, ascii_=False, height=None):
         billing = sum(c["usd_per_hour"] or 0 for c in st["cloud"] if c["billing"])
         bits = ["%d machine%s" % (len(st["machines"]), "" if len(st["machines"]) == 1 else "s")]
         if watts:
-            bits.append(rgb(MAG, "%.0f W" % watts))
+            # 全部機器的功耗走勢：各台的歷史從最新一筆往回對齊加總
+            n = max(len(m["history"]["power"]) for m in st["machines"])
+            total = [sum((m["history"]["power"][-n + i] or 0) if len(m["history"]["power"]) >= n - i else 0
+                         for m in st["machines"]) for i in range(n)]
+            bits.append(rgb(MAG, "%.0f W" % watts) + " " + spark(total, 12, top=max(total + [1])))
+        utils = [g["util"] for m in st["machines"] for g in m.get("gpus") or [] if g.get("util") is not None]
+        if utils:
+            avg = sum(utils) / len(utils)
+            bits.append("GPU " + rgb(heat(avg), "%d%%" % round(avg)))
+        rate = sum(m["recent"]["tok_s"] for m in st["machines"])
+        if rate:
+            bits.append(rgb(GREEN, "%s tok/s" % rate))
         if st["cloud"]:
             bits.append("cloud " + rgb(MAG, fmt_usd(billing) + "/h"))
         left = [" " + bold("COMPUTE") + "  " + dim(sym(" \u00b7 ", " | ")).join(bits)] + left
@@ -3839,7 +3850,7 @@ function machineCard(m, energy) {
     card.append(el("div", {class: "svc"}, el("span", {class: "k"}, `${s.kind}:${s.port}`),
       el("span", {class: m.ai_active ? "ok" : "muted"}, m.ai_active ? "● busy" : "○ idle"),
       el("span", {class: "m"}, models || "no model loaded"),
-      m.recent.requests ? el("span", {class: "muted"}, `${m.recent.requests} req in 5 min · ${m.recent.tok_s} tok/s now`) : null));
+      m.recent.requests ? el("span", {class: "muted"}, `${m.recent.requests} req in 5 min · ${m.recent.tok_s} tok/s last minute`) : null));
   }
   if (!m.services.length) card.append(el("div", {class: "muted"}, "no inference server found"));
   return card;
