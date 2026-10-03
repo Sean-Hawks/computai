@@ -384,6 +384,26 @@ Once a day, `computai`, `--web` or `--watch` rewrites the two card SVGs there an
 - `lang` sets the card's language.
 - `--setup` asks for all of this and finds the profile repo on disk. Before pushing it rebases onto any commit a bot pushed in the meantime.
 
+## What local models really cost (`--local-cost`)
+
+`computai --local-cost [--month]` puts each local model next to small cloud models:
+
+- **Electricity per 1M tokens**, from the machine's measured AI energy split over its models' tokens; a model
+  with no measured usage uses its latest `--bench` result instead (marked "from --bench").
+- **Hardware** (optional): `[local] hardware_usd` and `lifetime_years` add depreciation per 1M tokens and a
+  break-even: how many tokens a month the hardware needs to beat each API model.
+- **vs**: how many times cheaper than each model in `[local] compare_models` (default `claude-haiku-4,
+  gpt-5.4-mini`, mixing input and output price half and half). A compare model needs an exact section in
+  prices.ini; otherwise it says so instead of guessing from a similar name.
+- **Routing**: if this month's light Claude and Codex requests (output ≤ `light_output`, context ≤
+  `light_context`) had gone to your cheapest local model, the money (at API prices) and share of subscription
+  usage saved, and the electricity it would cost.
+- **Carbon**: kWh × `[energy] grid_kg_per_kwh`. The default is Taiwan's 2024 electricity emission factor,
+  0.474 kg CO2e/kWh (Energy Administration, MOEA, published 2025-04-14); set your own grid's factor or 0.
+
+The local models tab and Wrapped carry the one-line version: "This month local models saved you $17 and used
+0.6 kWh".
+
 ## Local model benchmark
 
 `computai --bench [--machine NAME]` sends the same fixed prompt to every running inference server for a

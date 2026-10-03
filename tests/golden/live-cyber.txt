@@ -37,12 +37,12 @@
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ LOCAL MODELS ────────────────────────────────────────────────────────── 1 machine(s) generating ╮
 │  model          machine state      now         today     month                                   │
-│  Qwen/Qwen3-32B gpubox  ⠋ busy     -           438k      438k    ≈ $0.67                         │
+│  Qwen/Qwen3-32B gpubox  ⠋ busy     -           438k      438k    ≈ $0.55                         │
 │  qwen3:0.6b     mac     ○ idle     -           0         0                                       │
 │                                                                                                  │
-│  Local tokens today 438k, this month 438k - worth $0.67 at API prices, electricity about $0.01   │
+│  Local tokens today 438k, this month 438k - worth $0.55 at API prices, electricity about $0.01   │
 ├──────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ value at claude-haiku-4 API prices; Ollama counts need computai --proxy in front of it           │
+│ value at gpt-5.4-mini API prices; Ollama counts need computai --proxy in front of it             │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ╭─ AI SUBSCRIPTIONS & SPEND 2026-09 ───────────────────────────────────────────────────────────────╮
 │  Claude Code    used $14.40 worth · monthly fee not set (computai --setup)                       │
