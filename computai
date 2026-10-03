@@ -3321,12 +3321,44 @@ def prometheus(st):
     return "\n".join(lines) + "\n"
 
 
+def insights(db, t=None):
+    """給畫面用的幾句建議：方案、快取浪費、離峰。都是 --analyze 的摘要。"""
+    t = now() if t is None else t
+    start, end, _ = month_range()
+    out = []
+    names = T("src")
+    for r in simulate_plans(db, t=t):
+        src = names.get(r["source"], r["source"])
+        if r["recommend"] and r["options"]:
+            best = [o for o in r["options"] if o["name"] == r["recommend"]][0]
+            args = {"src": src, "peak": r["peak_percent"] or 0, "win": r["peak_window"] or "?",
+                    "plan": best["name"], "usd": best["usd"], "proj": best["projected_peak"]}
+            if best["name"] == r["current"]:
+                if best["fits"]:
+                    out.append({"kind": "plan", "text": T("i_plan_ok") % args})
+            else:
+                out.append({"kind": "plan", "text": T("i_plan_down" if best["usd"] < (r["current_usd"] or 0)
+                                                      else "i_plan_up") % args})
+        if r.get("api_cheaper"):
+            out.append({"kind": "api", "text": T("i_api") % {"src": src, "cost": fmt_usd(r["api_equivalent_usd"])}})
+    c = cache_report(db, start, end)
+    if c["wasted_usd"] >= 1:
+        out.append({"kind": "cache", "text": T("i_cache") % {"cost": fmt_usd(c["wasted_usd"]),
+                                                             "expired": c["expired"], "n": c["rewrites"]}})
+    for r in machine_report(db, start, end):
+        if r.get("offpeak_saving"):
+            out.append({"kind": "offpeak", "text": T("i_offpeak") % {"machine": r["machine"],
+                                                                     "save": r["offpeak_saving"], "cur": r["currency"]}})
+    return out
+
+
 class Updater:
     """背景更新帳本：log、機器、雲端各有自己的間隔。"""
 
     def __init__(self, sample_every=60, cloud_every=300, sync_every=30):
-        self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every}
+        self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300}
         self.last = {k: 0.0 for k in self.every}
+        self.insights = []
         self.stop = threading.Event()
 
     def tick(self, db):
@@ -3349,7 +3381,10 @@ class Updater:
                 t0 = time.monotonic()
                 try:
                     self.tick(db)
-                    on_state(dashboard_state(db))
+                    if time.monotonic() - self.last["insights"] >= self.every["insights"]:
+                        self.last["insights"] = time.monotonic()
+                        self.insights = insights(db)
+                    on_state(dict(dashboard_state(db), insights=self.insights))
                 except Exception as e:  # 更新失敗不能讓畫面或伺服器停掉
                     warn("update failed: %r" % (e,))
                 self.stop.wait(max(0.5, interval - (time.monotonic() - t0)))
@@ -3383,6 +3418,13 @@ UI = {
         "w_no_usage": "No usage yet.", "w_requests": "requests", "w_tokens": "tokens",
         "w_kwh_month": "kWh this month", "w_cloud": "Cloud GPUs", "w_cols": ["Instance", "GPU", "Status", "GPU use", "Price"],
         "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
+        "advice": "ADVICE", "w_advice": "Advice",
+        "i_plan_down": "%(src)s: peak was %(peak)d%% of the %(win)s limit; %(plan)s ($%(usd)d) would peak near %(proj)d%%",
+        "i_plan_up": "%(src)s: reached %(peak)d%% of the %(win)s limit; %(plan)s ($%(usd)d) would peak near %(proj)d%%",
+        "i_plan_ok": "%(src)s: plan fits, peak %(peak)d%% of the %(win)s limit",
+        "i_api": "%(src)s: pay-as-you-go would have cost only %(cost)s in 30 days",
+        "i_cache": "prompt-cache rewrites cost %(cost)s this month; %(expired)d of %(n)d came after an idle gap",
+        "i_offpeak": "%(machine)s: moving AI work off-peak would save %(save).2f %(cur)s",
     },
     "zh": {
         "node": "節點", "local": "本機", "ssh": "SSH", "ago": "%s 前", "load": "負載 %.1f",
@@ -3405,6 +3447,13 @@ UI = {
         "w_no_usage": "還沒有用量。", "w_requests": "個請求", "w_tokens": "token",
         "w_kwh_month": "本月度數", "w_cloud": "雲端 GPU", "w_cols": ["機器", "GPU", "狀態", "GPU 使用率", "價格"],
         "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
+        "advice": "建議", "w_advice": "建議",
+        "i_plan_down": "%(src)s：%(win)s 額度最高只用到 %(peak)d%%，改用 %(plan)s（$%(usd)d）約 %(proj)d%%",
+        "i_plan_up": "%(src)s：%(win)s 額度已經用到 %(peak)d%%，改用 %(plan)s（$%(usd)d）約 %(proj)d%%",
+        "i_plan_ok": "%(src)s：方案剛好，%(win)s 額度最高用到 %(peak)d%%",
+        "i_api": "%(src)s：過去 30 天直接付 API 只要 %(cost)s",
+        "i_cache": "本月快取重寫多花了 %(cost)s；%(n)d 次裡有 %(expired)d 次是閒置太久",
+        "i_offpeak": "%(machine)s：AI 工作挪到離峰可以省 %(save).2f %(cur)s",
     },
 }
 _lang = "en"
@@ -3585,6 +3634,14 @@ def alerts_panel(st, width):
                  100 if st["alerts"] else 0)
 
 
+def advice_panel(st, width):
+    items = st.get("insights") or []
+    if not items:
+        return []
+    arrow = sym("\u2192", "->")
+    return panel(bold(T("advice")), "", [" %s %s" % (rgb(CYAN, arrow), x["text"]) for x in items], width, 0)
+
+
 def render_live(st, width=100, color=False, ascii_=False, height=None):
     """整個畫面：上面一行總覽，下面是算力（每台機器、雲端）、AI 用量、警示。
     寬度夠（>= 150）就兩欄：左邊算力，右邊 AI 用量和警示；不夠就上下排。"""
@@ -3605,7 +3662,7 @@ def render_live(st, width=100, color=False, ascii_=False, height=None):
             left += machine_panel(None, col, error=e)
     if st["cloud"]:
         left += cloud_panel(st, col)
-    right = usage_panel(st, col) + alerts_panel(st, col)
+    right = usage_panel(st, col) + alerts_panel(st, col) + advice_panel(st, col)
     used = 3 + (max(len(left), len(right)) if two else len(left) + len(right)) + 1
     if height and used > height and st["machines"]:
         # 放不下：機器改成一台一列的精簡版（照 slurmtop 的 dense 模式）
@@ -3817,6 +3874,8 @@ svg { display:block; width:100%; }
 .src .top { display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; }
 .src .top b { flex:1; } .src .cost { color:var(--accent); font-weight:700; font-size:16px; }
 .legend { color:var(--dim); font-size:12px; }
+.advice { padding:4px 0; border-top:1px solid var(--line); overflow-wrap:anywhere; }
+.advice:first-of-type { border-top:0; }
 table { width:100%; border-collapse:collapse; } th { text-align:left; color:var(--dim); font-weight:600; }
 td, th { padding:3px 8px 3px 0; border-bottom:1px solid var(--line); white-space:nowrap; }
 .tablewrap { overflow-x:auto; }
@@ -4018,7 +4077,9 @@ function render(st) {
     : [el("div", {class: "card muted"}, t.w_no_machines)]));
   const cc = cloudCard(st);
   $("#cloud").replaceChildren(...(cc ? [cc] : []));
-  $("#usage").replaceChildren(usageCard(st));
+  const adv = (st.insights || []).length ? el("div", {class: "card"}, el("h3", {}, t.w_advice),
+    ...st.insights.map((x) => el("div", {class: "advice"}, "→ " + x.text))) : null;
+  $("#usage").replaceChildren(usageCard(st), ...(adv ? [adv] : []));
   $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
   document.title = `${st.line_text} · ComputAI`;
 }
@@ -4427,7 +4488,7 @@ def run(args, db):
             sync(db, quiet=True)
             if machines():
                 sample_machines(db)
-        st = clean_strings(dashboard_state(db))
+        st = clean_strings(dict(dashboard_state(db), insights=insights(db)))
         if args.json:
             emit(st, "", True)
         else:

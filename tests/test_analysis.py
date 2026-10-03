@@ -183,3 +183,28 @@ class PastMonth(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old)
             sb.close()
+
+
+class Insights(unittest.TestCase):
+    def test_insights_text(self):
+        sb = helpers.Sandbox()
+        old = dict(os.environ)
+        try:
+            os.makedirs(sb.config)
+            with open(os.path.join(sb.config, "config.ini"), "w") as f:
+                f.write("[plans]\nclaude = Max 20x, 200, x\n\n[plan_options]\nclaude = Pro 20 x1, Max 5x 100 x5, Max 20x 200 x20\n")
+            os.environ.update(COMPUTAI_CONFIG_DIR=sb.config, COMPUTAI_FAKE_NOW=str(10 * 86400))
+            m = helpers.load()
+            db = m.open_ledger(":memory:")
+            m.add_limits(db, [dict(source="claude", name="week", ts=10 * 86400 - 60, used_percent=15.0,
+                                   window_minutes=10080)])
+            texts = [x["text"] for x in m.insights(db)]
+            self.assertIn("Claude Code: peak was 15% of the week limit; Max 5x ($100) would peak near 60%", texts)
+            m.set_lang("zh")
+            texts = [x["text"] for x in m.insights(db)]
+            self.assertIn("Claude Code：week 額度最高只用到 15%，改用 Max 5x（$100）約 60%", texts)
+            db.close()
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+            sb.close()
