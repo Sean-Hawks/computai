@@ -1,16 +1,16 @@
-◉ ComputAI  2026-09-21 14:13:20   Claude 42% | Codex 93% (8h20m) | today $11.5
+◉ ComputAI  2026-09-21 14:13:20   Claude 5-hour limit 42% used · Codex weekly limit 93% used (resets in 8h20m) · today's usage worth $11.50
 
- COMPUTE  2 machines · 431 W ······█▂█▂█▂ · GPU 56%                                   ╭── AI USAGE 2026-09 ────────────────────────────────────────────── API-equivalent ╮
-╭── NODE gpubox ◉ SSH AI ──────────────────────────────── 2x nvidia · 410 W · 70°C ╮  │ Claude Code       $14.40  plan not set: computai --setup                         │
-│ CPU ▕██████░░░░░░▏  50.0% ·····▅·▅·▅ load 1.2                                    │  │   5h    ▕███████░░░░░░░░░▏  42%  resets in 2h10m                                 │
-│ MEM ▕████░░░░░░░░▏  32.8% 21/62 GiB                                              │  │   14d   ▁▁▁▁▁▁▁▁▁▁▄▁▁█ today $10.40                                              │
-│ G0 ▕███████████░▏  90% ····▇▇▇▇▇▇ 29.3/80G 70°  320W                             │  │ Codex              $1.10  plan not set: computai --setup                         │
-│ G1 ▕░░░░░░░░░░░░▏   - ····▁·▁·▁· 0.5/80G 35°                                     │  │   week  ▕███████████████░▏  93%  resets in 8h20m                                 │
-│ PWR   410 W ··········█▂█▂█▂  0.04 kWh this month, AI 100%                       │  │   14d   ▁▁▁▁▁▁▁▁▁▁▁▁▁█ today $1.10                                               │
-│ vllm:8000 ● busy Qwen/Qwen3-32B                                                  │  │ Local models       $0.00                                                         │
-│ 79.2 GB free: room for a ~120B model (4-bit)                                     │  │   438k tokens                                                                    │
-╰──────────────────────────────────────────────────────────────────────────────────╯  │                                                                                  │
-╭── NODE mac ◉ SSH ──────────────────────────────────── 1x Apple M3 10-core · 21 W ╮  │ today $11.50   month $15.50   forecast $0.01                                     │
+ COMPUTE  2 machines · drawing 431 W now ······█▂█▂█▂ · GPU avg 56%                   ╭── AI SUBSCRIPTIONS & SPEND 2026-09 ───────────────────── $ = value at API prices ╮
+╭── NODE gpubox ◉ SSH AI ──────────────────────────────── 2x nvidia · 410 W · 70°C ╮  │ Claude Code    used $14.40 worth · monthly fee not set (computai --setup)        │
+│ CPU ▕██████░░░░░░▏  50.0% ·····▅·▅·▅ load 1.2                                    │  │   5-hour limit ▕███████░░░░░░░░░▏ 42% used · resets in 2h10m                     │
+│ MEM ▕████░░░░░░░░▏  32.8% 21/62 GiB                                              │  │   last 14 days ▁▁▁▁▁▁▁▁▁▁▄▁▁█ today $10.40 worth                                 │
+│ G0 ▕███████████░▏  90% ····▇▇▇▇▇▇ 29.3/80G 70°  320W                             │  │ Codex          used $1.10 worth · monthly fee not set (computai --setup)         │
+│ G1 ▕░░░░░░░░░░░░▏   - ····▁·▁·▁· 0.5/80G 35°                                     │  │   weekly limit ▕███████████████░▏ 93% used · resets in 8h20m                     │
+│ PWR   410 W ··········█▂█▂█▂  0.04 kWh this month, AI 100%                       │  │   last 14 days ▁▁▁▁▁▁▁▁▁▁▁▁▁█ today $1.10 worth                                  │
+│ vllm:8000 ● busy Qwen/Qwen3-32B                                                  │  │ Local models   438k tokens · free apart from electricity                         │
+│ 79.2 GB free: room for a ~120B model (4-bit)                                     │  │                                                                                  │
+╰──────────────────────────────────────────────────────────────────────────────────╯  │ Usage value: $15.50 this month, $11.50 today (at API prices)                     │
+╭── NODE mac ◉ SSH ──────────────────────────────────── 1x Apple M3 10-core · 21 W ╮  │ You will actually pay about $0.01 this month (plans + cloud + electricity)       │
 │ CPU ▕███░░░░░░░░░▏  20.9% ····▂▂▂▂▂▂ load 2.5                                    │  ╰──────────────────────────────────────────────────────────────────────────────────╯
 │ MEM ▕██████████░░▏  84.8% 14/16 GiB                                              │  ╭── ALERTS ────────────────────────────────────────────────────────────────────────╮
 │ G0 ▕███░░░░░░░░░▏  22% ····▃▃▃▃▃▃ 1.7/16G   -                                    │  │ all clear                                                                        │

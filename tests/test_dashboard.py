@@ -53,14 +53,15 @@ class Dashboard(unittest.TestCase):
 
     def test_live_render_has_three_areas(self):
         text = self.m.render_live(self.st, 90)
-        for title in ("COMPUTE", "AI USAGE", "ALERTS", "NODE mac"):
+        for title in ("COMPUTE", "AI SUBSCRIPTIONS", "ALERTS", "NODE mac"):
             self.assertIn(title, text)
         self.assertIn("ollama:11434", text)
         self.assertIn("qwen3:0.6b", text)
-        self.assertIn("mac: qwen3:0.6b loaded but idle", text)
+        self.assertIn("mac: qwen3:0.6b is loaded but has not been used", text)
+        self.assertIn("free the memory", text)                  # 長的警示會折行，不會被切掉
         self.assertTrue(all(self.m.vlen(ln) <= 90 for ln in text.splitlines()))
         wide = self.m.render_live(self.st, 160)
-        self.assertTrue(any("COMPUTE" in ln and "AI USAGE" in ln for ln in wide.splitlines()))  # 兩欄
+        self.assertTrue(any("COMPUTE" in ln and "AI SUBSCRIPTIONS" in ln for ln in wide.splitlines()))  # 兩欄
         ascii_ = self.m.render_live(self.st, 90, ascii_=True)
         self.assertTrue(all(ord(c) < 128 for c in ascii_), [c for c in ascii_ if ord(c) >= 128])
         self.assertNotIn("\033", text)                       # 沒開顏色就沒有控制碼

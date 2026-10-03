@@ -2349,9 +2349,9 @@ def idle_alerts(db, t=None, minutes=None):
             vram = sum(m.get("vram_mb") or 0 for m in latest)
             out.append({"kind": "idle_model", "machine": name, "idle_minutes": int(idle // 60),
                         "models": sorted({m["name"] for m in latest}), "vram_mb": vram or None,
-                        "message": "%s: %s loaded but idle for %s%s" % (
+                        "message": T("a_idle") % (
                             name, ", ".join(sorted({m["name"] for m in latest})), fmt_dur(idle),
-                            (" (holding %s MB)" % format(vram, ",")) if vram else "")})
+                            (T("a_hold") % format(vram, ",")) if vram else "")})
     return out
 
 
@@ -3574,6 +3574,31 @@ def panel(left, right, lines, width, load=0.0):
     return rows
 
 
+def wrap(text, width, indent=""):
+    """依顯示寬度折行（全形字算兩格）；英文在空白處斷，中文可以在任何字之間斷。"""
+    out, line = [], ""
+    for word in re.split(r"(\s+)", text):
+        if not word:
+            continue
+        if vlen(line) + vlen(word) <= width:
+            line += word
+        elif word.isspace():
+            out.append(line.rstrip())
+            line = indent
+        elif vlen(indent + word) > width or not all(ord(c) < 128 for c in word):
+            for ch in word:  # 太長的字或中文：逐字放，放不下就換行
+                if vlen(line) + vlen(ch) > width:
+                    out.append(line.rstrip())
+                    line = indent
+                line += ch
+        else:
+            out.append(line.rstrip())
+            line = indent + word
+    if line.strip():
+        out.append(line.rstrip())
+    return out or [""]
+
+
 def led():
     return "o" if _ascii else theme()["led"]
 
@@ -3775,8 +3800,21 @@ def insights(db, t=None):
         src = names.get(r["source"], r["source"])
         if r["recommend"] and r["options"]:
             best = [o for o in r["options"] if o["name"] == r["recommend"]][0]
-            args = {"src": src, "peak": r["peak_percent"] or 0, "win": r["peak_window"] or "?",
-                    "plan": best["name"], "usd": best["usd"], "proj": best["projected_peak"]}
+            args = {"src": src, "peak": r["peak_percent"] or 0, "win": limit_label(r["peak_window"] or "?"),
+                    "plan": best["name"], "usd": best["usd"], "proj": best["projected_peak"], "reset": "", "alt": ""}
+            if not best["fits"]:
+                cur = [x for x in current_limits(db, t) if x["source"] == r["source"]]
+                hot = max(cur, key=lambda x: x["used_percent"]) if cur else None
+                if hot and hot["resets_in"]:
+                    args["reset"] = T("i_reset") % fmt_dur(hot["resets_in"])
+                others = [x for x in current_limits(db, t) if x["source"] != r["source"]]
+                spare = {}
+                for x in others:
+                    spare[x["source"]] = min(spare.get(x["source"], 100.0), 100.0 - x["used_percent"])
+                if spare:
+                    o, left = max(spare.items(), key=lambda kv: kv[1])
+                    if left >= 10:
+                        args["alt"] = T("i_alt") % (names.get(o, o), round(left))
             if best["name"] == r["current"]:
                 out.append({"kind": "plan", "text": T("i_plan_ok" if best["fits"] else "i_plan_max") % args})
             else:
@@ -3844,15 +3882,15 @@ UI = {
         "node": "NODE", "local": "LOCAL", "ssh": "SSH", "ago": "%s ago", "load": "load %.1f",
         "kwh_month": "%.2f kWh this month, AI %s", "busy": "busy", "idle": "idle",
         "no_model": "no model loaded", "rate": "%d req/5m, %s tok/s", "rate_tok": "%s tok/s",
-        "no_server": "no inference server found", "usage": "AI USAGE", "api_equiv": "API-equivalent",
-        "resets": "resets in %s", "d14": "14d", "today_x": "today %s", "line_today": "today $%s", "tok_req": "%s tokens, %s requests", "tok_only": "%s tokens",
+        "no_server": "no inference server found", "usage": "AI SUBSCRIPTIONS & SPEND", "api_equiv": "$ = value at API prices",
+        "resets": "resets in %s", "d14": "last 14 days", "today_x": "today %s", "line_today": "today $%s", "tok_req": "%s tokens, %s requests", "tok_only": "%s tokens",
         "no_usage": "no usage yet - run computai --sync", "today": "today", "month": "month",
         "forecast": "forecast", "cloud": "CLOUD", "alerts": "ALERTS", "clear": "all clear",
         "compute": "COMPUTE", "machines_n": "%d machines", "machine_1": "1 machine", "machines": "MACHINES",
         "compact": "compact: enlarge the window for details", "no_gpu": "no GPU",
         "no_machines": "no machines yet: add them under [machines] in config.ini",
         "foot": ["q quit", "-n SEC refresh", "computai --web for the browser", "--analyze for advice"],
-        "plan_unset": "plan not set: computai --setup", "gpus_n": "%d GPUs", "fits": "%.1f GB free: room for a ~%s model (4-bit)",
+        "plan_unset": "monthly fee not set (computai --setup)", "gpus_n": "%d GPUs", "fits": "%.1f GB free: room for a ~%s model (4-bit)",
         "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "local": "Local models",
                                      "cloud": "Cloud GPUs", "anthropic-api": "Anthropic API",
                                      "openai-api": "OpenAI API"},
@@ -3902,31 +3940,43 @@ UI = {
         "su_review": "Review", "su_nothing": "Nothing changed.", "su_removed": "removed", "su_save": "Save these changes?",
         "su_cancel": "Nothing was saved.", "su_saved": "Saved to %s (the old file is config.ini.bak).",
         "su_next": "Next: computai --doctor checks everything; computai opens the dashboard.",
+        "worth": "used %s worth", "plan_fee": "plan %s/mo (%s)", "value_x": "%.1fx your money back",
+        "spent": "spent %s", "local_free": "%s tokens \u00b7 free apart from electricity",
+        "win": {"5h": "5-hour limit", "week": "weekly limit"}, "used_up": "used up", "used_pct": "%d%% used",
+        "today_worth": "today %s worth", "today_spent": "today %s",
+        "sum_value": "Usage value: %s this month, %s today (at API prices)",
+        "sum_pay": "You will actually pay about %s this month (plans + cloud + electricity)",
+        "over_budget": "over the %s budget",
+        "hdr_limit": "%s %s %d%% used", "hdr_reset": "resets in %s", "hdr_today": "today's usage worth %s",
+        "power_now": "drawing %s now", "gpu_avg": "GPU avg %s",
         "advice": "ADVICE", "w_advice": "Advice",
+        "i_reset": " (it resets in %s)", "i_alt": "; meanwhile %s still has %d%% left",
+        "a_idle": "%s: %s is loaded but has not been used for %s%s - stop it or let it unload to free the memory",
+        "a_hold": ", holding %s MB",
         "wk_title": "ComputAI weekly report (%s - %s)", "wk_src": "%s: %s (%s tokens out%s)",
         "wk_none": "no AI usage recorded", "wk_peaks": "limit peaks: ", "wk_machines": "machines: ",
         "wk_total": "total at API prices: %s",
-        "i_plan_down": "%(src)s: peak was %(peak)d%% of the %(win)s limit; %(plan)s ($%(usd)d) would peak near %(proj)d%%",
-        "i_plan_up": "%(src)s: reached %(peak)d%% of the %(win)s limit; %(plan)s ($%(usd)d) would peak near %(proj)d%%",
-        "i_plan_ok": "%(src)s: plan fits, peak %(peak)d%% of the %(win)s limit",
-        "i_plan_max": "%(src)s: hit %(peak)d%% of the %(win)s limit and no bigger plan is listed",
-        "i_api": "%(src)s: pay-as-you-go would have cost only %(cost)s in 30 days",
-        "i_cache": "prompt-cache rewrites cost %(cost)s this month; %(expired)d of %(n)d came after an idle gap",
-        "i_offpeak": "%(machine)s: moving AI work off-peak would save %(save).2f %(cur)s",
+        "i_plan_down": "%(src)s: you never used more than %(peak)d%% of the %(win)s - %(plan)s ($%(usd)d/month) would probably be enough",
+        "i_plan_up": "%(src)s: you hit %(peak)d%% of the %(win)s - %(plan)s ($%(usd)d/month) would give you room (about %(proj)d%%)",
+        "i_plan_ok": "%(src)s: your plan is the right size (at most %(peak)d%% of the %(win)s used)",
+        "i_plan_max": "%(src)s: the %(win)s is used up%(reset)s, and you are already on the biggest plan listed%(alt)s",
+        "i_api": "%(src)s: paying per use would have cost only %(cost)s over the last 30 days - less than the plan",
+        "i_cache": "After a pause of more than 5 minutes (or an hour), the next message re-sends the whole conversation. That happened %(n)d times this month and used %(cost)s worth of extra quota. After a long break, a new conversation (or /compact) is cheaper.",
+        "i_offpeak": "%(machine)s: running AI work at night or on weekends (off-peak) would have saved %(save).2f %(cur)s",
     },
     "zh": {
         "node": "節點", "local": "本機", "ssh": "SSH", "ago": "%s 前", "load": "負載 %.1f",
         "kwh_month": "本月 %.2f 度，AI 佔 %s", "busy": "推論中", "idle": "閒置",
         "no_model": "沒有載入模型", "rate": "5 分鐘 %d 個請求，%s tok/s", "rate_tok": "%s tok/s",
-        "no_server": "沒有找到推論服務", "usage": "AI 用量", "api_equiv": "等值 API 花費",
-        "resets": "%s 後重置", "d14": "14天", "today_x": "今天 %s", "line_today": "今天 $%s", "tok_req": "%s token、%s 個請求", "tok_only": "%s token",
+        "no_server": "沒有找到推論服務", "usage": "AI 訂閱與花費", "api_equiv": "金額 = 照 API 價格算的價值",
+        "resets": "%s 後重置", "d14": "近 14 天", "today_x": "今天 %s", "line_today": "今天 $%s", "tok_req": "%s token、%s 個請求", "tok_only": "%s token",
         "no_usage": "還沒有用量，先跑 computai --sync", "today": "今天", "month": "本月",
         "forecast": "月底預估", "cloud": "雲端", "alerts": "警示", "clear": "一切正常",
         "compute": "算力", "machines_n": "%d 台機器", "machine_1": "1 台機器", "machines": "機器",
         "compact": "精簡模式：視窗放大可以看細節", "no_gpu": "無 GPU",
         "no_machines": "還沒有機器：在 config.ini 的 [machines] 加上去",
         "foot": ["q 離開", "-n 秒數 更新間隔", "computai --web 開網頁版", "--analyze 看建議"],
-        "plan_unset": "還沒設月費：computai --setup", "gpus_n": "%d 張 GPU", "fits": "還有 %.1f GB：放得下約 %s 的模型（4-bit）",
+        "plan_unset": "還沒設月費（computai --setup）", "gpus_n": "%d 張 GPU", "fits": "還有 %.1f GB：放得下約 %s 的模型（4-bit）",
         "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "local": "本地模型",
                                       "cloud": "雲端 GPU", "anthropic-api": "Anthropic API",
                                       "openai-api": "OpenAI API"},
@@ -3976,17 +4026,29 @@ UI = {
         "su_review": "確認", "su_nothing": "沒有任何變更。", "su_removed": "刪除", "su_save": "要存檔嗎？",
         "su_cancel": "沒有存任何東西。", "su_saved": "已存到 %s（舊的檔案是 config.ini.bak）。",
         "su_next": "接下來：computai --doctor 檢查全部；直接打 computai 開總帳畫面。",
+        "worth": "用了價值 %s 的量", "plan_fee": "月費 %s（%s）", "value_x": "回本 %.1f 倍",
+        "spent": "花了 %s", "local_free": "%s token \u00b7 只花電費",
+        "win": {"5h": "5 小時額度", "week": "每週額度"}, "used_up": "已用完", "used_pct": "已用 %d%%",
+        "today_worth": "今天價值 %s", "today_spent": "今天 %s",
+        "sum_value": "用量價值：本月 %s、今天 %s（照 API 價格算）",
+        "sum_pay": "這個月實際約要付 %s（月費＋雲端＋電費）",
+        "over_budget": "超過 %s 的預算",
+        "hdr_limit": "%s %s已用 %d%%", "hdr_reset": "%s 後重置", "hdr_today": "今天用量價值 %s",
+        "power_now": "目前 %s", "gpu_avg": "GPU 平均 %s",
         "advice": "建議", "w_advice": "建議",
+        "i_reset": "（%s 後重置）", "i_alt": "；這段時間可以先用 %s（還剩 %d%%）",
+        "a_idle": "%s：%s 已經載入，但 %s 沒有被用到%s，關掉或讓它卸載就能釋放記憶體",
+        "a_hold": "，佔著 %s MB",
         "wk_title": "ComputAI 週報（%s ～ %s）", "wk_src": "%s：%s（輸出 %s token%s）",
         "wk_none": "這週沒有 AI 用量", "wk_peaks": "額度最高：", "wk_machines": "機器耗電：",
         "wk_total": "等值 API 花費合計：%s",
-        "i_plan_down": "%(src)s：%(win)s 額度最高只用到 %(peak)d%%，改用 %(plan)s（$%(usd)d）約 %(proj)d%%",
-        "i_plan_up": "%(src)s：%(win)s 額度已經用到 %(peak)d%%，改用 %(plan)s（$%(usd)d）約 %(proj)d%%",
-        "i_plan_ok": "%(src)s：方案剛好，%(win)s 額度最高用到 %(peak)d%%",
-        "i_plan_max": "%(src)s：%(win)s 額度用到 %(peak)d%%，而且已經是清單裡最大的方案",
-        "i_api": "%(src)s：過去 30 天直接付 API 只要 %(cost)s",
-        "i_cache": "本月快取重寫多花了 %(cost)s；%(n)d 次裡有 %(expired)d 次是閒置太久",
-        "i_offpeak": "%(machine)s：AI 工作挪到離峰可以省 %(save).2f %(cur)s",
+        "i_plan_down": "%(src)s：%(win)s最多只用到 %(peak)d%%，改用 %(plan)s（每月 $%(usd)d）應該就夠了",
+        "i_plan_up": "%(src)s：%(win)s用到 %(peak)d%%，改用 %(plan)s（每月 $%(usd)d）會比較寬裕（約 %(proj)d%%）",
+        "i_plan_ok": "%(src)s：方案大小剛好（%(win)s最多用到 %(peak)d%%）",
+        "i_plan_max": "%(src)s：%(win)s已經用完%(reset)s，而且已經是最大的方案%(alt)s",
+        "i_api": "%(src)s：過去 30 天如果改成用多少付多少，只要 %(cost)s，比月費便宜",
+        "i_cache": "對話暫停超過 5 分鐘（或 1 小時）後，下一則訊息會把整段對話重新送一次。這個月發生 %(n)d 次，多用了價值 %(cost)s 的額度。休息很久之後，開新對話（或先 /compact）會比較省。",
+        "i_offpeak": "%(machine)s：如果 AI 工作改在晚上或週末（離峰）跑，可以省 %(save).2f %(cur)s",
     },
 }
 _lang = "en"
@@ -4143,8 +4205,13 @@ def machine_panel(m, width, energy=None, error=None):
     return panel(left, right, lines, width, load)
 
 
+def limit_label(name):
+    """額度視窗的白話名稱：5h -> 5 小時額度、week -> 每週額度。"""
+    return T("win").get(name, name)
+
+
 def usage_panel(st, width):
-    """AI 用量：每個來源的花費、方案價值、額度長條、最近 14 天的花費走勢。"""
+    """AI 訂閱與花費。金額分兩種，寫清楚：訂閱的是「照 API 價格算的價值」，雲端和 API 是真的花掉的錢。"""
     lines = []
     lim = {}
     for r in st["limits"]:
@@ -4152,39 +4219,45 @@ def usage_panel(st, width):
     daily = st.get("daily") or {"days": [], "sources": {}}
     bar_w = 16 if width >= 70 else 10
     for x in st["sources"]:
-        name = T("src").get(x["source"], x["source"])
+        src = x["source"]
+        name = T("src").get(src, src)
         plan = x.get("plan")
-        tail = ""
-        if plan:
-            ratio = plan["value_ratio"] or 0
-            col = GREEN if ratio >= 1 else AMBER
-            tail = dim("  %s %s -> " % (plan["name"], fmt_usd(plan["fee_in_range"]))) + rgb(col, "%.1fx" % ratio)
-        elif x.get("plan_missing"):
-            tail = "  " + rgb(AMBER, T("plan_unset"))
-        lines.append(" %s %s%s" % (bold(cell(name, 14)), rgb(CYAN, "%9s" % fmt_usd(x["cost_usd"])), tail))
-        for r in sorted(lim.pop(x["source"], []), key=lambda r: r["window_minutes"] or 0):
-            when = dim(T("resets") % fmt_dur(r["resets_in"])) if r["resets_in"] is not None else ""
-            lines.append("   %s %s %3.0f%%  %s" % (dim(cell(r["name"], 5)), gradbar(r["used_percent"], bar_w),
-                                                 r["used_percent"], when))
-        series = daily["sources"].get(x["source"])
+        if src == "local":
+            lines.append(" %s %s" % (bold(cell(name, 14)), T("local_free") % fmt_tok(x["tokens"])))
+            continue
+        if src in SUBSCRIPTION_SOURCES:
+            bits = [rgb(CYAN, T("worth") % fmt_usd(x["cost_usd"]))]
+            if plan:
+                ratio = plan["value_ratio"] or 0
+                bits.append(dim(T("plan_fee") % (fmt_usd(plan["fee_in_range"]), plan["name"])))
+                bits.append(rgb(GREEN if ratio >= 1 else AMBER, T("value_x") % ratio))
+            elif x.get("plan_missing"):
+                bits.append(rgb(AMBER, T("plan_unset")))
+        else:
+            bits = [rgb(MAG, T("spent") % fmt_usd(x["cost_usd"]))]
+        lines.append(" %s %s" % (bold(cell(name, 14)), dim(sym(" \u00b7 ", " | ")).join(bits)))
+        for r in sorted(lim.pop(src, []), key=lambda r: r["window_minutes"] or 0):
+            used = r["used_percent"]
+            state = rgb(RED, T("used_up")) if used >= 99.5 else T("used_pct") % used
+            when = dim(" " + sym("\u00b7", "|") + " " + T("resets") % fmt_dur(r["resets_in"])) if r["resets_in"] is not None else ""
+            lines.append("   %s %s %s%s" % (dim(cell(limit_label(r["name"]), 12)), gradbar(used, bar_w), state, when))
+        series = daily["sources"].get(src)
         if series and any(series):
-            lines.append("   %s %s %s" % (dim(cell(T("d14"), 5)), spark(series, len(series), top=max(series), color=CYAN),
-                                           dim(T("today_x") % fmt_usd(series[-1]))))
-        if x["source"] == "local" and x["tokens"]:
-            lines.append(dim("   " + (T("tok_req") % (fmt_tok(x["tokens"]), fmt_tok(x["requests"])) if x["requests"]
-                                      else T("tok_only") % fmt_tok(x["tokens"]))))
+            lines.append("   %s %s %s" % (dim(cell(T("d14"), 12)), spark(series, len(series), top=max(series), color=CYAN),
+                                           dim(T("today_worth" if src in SUBSCRIPTION_SOURCES else "today_spent")
+                                               % fmt_usd(series[-1]))))
     for src, rows in lim.items():  # 有額度但這個月還沒有用量的來源
         for r in rows:
-            lines.append(" %s %s %3.0f%%" % (bold(cell(T("src").get(src, src), 14)),
-                                            gradbar(r["used_percent"], bar_w), r["used_percent"]))
+            lines.append(" %s %s %s %s" % (bold(cell(T("src").get(src, src), 14)), dim(limit_label(r["name"])),
+                                          gradbar(r["used_percent"], bar_w), T("used_pct") % r["used_percent"]))
     if not lines:
         lines.append(dim(" " + T("no_usage")))
     f = st["forecast"]
     lines.append("")
-    lines.append(" %s %s   %s %s   %s %s" % (dim(T("today")), bold(fmt_usd(st["today_usd"])), dim(T("month")),
-                                           bold(fmt_usd(st["total_cost_usd"])), dim(T("forecast")),
-                                           bold(rgb(RED if f.get("over_budget") else CYAN,
-                                                    fmt_usd(f["projected_usd"])))))
+    lines.append(" " + T("sum_value") % (bold(fmt_usd(st["total_cost_usd"])), bold(fmt_usd(st["today_usd"]))))
+    pay = bold(rgb(RED if f.get("over_budget") else CYAN, fmt_usd(f["projected_usd"])))
+    lines.append(" " + T("sum_pay") % pay + (("  " + rgb(RED, T("over_budget") % fmt_usd(f["budget_usd"])))
+                                            if f.get("over_budget") else ""))
     return panel(bold(T("usage")) + " " + dim(st["month"]), dim(T("api_equiv")), lines, width, 0)
 
 
@@ -4201,7 +4274,11 @@ def cloud_panel(st, width):
 
 def alerts_panel(st, width):
     warn_ = "!" if _ascii else "⚠"
-    lines = [" %s %s" % (rgb(RED, warn_), a["message"]) for a in st["alerts"]] or [dim(" " + T("clear"))]
+    lines = []
+    for a in st["alerts"]:
+        for i, ln in enumerate(wrap(a["message"], max(20, width - 6))):
+            lines.append(" %s %s" % (rgb(RED, warn_) if i == 0 else " ", ln))
+    lines = lines or [dim(" " + T("clear"))]
     return panel(bold(T("alerts")), dim("%d" % len(st["alerts"])) if st["alerts"] else "", lines, width,
                  100 if st["alerts"] else 0)
 
@@ -4211,7 +4288,28 @@ def advice_panel(st, width):
     if not items:
         return []
     arrow = sym("\u2192", "->")
-    return panel(bold(T("advice")), "", [" %s %s" % (rgb(CYAN, arrow), x["text"]) for x in items], width, 0)
+    lines = []
+    for x in items:
+        for i, ln in enumerate(wrap(x["text"], max(20, width - 4 - vlen(arrow)))):
+            lines.append(" %s %s" % (rgb(CYAN, arrow) if i == 0 else " " * vlen(arrow), ln))
+    return panel(bold(T("advice")), "", lines, width, 0)
+
+
+def header_parts(st):
+    """標頭那一行的白話版：每個訂閱最吃緊的額度、重置時間、今天的用量價值。"""
+    parts = []
+    for p_ in st["line"]["limits"]:
+        used = p_["used_percent"]
+        txt = T("hdr_limit") % (p_["label"], limit_label(p_["window"]), round(used))
+        if used >= 90 and p_["resets_in"] is not None:
+            txt += " (" + T("hdr_reset") % fmt_dur(p_["resets_in"]) + ")"
+        parts.append(rgb(RED, txt) if used >= 99.5 else txt)
+    parts.append(T("hdr_today") % fmt_usd(st["line"]["today_usd"]))
+    return parts
+
+
+def header_text(st):
+    return dim(sym(" \u00b7 ", " | ")).join(header_parts(st))
 
 
 def render_live(st, width=100, color=False, ascii_=False, height=None, theme_name=None):
@@ -4223,7 +4321,14 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
     brand = (rgb(MAG, h0) + bold(rgb(CYAN, "COMPUTAI")) + rgb(MAG, h1) + rgb(GREY, " // NEON LEDGER")
              if _theme == "cyber" and not _ascii else bold("ComputAI"))
     head = "%s %s  %s   %s" % (rgb(CYAN, led()), brand,
-                               dim(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))), st["line_text"])
+                               dim(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))), header_text(st))
+    if vlen(head) > width:  # 太長就把用量摘要移到下一行並折行，不裁掉重置時間
+        sep, rows = dim(sym(" \u00b7 ", " | ")), [""]
+        for part in header_parts(st):  # 在分隔點之間換行，每一段保持完整
+            if rows[-1] and vlen(rows[-1] + sep + part) > width - 2:
+                rows.append("")
+            rows[-1] += (sep if rows[-1] else "") + part
+        head = head[:head.rindex("   ")] + "".join("\n  " + ln for r in rows for ln in wrap(r, width - 2))
     two = width >= 150
     col = (width - 2) // 2 if two else width
     errors = {a["machine"]: a for a in st["alerts"] if a["kind"] == "machine_unreachable"}
@@ -4258,11 +4363,11 @@ def render_live(st, width=100, color=False, ascii_=False, height=None, theme_nam
             n = max(len(m["history"]["power"]) for m in st["machines"])
             total = [sum((m["history"]["power"][-n + i] or 0) if len(m["history"]["power"]) >= n - i else 0
                          for m in st["machines"]) for i in range(n)]
-            bits.append(rgb(MAG, "%.0f W" % watts) + " " + spark(total, 12, color=MAG, relative=True))
+            bits.append(T("power_now") % rgb(MAG, "%.0f W" % watts) + " " + spark(total, 12, color=MAG, relative=True))
         utils = [g["util"] for m in st["machines"] for g in m.get("gpus") or [] if g.get("util") is not None]
         if utils:
             avg = sum(utils) / len(utils)
-            bits.append("GPU " + rgb(heat(avg), "%d%%" % round(avg)))
+            bits.append(T("gpu_avg") % rgb(heat(avg), "%d%%" % round(avg)))
         rate = sum(m["recent"]["tok_s"] for m in st["machines"])
         if rate:
             bits.append(rgb(GREEN, "%s tok/s" % rate))

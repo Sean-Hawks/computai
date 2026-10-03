@@ -74,3 +74,13 @@ class HtmlThemes(unittest.TestCase):
         self.assertIn('<body class="cyber">', m.render_recap_html(r, "cyber"))
         self.assertNotIn('class="cyber"', m.render_recap_html(r, "classic"))
         self.assertIn("--s1:#00a3bf", m.REPORT_CSS)                 # 驗證過的霓虹配色
+
+
+class Wrap(unittest.TestCase):
+    def test_wrap(self):
+        m = helpers.load()
+        self.assertEqual(m.wrap("one two three four", 9), ["one two", "three", "four"])
+        lines = m.wrap("對話暫停超過五分鐘後下一則訊息會重新送", 10)
+        self.assertTrue(all(m.vlen(x) <= 10 for x in lines))
+        self.assertEqual("".join(lines), "對話暫停超過五分鐘後下一則訊息會重新送")
+        self.assertEqual(m.wrap("", 5), [""])

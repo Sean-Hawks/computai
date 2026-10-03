@@ -155,7 +155,7 @@ class Sampling(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         a = alerts[0]
         self.assertEqual((a["machine"], a["models"], a["idle_minutes"]), ("mac", ["qwen3:0.6b"], 20))
-        self.assertIn("idle for 20m", a["message"])
+        self.assertIn("has not been used for 20m", a["message"])
         self.assertEqual(self.m.idle_alerts(self.db, t=10000 + 1200, minutes=30), [])
         # 太久沒有取樣就不知道現在的狀況，不發警示
         self.assertEqual(self.m.idle_alerts(self.db, t=10000 + 1200 + 3600), [])
