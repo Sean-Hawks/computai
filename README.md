@@ -226,6 +226,7 @@ The snippet `--card --setup` adds to your README:
 
 ## Privacy and security
 
+- Codex limits for your whole account (every machine and person on it) come from asking the official `codex` CLI (`codex app-server`, `account/rateLimits/read`) every 10 minutes. The CLI uses its own login; ComputAI only receives percentages and reset times (`[codex] poll_minutes = 0` turns it off).
 - Reads only usage fields from your logs. Prompts and responses are never read into the
   ledger, stored or sent anywhere. `~/.codex/auth.json` and Claude's OAuth tokens are never read.
 - API keys come from environment variables or a `chmod 600` `secrets.ini`, and never appear in

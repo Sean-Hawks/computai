@@ -65,6 +65,7 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--once` | 印一次 live 畫面就結束（會先讀 log、取樣機器）。 |
 | `--card --setup` | 幾個問題設定好 GitHub 個人頁卡片（找到或 clone 個人頁 repo、產生第一張卡片、加進 README）。 |
 | `--watch` | 不開畫面：在背景更新帳本並送通知（見「通知」）。 |
+| `--codex-limits` | 現在就透過 codex 程式讀 Codex 帳號的額度（包含別台電腦、別人用的）。 |
 | `--limit-reset claude\|codex` | 手動標記某個訂閱的額度已經重置（提早重置時 log 看不到）；下次讀到真的數字就會取代。 |
 | `--notify-test` | 送一則測試通知。 |
 | `--install-watch`／`--uninstall-watch` | 登入時自動在背景跑 `--watch`，或取消。 |

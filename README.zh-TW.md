@@ -224,6 +224,7 @@ computai --card --publish ~/Documents/you/assets --push
 
 ## 隱私與安全
 
+- Codex 整個帳號的額度（每台電腦、每個人用的都算）是每 10 分鐘問一次官方的 `codex` 程式（`codex app-server` 的 `account/rateLimits/read`）。登入由它自己處理，ComputAI 只拿到百分比和重置時間（`[codex] poll_minutes = 0` 關掉）。
 - 只讀 log 裡的用量欄位，prompt 和回應不會讀進帳本、不會儲存、也不會傳到任何地方。
   不讀 `~/.codex/auth.json` 和 Claude 的 OAuth token。
 - 金鑰只從環境變數或權限 600 的 `secrets.ini` 讀，不會出現在 log、`--json`、`/metrics` 或錯誤訊息裡。
