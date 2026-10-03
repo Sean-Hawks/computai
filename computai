@@ -4932,6 +4932,31 @@ def serve_mcp(db, stdin=None, stdout=None):
 
 # ---------------------------------------------------------------- 指令
 
+HELP_GROUPS = (
+    ("reports", ("sync", "summary", "month", "since", "until", "by", "analyze", "report", "html", "weekly", "send",
+                 "recap", "csv", "totals", "who", "lab", "payback", "gpu_watts", "hours_per_day", "rent_per_hour")),
+    ("dashboards", ("live", "once", "interval", "web", "line", "statusline", "sep", "lang")),
+    ("machines and cloud", ("sample", "discover", "wake", "cloud", "proxy", "listen", "upstream", "machine",
+                            "sample_every", "no_usage_injection")),
+    ("integrations", ("mcp",)),
+)
+
+
+def group_help(p):
+    """--help 照用途分組：把已經定義好的選項搬進各組（只影響 help 的排版）。"""
+    by_dest = {a.dest: a for a in p._actions}
+    for title, dests in HELP_GROUPS:
+        g = p.add_argument_group(title)
+        for d in dests:
+            a = by_dest.get(d)
+            if a is None:
+                continue
+            for other in p._action_groups:
+                if a in other._group_actions and other is not g:
+                    other._group_actions.remove(a)
+            g._group_actions.append(a)
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(
         prog="computai",
@@ -4985,7 +5010,7 @@ def parse_args(argv=None):
                    help="web dashboard with /metrics (default 127.0.0.1:8765, works on phones)")
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
-    p.add_argument("--html", metavar="FILE", help="with --report: write the report as an HTML page")
+    p.add_argument("--html", metavar="FILE", help="with --report or --recap: write an HTML page")
     p.add_argument("--weekly", action="store_true", help="the last 7 days as a short report")
     p.add_argument("--send", action="store_true",
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
@@ -5003,6 +5028,7 @@ def parse_args(argv=None):
     p.add_argument("--lang", choices=sorted(UI), help="language of the live and web dashboards (default: [general] lang)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
+    group_help(p)
     return p.parse_args(argv)
 
 
