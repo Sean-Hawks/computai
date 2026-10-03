@@ -157,3 +157,33 @@ class Csv(unittest.TestCase):
             db.close()
         finally:
             sb.close()
+
+
+class Lab(unittest.TestCase):
+    def test_totals_and_lab(self):
+        m = helpers.load()
+        sb = helpers.Sandbox()
+        try:
+            os.makedirs(sb.root, exist_ok=True)
+            db = m.open_ledger(":memory:")
+            m.add_usage(db, [dict(source="claude", uid="1", ts=100, model="claude-opus-5-5",
+                                  project="/secret/thesis", output=1000000)])
+            t = m.totals(db, 0, 1000, "2026-09", "alice")
+            self.assertNotIn("secret", json.dumps(t))               # 不帶專案名稱
+            self.assertEqual(t["sources"]["claude"]["tokens"], 1000000)
+            folder = os.path.join(sb.root, "lab")
+            os.makedirs(folder)
+            for who, cost in (("alice", 20.0), ("bob", 5.5)):
+                d = dict(t, who=who, total_cost_usd=cost)
+                d["sources"] = {"claude": dict(t["sources"]["claude"], cost_usd=cost)}
+                with open(os.path.join(folder, who + ".json"), "w") as f:
+                    json.dump(d, f)
+            with open(os.path.join(folder, "junk.json"), "w") as f:
+                f.write("{not json")
+            rows, total, srcs = m.lab(folder)
+            self.assertEqual([r["who"] for r in rows], ["alice", "bob"])
+            self.assertEqual(total["sources"]["claude"]["cost_usd"], 25.5)
+            self.assertIn("total", m.render_lab(rows, total, srcs))
+            db.close()
+        finally:
+            sb.close()

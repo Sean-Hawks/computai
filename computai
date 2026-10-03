@@ -4754,6 +4754,66 @@ h1 { margin:0; font-size:15px; color:#56d3f0; letter-spacing:.12em; }
 """ % {"year": r["year"], "tiles": tiles, "models": models})
 
 
+# ---- 實驗室彙總（--totals 匯出、--lab 合併）
+#
+# 每個人匯出自己的月總額（只有來源、模型的金額和 token，沒有專案、session、機器以外的名稱），
+# 放到共用資料夾，--lab 讀整個資料夾做成一張表。
+
+def totals(db, start, end, label, who=None):
+    s = summary(db, start, end, plan_table={})
+    return {"computai_totals": 1, "who": who or getpass_user(), "month": label,
+            "sources": {x["source"]: {"cost_usd": round(x["cost_usd"], 2),
+                                      "tokens": sum(x["totals"][c] for c in ("input", "cache_read", "cache_write_5m",
+                                                                             "cache_write_1h", "output")),
+                                      "models": {m["model"]: round(m["cost_usd"] or 0, 2) for m in x["models"]}}
+                        for x in s["sources"]},
+            "kwh": round(sum(r["kwh"] for r in machine_report(db, start, end)), 3),
+            "total_cost_usd": s["total_cost_usd"]}
+
+
+def getpass_user():
+    import getpass
+    try:
+        return getpass.getuser()
+    except Exception:
+        return "me"
+
+
+def lab(folder):
+    """讀資料夾裡所有 --totals 的 JSON。回傳 (每個人的列, 合計)。看不懂的檔案略過。"""
+    rows = []
+    for name in sorted(os.listdir(folder)):
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if isinstance(d, dict) and d.get("computai_totals") == 1:
+            rows.append(d)
+    srcs = sorted({k for r in rows for k in r.get("sources", {})})
+    total = {"who": "total", "month": ",".join(sorted({str(r.get("month")) for r in rows})),
+             "sources": {k: {"cost_usd": round(sum(r["sources"].get(k, {}).get("cost_usd", 0) for r in rows), 2),
+                             "tokens": sum(r["sources"].get(k, {}).get("tokens", 0) for r in rows)} for k in srcs},
+             "kwh": round(sum(r.get("kwh") or 0 for r in rows), 3),
+             "total_cost_usd": round(sum(r.get("total_cost_usd") or 0 for r in rows), 2)}
+    return rows, total, srcs
+
+
+def render_lab(rows, total, srcs):
+    if not rows:
+        return "No computai --totals files in that folder."
+    head = "%s %-8s" % (cell("who", 16), "month") + "".join(" %12s" % cell(s, 12) for s in srcs) + " %9s %12s" % (
+        "kWh", "total")
+    lines = [head]
+    for r in rows + [total]:
+        lines.append("%s %-8s" % (cell(str(r.get("who")), 16), str(r.get("month"))[:8]) +
+                     "".join(" %12s" % fmt_usd(r["sources"].get(s, {}).get("cost_usd", 0)) for s in srcs) +
+                     " %9.2f %12s" % (r.get("kwh") or 0, fmt_usd(r.get("total_cost_usd"))))
+    return "\n".join(lines)
+
+
 # ---- CSV 匯出（--csv）
 
 CSV_COLS = ("time", "source", "model", "project", "session", "requests", "input", "cache_read",
@@ -4931,6 +4991,9 @@ def parse_args(argv=None):
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
     p.add_argument("--recap", nargs="?", const=0, type=int, metavar="YEAR",
                    help="a year in review (default: this year); with --html, a shareable card")
+    p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
+    p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
+    p.add_argument("--lab", metavar="DIR", help="combine everyone's --totals files in a shared folder into one table")
     p.add_argument("--csv", metavar="FILE", help="write every usage record in the range to a CSV file")
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
@@ -4987,7 +5050,7 @@ def local_hostname():
 
 
 ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake")
+           "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
 
 
 def run(args, db):
@@ -5081,6 +5144,18 @@ def run(args, db):
             print("computai: wrote %s" % args.html)
             return 0
         emit(r, render_recap(r), args.json)
+        return 0
+    if args.lab:
+        rows, total, srcs = lab(args.lab)
+        emit({"people": rows, "total": total}, render_lab(rows, total, srcs), args.json)
+        return 0
+    if args.totals:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        start, end, label = pick_range(args)
+        with open(args.totals, "w", encoding="utf-8") as f:
+            json.dump(totals(db, start, end, label, args.who), f, ensure_ascii=False, indent=1)
+        print("computai: wrote %s" % args.totals)
         return 0
     if args.csv:
         if not args.no_sync:
