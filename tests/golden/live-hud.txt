@@ -1,5 +1,5 @@
  ◎ COMPUTAI  AI COMPUTE LEDGER  │  Month 2026-09                               ● 2/2 NODES ONLINE   2026-09-21 14:13:20 
- [1 OVERVIEW] 2 LIMITS  3 MACHINES  4 LOCAL MODELS  5 SPEND 
+ [1 OVERVIEW] 2 LIMITS  3 MACHINES  4 LOCAL MODELS  5 SPEND  6 TIMELINE 
  [WATCH] Codex weekly limit has only 7% left - resets in 8h20m
 
 ╭─ LIMITS ─────────────────────────────────────────────────────────────────────────────────────────── 1 nearly used up ╮
@@ -34,4 +34,4 @@
 │                                                                             │ │                                      │
 │                                                                             │ │                                      │
 ╰─────────────────────────────────────────────────────────────────────────────╯ ╰──────────────────────────────────────╯
-1-5 switch tabs · Tab next · q quit · computai --web for the browser
+1-6 switch tabs · Tab next · q quit · computai --web for the browser

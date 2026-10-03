@@ -294,7 +294,7 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 
 ## Dashboards
 
-- `computai` / `--live` (cyber theme) has tabs: **1 overview** (fits one screen: limit gauges, one line per machine, spend, the top alerts and advice), **2 limits**, **3 machines**, **4 local models**, **5 spend**; `1`-`5` or `Tab` switch, `q` quits. Limits show what is left by default (`[general] limits = used` flips it). The panels, top to bottom:
+- `computai` / `--live` (cyber theme) has tabs: **1 overview** (fits one screen: limit gauges, one line per machine, spend, the top alerts and advice), **2 limits**, **3 machines**, **4 local models**, **5 spend**, **6 timeline**; `1`-`6` or `Tab` switch, `q` quits. Limits show what is left by default (`[general] limits = used` flips it). The panels, top to bottom:
   - **Verdict**: ALL CLEAR, WATCH or ALERT and the worst problem in plain words
     ("Codex weekly limit is used up - resets in 4h43m · +1 more").
   - **LIMITS**: a thick gauge per limit window with its percentage. A white `┃` marks how much of the
@@ -444,6 +444,18 @@ plain `git push` (so the branch needs an upstream). In the profile `README.md`:
 ```
 
 The card shows a snapshot; run the command again (for example from cron) to refresh it.
+
+## Agent timeline
+
+Tab 6 (and `computai --timeline`) draws today as a Gantt chart from timestamps and token counts only: one row per
+Claude or Codex session (`@laptop` when it ran on another device) or local model, subagents indented under their
+session, darker blocks for denser tokens, dots where a session was open but idle, and `↶` for a session that
+started before midnight. Under it: the moment with the most agents at once (▲), the longest stretch (◆) and
+the longest wait (◇), and a one-line summary ("Today your agents worked 6.2 hours, up to 4 at once; the
+priciest hour was 14:00"). It fits a 60-column terminal.
+
+`computai --timeline --svg FILE` writes the same chart as an SVG without project or machine names (rows read
+"Claude 1", "Codex 2" and local model names), and Wrapped shows the busiest day's timeline.
 
 ## Which agent now (`--pick`)
 
