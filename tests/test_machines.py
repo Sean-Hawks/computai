@@ -24,6 +24,7 @@ class Snapshot(unittest.TestCase):
         s = self.m.remote_script([("ollama", 11434), ("vllm", 8000)])
         self.assertIn("echo '@@svc ollama 11434'", s)
         self.assertIn("get http://127.0.0.1:8000/metrics | grep -E '^(vllm:", s)
+        self.assertIn("@@svcinfo llamacpp 8080", self.m.remote_script([("llamacpp", 8080)]))
         self.assertIn("/usr/lib/wsl/lib", s.split("@@cpu")[0])   # WSL 的 nvidia-smi 不在 ssh 的 PATH 裡
 
     def test_mac_with_ollama(self):
@@ -56,7 +57,8 @@ class Snapshot(unittest.TestCase):
         self.assertEqual([g["idx"] for g in d["gpus"]], ["0", "1"])   # card0 排在 card1 前面
         self.assertEqual(d["gpus"][1]["power"], 18.0)
         self.assertEqual(d["gpus"][1]["mem_used"], 8192.0)
-        self.assertEqual(d["services"][0]["counters"]["llamacpp"], {"prompt": 5000.0, "generation": 1200.0})
+        self.assertEqual(d["services"][0]["counters"]["qwen3-0.6b-q8_0"], {"prompt": 5000.0, "generation": 1200.0})
+        self.assertEqual(d["services"][0]["models"][0]["name"], "qwen3-0.6b-q8_0")   # 從 /v1/models 拿到的名稱
         self.assertEqual(d["services"][0]["running"], 0.0)
 
     def test_gpu_model_name(self):

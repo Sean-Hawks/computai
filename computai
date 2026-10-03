@@ -1312,6 +1312,9 @@ def remote_script(services):
             cmd += " | head -c 400000"
         lines.append(cmd)
         lines.append("echo")  # 回應最後沒有換行時，下一段的標題才不會黏上去
+        if kind == "llamacpp":  # llama.cpp 的 metrics 沒有模型名稱，另外問 /v1/models
+            lines += ["echo '@@svcinfo %s %d'" % (kind, port),
+                      "get http://127.0.0.1:%d/v1/models | head -c 20000" % port, "echo"]
     return REMOTE.replace("@GPU_Q@", GPU_Q).replace("@SERVICES@", "\n".join(lines))
 
 
@@ -1595,8 +1598,23 @@ def snapshot(host, services):
             _, kind, port = key.split()
             svc = parse_service(kind, int(port), body)
             if svc:
+                name = model_name(secs.get("svcinfo %s %s" % (kind, port)))
+                if name and list(svc["counters"]) == [kind]:   # 計數器沒有標模型時換成真正的名稱
+                    svc["counters"] = {name: svc["counters"][kind]}
+                    svc["models"] = [{"name": name, "vram_mb": None}]
                 d["services"].append(svc)
     return d
+
+
+def model_name(body):
+    """OpenAI 相容的 /v1/models 回應裡唯一（或第一個）模型的名稱；路徑只留檔名。"""
+    try:
+        data = json.loads(body or "").get("data") or []
+        mid = str(data[0].get("id") or "") if data else ""
+    except (ValueError, AttributeError, IndexError):
+        return None
+    mid = mid.replace("\\", "/").rsplit("/", 1)[-1]
+    return mid[:-5] if mid.lower().endswith(".gguf") else (mid or None)
 
 
 PROM_LINE = re.compile(r'^([a-zA-Z_:][\w:]*)(\{[^}]*\})?\s+([-+0-9.eE]+|NaN|\+Inf)')

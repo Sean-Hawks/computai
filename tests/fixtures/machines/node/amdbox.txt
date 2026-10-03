@@ -15,3 +15,5 @@ card0 0 1073741824 17163091968 38000 - -
 llamacpp:prompt_tokens_total 5000
 llamacpp:tokens_predicted_total 1200
 llamacpp:requests_processing 0
+@@svcinfo llamacpp 8080
+{"object":"list","data":[{"id":"models/qwen3-0.6b-q8_0.gguf","object":"model","owned_by":"llamacpp"}]}
