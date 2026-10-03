@@ -313,3 +313,8 @@ class CardSetup(unittest.TestCase):
             importlib.reload(__import__("shutil"))
         self.assertEqual(code, 1)
         self.assertIn("github.com/<you>/<you>", text)
+
+    def test_doctor_points_to_card_setup(self):
+        items = [x for x in self.m.doctor(self.db, sample=False) if x["area"] == "card"]
+        self.assertEqual(items[0]["level"], "tip")
+        self.assertEqual(items[0]["fix"], "computai --card --setup")

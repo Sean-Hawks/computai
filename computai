@@ -4193,7 +4193,10 @@ UI = {
         "w_kwh_month": "kWh this month", "w_cloud": "Cloud GPUs", "w_cols": ["Instance", "GPU", "Status", "GPU use", "Price"],
         "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "Subscriptions", "machine": "Machines",
-                    "machines": "Machines", "power": "Electricity", "prices": "Prices", "secrets": "Keys"},
+                    "machines": "Machines", "power": "Electricity", "prices": "Prices", "secrets": "Keys",
+                    "card": "Profile card"},
+        "dr_card_off": "no GitHub profile card yet", "dr_card_missing": "the card folder %s is gone",
+        "dr_card_stale": "the card was last written %s ago", "dr_card_ok": "card in %s, updated %s ago (daily %s)",
         "dr_logs": "%s logs found (%d files)", "dr_nologs": "no %s logs (looked in %s)",
         "dr_plan": "%s plan: %s, %s/month", "dr_plan_det": "the logs say %r",
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
@@ -4356,7 +4359,10 @@ UI = {
         "w_kwh_month": "本月度數", "w_cloud": "雲端 GPU", "w_cols": ["機器", "GPU", "狀態", "GPU 使用率", "價格"],
         "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "訂閱", "machine": "機器",
-                    "machines": "機器", "power": "電價", "prices": "價格", "secrets": "金鑰"},
+                    "machines": "機器", "power": "電價", "prices": "價格", "secrets": "金鑰",
+                    "card": "個人頁卡片"},
+        "dr_card_off": "還沒有 GitHub 個人頁卡片", "dr_card_missing": "卡片資料夾 %s 不見了",
+        "dr_card_stale": "卡片上次更新是 %s 前", "dr_card_ok": "卡片在 %s，%s 前更新（每天 %s）",
         "dr_logs": "找到 %s 的 log（%d 個檔案）", "dr_nologs": "沒有 %s 的 log（找過 %s）",
         "dr_plan": "%s 方案：%s，每月 %s", "dr_plan_det": "log 裡記錄的是 %r",
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
@@ -7885,6 +7891,21 @@ def doctor(db, sample=True):
                                                               if secret(k)]
     if keys:
         add("secrets", "ok", T("dr_keys") % ", ".join(keys))
+    # 個人頁卡片
+    cs = card_settings()
+    if not cs["repo"]:
+        add("card", "tip", T("dr_card_off"), "computai --card --setup")
+    elif not os.path.isdir(cs["repo"]):
+        add("card", "todo", T("dr_card_missing") % cs["repo"], "computai --card --setup")
+    else:
+        svg = os.path.join(cs["repo"], CARD_FILES["dark"])
+        age = t - os.path.getmtime(svg) if os.path.exists(svg) else None
+        if age is None or age > 2 * 86400:
+            add("card", "tip", T("dr_card_stale") % (fmt_dur(age) if age else "-"),
+                "computai --install-watch" if not watch_installed() else "computai --card --publish %s%s"
+                % (cs["repo"], " --push" if cs["push"] else ""))
+        else:
+            add("card", "ok", T("dr_card_ok") % (cs["repo"], fmt_dur(age), "push" if cs["push"] else "commit"))
     return out
 
 
