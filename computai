@@ -4547,6 +4547,96 @@ def export_csv(db, start, end, path, prices=None):
     return n
 
 
+# ---- MCP server（--mcp）
+#
+# 讓 agent（Claude Code、Codex……）自己查用量、額度和預算。走 stdio，一行一個 JSON-RPC 訊息。
+# 只提供唯讀的查詢，不會改設定、不會呼叫外部服務。
+
+MCP_TOOLS = [
+    {"name": "usage_summary", "description": "AI usage and API-equivalent cost per source and model for a month "
+     "(default: this month), with subscription value.",
+     "inputSchema": {"type": "object", "properties": {"month": {"type": "string", "description": "YYYY-MM"}}}},
+    {"name": "limits", "description": "Subscription limit windows (Claude, Codex): percent used and time until reset.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "budget", "description": "Month-end spend forecast, budget status and today's cost.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "machines", "description": "Machines and GPUs: utilisation, power, loaded local models, and how large "
+     "a model still fits.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "advice", "description": "Short advice: plan changes, prompt-cache waste, off-peak savings.",
+     "inputSchema": {"type": "object", "properties": {}}},
+]
+
+
+def mcp_call(db, name, args):
+    if name == "usage_summary":
+        start, end, label = month_range((args or {}).get("month") or None)
+        s = summary(db, start, end, label=label)
+        return {"month": label, "total_cost_usd": s["total_cost_usd"],
+                "sources": [{"source": x["source"], "cost_usd": round(x["cost_usd"], 2), "plan": x.get("plan"),
+                             "models": [{"model": mm["model"], "cost_usd": mm["cost_usd"], "output": mm["output"]}
+                                        for mm in x["models"]]} for x in s["sources"]]}
+    if name == "limits":
+        return {"limits": [{"source": r["source"], "window": r["name"], "used_percent": r["used_percent"],
+                            "resets_in_seconds": r["resets_in"]} for r in current_limits(db)]}
+    if name == "budget":
+        ts, te = today_range()
+        return dict(forecast(db), today_usd=round(summary(db, ts, te, plan_table={})["total_cost_usd"], 2))
+    if name == "machines":
+        return {"machines": [{k: m.get(k) for k in ("machine", "age", "cpu_pct", "gpu_util", "power_w", "ai_active",
+                                                     "loaded", "fits")} for m in latest_samples(db)],
+                "alerts": [a["message"] for a in machine_alerts() + idle_alerts(db) + cloud_alerts(db)]}
+    if name == "advice":
+        return {"advice": [x["text"] for x in insights(db)]}
+    raise KeyError(name)
+
+
+def mcp_handle(db, msg):
+    """處理一個 JSON-RPC 訊息，回傳要送回去的訊息（通知不用回）。"""
+    mid, method, params = msg.get("id"), msg.get("method"), msg.get("params") or {}
+    if mid is None:
+        return None  # notifications/initialized 之類的通知
+    def ok(result):
+        return {"jsonrpc": "2.0", "id": mid, "result": result}
+    if method == "initialize":
+        return ok({"protocolVersion": params.get("protocolVersion") or "2025-06-18",
+                   "capabilities": {"tools": {}}, "serverInfo": {"name": "computai", "version": __version__}})
+    if method == "ping":
+        return ok({})
+    if method == "tools/list":
+        return ok({"tools": MCP_TOOLS})
+    if method == "tools/call":
+        try:
+            data = mcp_call(db, params.get("name"), params.get("arguments") or {})
+            return ok({"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False)}]})
+        except KeyError:
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32602, "message": "unknown tool"}}
+        except SystemExit as e:
+            return ok({"content": [{"type": "text", "text": str(e)}], "isError": True})
+    return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "method not found"}}
+
+
+def serve_mcp(db, stdin=None, stdout=None):
+    stdin, stdout = stdin or sys.stdin, stdout or sys.stdout
+    last_sync = 0.0
+    for line in stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            out = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
+        else:
+            if msg.get("method") == "tools/call" and time.time() - last_sync > 30:
+                sync(db, quiet=True)  # 回答之前先讀新的 log（最多 30 秒一次）
+                last_sync = time.time()
+            out = mcp_handle(db, msg) if isinstance(msg, dict) else None
+        if out is not None:
+            stdout.write(json.dumps(out, ensure_ascii=False) + "\n")
+            stdout.flush()
+    return 0
+
+
 # ---------------------------------------------------------------- 指令
 
 def parse_args(argv=None):
@@ -4567,6 +4657,8 @@ def parse_args(argv=None):
                    help="read every machine in [machines] once (CPU, GPU, power, loaded models)")
     p.add_argument("--discover", action="store_true",
                    help="look for machines in ~/.ssh/config and Tailscale, test SSH, print config lines")
+    p.add_argument("--mcp", action="store_true",
+                   help="run as an MCP server on stdio so agents can query usage, limits and budget")
     p.add_argument("--cloud", action="store_true",
                    help="list your RunPod, Vast.ai and Lambda GPUs (read-only API calls)")
     p.add_argument("--proxy", action="store_true",
@@ -4656,7 +4748,7 @@ def local_hostname():
 
 
 ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "report", "once", "discover", "csv")
+           "report", "once", "discover", "csv", "mcp")
 
 
 def run(args, db):
@@ -4691,6 +4783,8 @@ def run(args, db):
         add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()), only_changes=True)
         db.commit()
         args.line = True
+    if args.mcp:
+        return serve_mcp(db)
     if args.discover:
         found = discover()
         emit(found, render_discover(found), args.json)
