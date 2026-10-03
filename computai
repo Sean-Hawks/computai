@@ -3547,6 +3547,66 @@ def heat(pct):
     return stops[-1][1]
 
 
+# 3×5 點陣大字：每兩列點陣用半格方塊（▀▄█）合成一列，所以一個字是 3 欄寬、3 列高。
+BIG_FONT = {
+    "0": "111 101 101 101 111", "1": "010 110 010 010 111", "2": "111 001 111 100 111",
+    "3": "111 001 111 001 111", "4": "101 101 111 001 001", "5": "111 100 111 001 111",
+    "6": "111 100 111 101 111", "7": "111 001 001 010 010", "8": "111 101 111 101 111",
+    "9": "111 101 111 001 111", "%": "101 001 010 100 101", "$": "011 110 010 011 110",
+    ".": "000 000 000 000 010", ":": "000 010 000 010 000", "-": "000 000 111 000 000",
+    "/": "001 001 010 100 100", "k": "100 101 110 101 101", "M": "101 111 111 101 101",
+    "h": "100 100 111 101 101", "m": "000 000 111 111 101", "d": "001 001 111 101 111",
+    "W": "101 101 111 111 101", "x": "000 101 010 101 000", " ": "000 000 000 000 000",
+}
+
+
+def bigtext(s):
+    """把數字和少數符號畫成 3 列高的大字（回傳 3 個字串）；字型裡沒有的字元當空白。
+    ASCII 模式用 # 和空白畫（一樣 3 列）。"""
+    rows = ["", "", ""]
+    for ch in s:
+        g = BIG_FONT.get(ch, BIG_FONT[" "]).split() + ["000"]
+        for r in range(3):
+            top, bot = g[2 * r], g[2 * r + 1]
+            for a, b in zip(top, bot):
+                if _ascii:
+                    rows[r] += "#" if a == "1" or b == "1" else " "
+                else:
+                    rows[r] += {"11": "\u2588", "10": "\u2580", "01": "\u2584", "00": " "}[a + b]
+            rows[r] += " "
+    return [r[:-1] for r in rows]
+
+
+def braille(vals, width, top=None, rows=1, color=None):
+    """點字走勢圖：一格 2 個取樣 × 4 個點高，比 ▁▂▃ 細四倍；rows 可以疊好幾列。
+    從底部填滿（面積圖）。沒有資料的地方留白；ASCII 模式退回一般走勢。"""
+    if _ascii:
+        return [spark(vals, width, top=top or 100.0, color=color)] + [""] * (rows - 1)
+    v = [x for x in (vals or [])][-(width * 2):]
+    known = [x for x in v if x is not None]
+    top = top or (max(known) if known else 1.0) or 1.0
+    v = [None] * (width * 2 - len(v)) + v
+    levels = rows * 4
+    h = [None if x is None else max(1 if x > 0 else 0, int(round(min(1.0, x / top) * levels))) for x in v]
+    # 點字的點位：左欄 1 2 3 7（上到下），右欄 4 5 6 8
+    left, right = (0x01, 0x02, 0x04, 0x40), (0x08, 0x10, 0x20, 0x80)
+    out = []
+    for r in range(rows):
+        base = (rows - 1 - r) * 4      # 這一列從第幾個點高開始
+        line = ""
+        for c in range(width):
+            code = 0
+            for col, bits in ((h[2 * c], left), (h[2 * c + 1], right)):
+                if col is None:
+                    continue
+                fill = max(0, min(4, col - base))
+                for k in range(fill):
+                    code |= bits[3 - k]
+            line += chr(0x2800 + code)
+        out.append(rgb(color or CYAN, line))
+    return out
+
+
 def gauge(pct, width, level="brand", marker=None):
     """粗的量表（額度用）：有顏色時用背景色塗滿整格，比細線長條醒目；marker（0-100）畫一條白線標出
     這個週期過了多久。沒有顏色時用 █ 和 ░，ASCII 用 # 和 .，標記都是 |。"""

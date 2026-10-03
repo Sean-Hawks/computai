@@ -90,3 +90,21 @@ class Wrap(unittest.TestCase):
         self.assertTrue(all(m.vlen(x) <= 10 for x in lines))
         self.assertEqual("".join(lines), "對話暫停超過五分鐘後下一則訊息會重新送")
         self.assertEqual(m.wrap("", 5), [""])
+
+
+class HudPrimitives(unittest.TestCase):
+    def setUp(self):
+        self.m = helpers.load()
+        self.m.set_style(color=False, theme="cyber")
+
+    def test_bigtext(self):
+        rows = self.m.bigtext("10%")
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(len({len(r) for r in rows}), 1)                  # 三列一樣寬
+        self.assertEqual(len(rows[0]), 3 * 4 - 1)                          # 每字 3 欄 + 1 格間距
+        self.assertEqual(self.m.bigtext("8"), ["█▀█", "█▀█", "▀▀▀"])
+
+    def test_braille(self):
+        self.assertEqual(self.m.braille([0, 100], 1, 100), ["⢸"])     # 左邊空、右邊滿
+        self.assertEqual(self.m.braille([100, 100], 1, 100, rows=2), ["⣿", "⣿"])
+        self.assertEqual(self.m.braille([], 3, 100), ["⠀" * 3])
