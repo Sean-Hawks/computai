@@ -66,8 +66,8 @@ DEFAULT_CONFIG = """\
 [general]
 # Shown next to USD totals. Set to 0 to hide.
 usd_to_local = 0
-# Language of the live and web dashboards: en or zh (Traditional Chinese).
-lang = en
+# Language of the dashboards: auto (follow the system), en, or zh (Traditional Chinese).
+lang = auto
 # Look of the terminal and web dashboards: cyber (neon) or classic.
 theme = cyber
 local_currency = TWD
@@ -4002,8 +4002,39 @@ def T(key):
 
 
 def config_lang(cp=None):
+    """[general] lang：en、zh，或 auto（預設，照系統語言）。"""
     cp = cp or load_config()
-    return (cp.get("general", "lang", fallback="en") or "en").strip().lower()[:2]
+    v = (cp.get("general", "lang", fallback="auto") or "auto").strip().lower()
+    return system_lang() if v in ("", "auto") else v[:2]
+
+
+_sys_lang = None
+
+
+def system_lang():
+    """系統語言是中文就用 zh，否則 en。先看 LC_ALL／LC_MESSAGES／LANG，macOS 再看系統偏好的語言
+    （終端機常常沒設 LANG），Windows 看 locale。"""
+    global _sys_lang
+    if _sys_lang is None:
+        _sys_lang = "en"
+        for k in ("LC_ALL", "LC_MESSAGES", "LANG"):
+            v = os.environ.get(k, "")
+            if v and v not in ("C", "POSIX") and not v.startswith("C."):
+                _sys_lang = "zh" if v.lower().startswith("zh") else "en"
+                return _sys_lang
+        if sys.platform == "darwin" and not os.environ.get("COMPUTAI_FIXTURES"):
+            out = run_cmd(["defaults", "read", "-g", "AppleLanguages"], timeout=3)
+            first = re.search(r'"?([A-Za-z-]+)"?', out.replace("(", "").strip())
+            if first and first.group(1).lower().startswith("zh"):
+                _sys_lang = "zh"
+        elif os.name == "nt":
+            import locale
+            try:
+                if (locale.getdefaultlocale()[0] or "").lower().startswith("zh"):
+                    _sys_lang = "zh"
+            except Exception:
+                pass
+    return _sys_lang
 
 
 def use_color(stream=None):

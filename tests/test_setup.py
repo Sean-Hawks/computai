@@ -261,3 +261,21 @@ class Wizard(unittest.TestCase):
         r = self.sb.run("--setup")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("needs a terminal", r.stderr)
+
+
+class Lang(unittest.TestCase):
+    def test_auto_from_environment(self):
+        old = dict(os.environ)
+        try:
+            m = helpers.load()
+            os.environ["LANG"] = "zh_TW.UTF-8"
+            self.assertEqual(m.system_lang(), "zh")
+            m = helpers.load()
+            os.environ["LANG"] = "en_US.UTF-8"
+            self.assertEqual(m.system_lang(), "en")
+            cp = m._ini()
+            cp.read_string("[general]\nlang = zh\n")
+            self.assertEqual(m.config_lang(cp), "zh")             # 明確指定的優先
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
