@@ -271,9 +271,17 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
   - **警示**和**建議**。
 
   每 `-n` 秒更新。`--once` 只印一次；終端機畫不出方塊字時自動改用 ASCII。
-- `--web`：打開 `http://127.0.0.1:8765/`。要在手機上看，保持只聽 loopback，用 SSH tunnel
-  （`ssh -L 8765:127.0.0.1:8765 主機`）或 `tailscale serve 8765`。`--web 0.0.0.0:8765` 會把你的用量、
-  專案名稱、機器公開給整個網路，會印出警告。
+- `--web`：打開 `http://127.0.0.1:8765/`。`--web 0.0.0.0:8765` 會把你的用量、專案名稱、機器公開給整個網路，
+  會印出警告；要從手機或別台電腦看，改用下面的方法。
+  - `computai --web --tailscale`（或直接 `computai --tailscale`）：伺服器仍然只聽 127.0.0.1，由 `tailscale serve`
+    用 HTTPS 轉到你自己的 tailnet。會印出 `https://my-mac.tail1234.ts.net/` 這樣的網址，停止時（Ctrl-C、關掉終端機、
+    服務停止）自動關掉轉發。不會搶別的 `tailscale serve` 已經在用的埠：443 被佔用就改用 8443 或 10000。
+    沒有 Tailscale 時會說明怎麼裝，不會退回 `0.0.0.0`。`computai --install-watch --tailscale` 讓它常駐背景
+    （服務跑的是 `--web --tailscale`，一樣會更新帳本和發通知）。
+  - SSH tunnel：`ssh -L 8765:127.0.0.1:8765 主機`。
+  - *Cloudflare Tunnel（還沒內建，規劃成進階選項）*：公開的網址任何人都連得到，所以 ComputAI 只會在那個網址前面設好
+    [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)（請求進來前先驗身分）時才開，
+    否則拒絕並說明原因。自己手動設的話，先加 Access 政策，再把 tunnel 指到 `http://127.0.0.1:8765`。
 - `/metrics`：`computai_` 開頭的 gauge（每個來源的當月花費和 token、額度使用率、機器 CPU／GPU／功耗、
   雲端價格和 GPU 使用率、預測、各類警示數量）。
 - `--report --html 檔名`：一個可以保存或寄出的 HTML 檔。

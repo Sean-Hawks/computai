@@ -26,7 +26,8 @@ codex
 
 ![Live terminal dashboard: start-up check, then the HUD](docs/images/live.svg)
 
-`computai --web` gives the same view in a browser (phone layout included):
+`computai --web` gives the same view in a browser (phone layout included); `computai --tailscale` opens it on your
+own tailnet over HTTPS while the server stays on 127.0.0.1:
 
 ![Web dashboard](docs/images/web.png)
 
