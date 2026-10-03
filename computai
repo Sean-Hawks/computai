@@ -4055,7 +4055,14 @@ UI = {
         "a_idle": "%s: %s is loaded but has not been used for %s%s - stop it or let it unload to free the memory",
         "a_cloud_unknown": "%s %s is billing %s/h but its GPU use is unknown (set [cloud] ssh_user to read it)",
         "a_cloud_idle": "%s %s: the GPU has been idle for %s but is still billing %s/h (%s so far) - stop it if you are done",
-        "sampled": "read %s ago", "n_used_up": "%d used up", "n_high": "%d nearly used up", "nt_reset": "%s %s has reset - you can use it again",
+        "sampled": "read %s ago", "n_used_up": "%d used up", "n_high": "%d nearly used up", "b_machine": "machine", "b_service": "server", "b_model": "model", "b_speed": "speed", "b_power": "power",
+        "b_cost": "power $/1M tok", "b_nomodel": "no model to run", "b_noanswer": "no answer from the server",
+        "b_none": "No running inference server found (computai --discover shows what each machine runs).",
+        "b_api": "Cheapest API in prices.ini: %s at %s per 1M output tokens.",
+        "b_vs": "%s / %s: electricity is %.0fx cheaper per token than that (hardware not counted)",
+        "b_nopower": "Some machines have no power reading: set idle_watts / max_watts or a plug in [machine.NAME].",
+        "b_note": "Each server generated %d-token answers to the same fixed prompt for a few seconds; nothing is stored.",
+        "nt_reset": "%s %s has reset - you can use it again",
         "nt_full": "%s %s is used up - resets in %s.", "nt_alt": "%s still has %d%% left.",
         "nt_high": "%s %s is %d%% used.", "nt_pace": "At this pace it runs out in %s.",
         "nt_test": "Notifications work. You will hear from ComputAI when a limit runs low, runs out or resets.",
@@ -4157,7 +4164,14 @@ UI = {
         "a_idle": "%s：%s 已經載入，但 %s 沒有被用到%s，關掉或讓它卸載就能釋放記憶體",
         "a_cloud_unknown": "%s %s 每小時計費 %s，但看不到 GPU 有沒有在用（設定 [cloud] ssh_user 才讀得到）",
         "a_cloud_idle": "%s %s：GPU 已經閒置 %s，還在以每小時 %s 計費（目前多花 %s），用完了就關掉",
-        "sampled": "%s 前讀取", "n_used_up": "%d 個額度用完", "n_high": "%d 個額度快用完", "nt_reset": "%s %s重置了，可以繼續用",
+        "sampled": "%s 前讀取", "n_used_up": "%d 個額度用完", "n_high": "%d 個額度快用完", "b_machine": "機器", "b_service": "服務", "b_model": "模型", "b_speed": "速度", "b_power": "功耗",
+        "b_cost": "每百萬 token 電費", "b_nomodel": "沒有可以跑的模型", "b_noanswer": "服務沒有回應",
+        "b_none": "沒有找到正在跑的推論服務（computai --discover 看每台機器跑了什麼）。",
+        "b_api": "prices.ini 裡最便宜的 API：%s，每百萬輸出 token %s。",
+        "b_vs": "%s / %s：電費每 token 比它便宜 %.0f 倍（沒算硬體成本）",
+        "b_nopower": "有些機器讀不到功耗：在 [machine.名稱] 設定 idle_watts／max_watts 或智慧插座。",
+        "b_note": "每個服務用同一段固定題目，連續產生 %d token 的回答幾秒鐘；不會存任何內容。",
+        "nt_reset": "%s %s重置了，可以繼續用",
         "nt_full": "%s %s用完了，%s 後重置。", "nt_alt": "%s 還剩 %d%%。",
         "nt_high": "%s %s已用 %d%%。", "nt_pace": "照目前速度 %s 後用完。",
         "nt_test": "通知可以用了。額度快用完、用完、重置的時候，ComputAI 會告訴你。",
@@ -5713,6 +5727,157 @@ def watch_service(install=True):
     return ("installed" if not err else "written (systemctl: %s)" % err[0]), path
 
 
+# ---- 本地模型跑分（--bench）：在自己的機器上跑，划不划算？
+
+BENCH_PROMPT = "Explain in plain words how a refrigerator keeps food cold."  # 固定題目，不含任何使用者資料
+BENCH_TOKENS = 256
+BENCH_SECONDS = 8.0
+
+
+def bench_body(kind, model):
+    if kind == "ollama":
+        return "/api/generate", {"model": model, "prompt": BENCH_PROMPT, "stream": False,
+                                 "options": {"num_predict": BENCH_TOKENS, "temperature": 0}}
+    return "/v1/chat/completions", {"model": model, "messages": [{"role": "user", "content": BENCH_PROMPT}],
+                                    "max_tokens": BENCH_TOKENS, "temperature": 0, "stream": False}
+
+
+def bench_script(kind, port, model):
+    """在那台機器上用 curl 送一次生成，印出 API 回應和總耗時（@@time）。"""
+    path, body = bench_body(kind, model)
+    return ("command -v curl >/dev/null 2>&1 || { echo '@@error curl not found'; exit 0; }\n"
+            "curl -sS -m 300 -H 'Content-Type: application/json' -w '\\n@@time %%{time_total}\\n' "
+            "--data-binary @- http://127.0.0.1:%d%s <<'COMPUTAI_EOF'\n%s\nCOMPUTAI_EOF\n"
+            % (port, path, json.dumps(body)))
+
+
+def bench_models_script(kind, port):
+    path = "/api/tags" if kind == "ollama" else "/v1/models"
+    return ("if command -v curl >/dev/null 2>&1; then curl -fsS -m 5 http://127.0.0.1:%d%s; "
+            "else wget -qO- -T 5 http://127.0.0.1:%d%s; fi | head -c 200000" % (port, path, port, path))
+
+
+def bench_pick_model(kind, text, loaded):
+    """跑哪個模型：已經載入的優先（不用等載入）；Ollama 沒有載入的就挑最小的。"""
+    if loaded:
+        return loaded[0]
+    try:
+        d = json.loads(text or "{}")
+    except ValueError:
+        return None
+    if kind == "ollama":
+        ms = sorted(d.get("models") or [], key=lambda x: x.get("size") or 0)
+        return ms[0].get("name") if ms else None
+    ids = [x.get("id") for x in d.get("data") or [] if x.get("id")]
+    return ids[0] if ids else None
+
+
+def bench_parse(kind, text):
+    """一次生成的結果：(產生的 token 數, 生成花的秒數)。只讀用量欄位，模型寫的內容直接丟掉。"""
+    body, _, tail = (text or "").rpartition("@@time")
+    try:
+        total = float(tail.split()[0])
+        d = json.loads(body.strip() or "{}")
+    except (ValueError, IndexError):
+        return None
+    if kind == "ollama":
+        n, ns = d.get("eval_count"), d.get("eval_duration")
+        return (int(n), ns / 1e9) if n and ns else None
+    n = (d.get("usage") or {}).get("completion_tokens")
+    return (int(n), total) if n and total > 0 else None
+
+
+def bench(db, only=None):
+    """對每台機器上在跑的推論服務各跑幾次生成（合計至少 BENCH_SECONDS 秒），中途取樣一次功耗。
+    回傳每個服務一列：速度（tok/s）、功耗、每 token 幾焦耳、每百萬 token 電費、和最便宜的 API 比。"""
+    ms = [m for m in machines() if not only or m["name"] in only]
+    sample_machines(db, only=[m["name"] for m in ms])
+    latest = {r["machine"]: r for r in latest_samples(db)}
+    ps = power_settings()
+    price, _peak = price_at(now(), ps)
+    to_usd = (1.0 if ps["currency"] == "USD" else (1.0 / ps["usd_to_local"] if ps["usd_to_local"] else None))
+    api = sorted(((p["output"], name) for name, p in load_prices().items() if p.get("output")), key=lambda x: x[0])
+    rows = []
+    for m in ms:
+        snap = latest.get(m["name"])
+        for svc in (snap or {}).get("services") or []:
+            kind, port = svc["kind"], svc["port"]
+            loaded = [x["name"] for x in (snap.get("loaded") or []) if x.get("service") == kind]
+            model = bench_pick_model(kind, run_script(m["host"], bench_models_script(kind, port), timeout=15), loaded)
+            row = {"machine": m["name"], "service": "%s:%d" % (kind, port), "model": model, "tok_s": None,
+                   "power_w": None, "j_per_token": None, "usd_per_mtok": None, "error": None}
+            rows.append(row)
+            if not model:
+                row["error"] = T("b_nomodel")
+                continue
+            done, toks, secs = {}, [0], [0.0]
+
+            def work():
+                t0 = time.time()
+                while time.time() - t0 < BENCH_SECONDS and not done.get("stop"):
+                    out = untrusted(run_script(m["host"], bench_script(kind, port, model), timeout=320))
+                    if "@@error" in out:
+                        done["error"] = out.split("@@error", 1)[1].strip()[:120]
+                        return
+                    r = bench_parse(kind, out)
+                    if not r:
+                        done["error"] = T("b_noanswer")
+                        return
+                    toks[0] += r[0]
+                    secs[0] += r[1]
+            th = threading.Thread(target=work, daemon=True)
+            th.start()
+            th.join(BENCH_SECONDS / 2)          # 跑到一半取樣一次，量的是「正在生成」時的功耗
+            if th.is_alive():
+                sample_machines(db, only=[m["name"]])
+                cur = {r["machine"]: r for r in latest_samples(db)}.get(m["name"]) or {}
+                row["power_w"] = cur.get("power_w")
+            th.join(330)
+            done["stop"] = True
+            if done.get("error"):
+                row["error"] = done["error"]
+                continue
+            if not secs[0]:
+                row["error"] = T("b_noanswer")
+                continue
+            row["tok_s"] = round(toks[0] / secs[0], 1)
+            if row["power_w"] and row["tok_s"]:
+                row["j_per_token"] = round(row["power_w"] / row["tok_s"], 3)
+                if price and to_usd:
+                    row["usd_per_mtok"] = round(row["j_per_token"] * 1e6 / 3.6e6 * price * to_usd, 4)
+    return {"rows": rows, "api_cheapest": {"model": api[0][1], "usd_per_mtok": api[0][0]} if api else None,
+            "tokens": BENCH_TOKENS, "price_per_kwh": price, "currency": ps["currency"]}
+
+
+def render_bench(b):
+    cols = ((T("b_machine"), 14, False), (T("b_service"), 14, False), (T("b_model"), 22, False),
+            (T("b_speed"), 12, True), (T("b_power"), 7, True), ("J/token", 8, True), (T("b_cost"), 18, True))
+    row_ = lambda vals: " ".join(cell(v, w, tail=False) if not right else " " * max(0, w - vlen(v)) + v
+                                 for v, (_h, w, right) in zip(vals, cols))
+    lines = [row_([h for h, _w, _r in cols])]
+    for r in b["rows"]:
+        if r["error"]:
+            lines.append(row_([r["machine"], r["service"], r["model"] or "-"]) + " " + r["error"])
+            continue
+        lines.append(row_([r["machine"], r["service"], r["model"], "%.1f tok/s" % r["tok_s"],
+                           _num(r["power_w"], "%.0f W"), _num(r["j_per_token"], "%.2f"),
+                           fmt_usd(r["usd_per_mtok"]) if r["usd_per_mtok"] is not None else "-"]))
+    if not b["rows"]:
+        lines.append(T("b_none"))
+    api = b["api_cheapest"]
+    best = [r for r in b["rows"] if r["usd_per_mtok"]]
+    lines.append("")
+    if api:
+        lines.append(T("b_api") % (api["model"], fmt_usd(api["usd_per_mtok"])))
+    for r in best:
+        if api and r["usd_per_mtok"] > 0:
+            lines.append("  " + T("b_vs") % (r["machine"], r["model"], api["usd_per_mtok"] / r["usd_per_mtok"]))
+    if any(r["tok_s"] and r["power_w"] is None for r in b["rows"]):
+        lines.append(T("b_nopower"))
+    lines.append(T("b_note") % b["tokens"])
+    return "\n".join(lines)
+
+
 # ---- 年度回顧（--recap）
 
 def recap(db, year):
@@ -6563,6 +6728,8 @@ def parse_args(argv=None):
     p.add_argument("--watch", action="store_true",
                    help="no screen: keep the ledger fresh and notify when a limit runs low, runs out or resets")
     p.add_argument("--notify-test", action="store_true", help="send a test notification ([notify] in config.ini)")
+    p.add_argument("--bench", action="store_true",
+                   help="run each local model for a few seconds: tokens/s, watts, electricity per 1M tokens vs the API")
     p.add_argument("--install-watch", action="store_true",
                    help="start --watch automatically when you log in (launchd / systemd --user / Task Scheduler)")
     p.add_argument("--uninstall-watch", action="store_true", help="undo --install-watch")
@@ -6643,7 +6810,7 @@ def local_hostname():
 
 
 ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "watch", "notify_test", "install_watch", "uninstall_watch",
+           "watch", "notify_test", "install_watch", "uninstall_watch", "bench",
            "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
 
 
@@ -6690,6 +6857,10 @@ def run(args, db):
     if args.watch:
         db.close()
         return run_watch(args.interval, args.sample_every)
+    if args.bench:
+        b = bench(db, [args.machine] if args.machine else None)
+        emit(b, render_bench(b), args.json)
+        return 0
     if args.notify_test:
         settings = notify_settings()
         if not (settings["desktop"] or settings["chat"]):
