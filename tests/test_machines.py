@@ -274,3 +274,26 @@ class SshErrors(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old)
             sb.close()
+
+
+class Discover(unittest.TestCase):
+    def test_ssh_config_hosts(self):
+        m = helpers.load()
+        self.assertEqual(m.ssh_config_hosts(helpers.fixture("ssh", "config")),
+                         ["100.64.0.5", "gpu1", "gpu2", "quoted", "bastion"])
+
+    def test_discover_merges_tailscale_and_reports(self):
+        m = helpers.load()
+        m.ssh_config_hosts = lambda path=None: ["100.64.0.5", "gpu1"]
+        m.tailscale_peers = lambda: [("homelab", "100.64.0.5", "linux", True), ("phone", "100.64.0.9", "android", True),
+                                     ("nas", "100.64.0.7", "linux", True), ("old", "100.64.0.8", "linux", False)]
+        m.machines = lambda cp=None: [{"host": "gpu1"}]
+        m.try_ssh = lambda h, timeout=8: (True, "Linux x86_64") if h != "100.64.0.7" else (False, "Host key verification failed.")
+        found = {r["host"]: r for r in m.discover()}
+        self.assertEqual(sorted(found), ["100.64.0.5", "100.64.0.7", "gpu1"])   # 手機和離線的不試
+        self.assertEqual(found["100.64.0.5"]["name"], "homelab")
+        self.assertTrue(found["gpu1"]["configured"])
+        text = m.render_discover(list(found.values()))
+        self.assertIn("homelab = 100.64.0.5", text)
+        self.assertNotIn("gpu1 = gpu1", text)            # 已經設定過的不再建議
+        self.assertIn("known_hosts", text)

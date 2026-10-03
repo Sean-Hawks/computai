@@ -1361,6 +1361,10 @@ def ssh_hint(msg):
         return "it did not answer in time (Tailscale SSH waiting for a browser check?)"
     if "Could not resolve" in msg:
         return "the name does not resolve; try its Tailscale IP or MagicDNS name"
+    if "Connection refused" in msg:
+        return "no SSH server is listening there"
+    if "timed out" in msg:
+        return "unreachable from here (VPN, firewall or the machine is off?)"
     return ""
 
 
@@ -1837,6 +1841,107 @@ def record_sample(db, m, d, ts):
                 json.dumps(counters), json.dumps(detail)))
     add_usage(db, rows)
     return rows
+
+
+# ---- 找機器（--discover）
+
+def ssh_config_hosts(path="~/.ssh/config"):
+    """~/.ssh/config 裡的 Host 名稱（移植自 slurmtop 84cd35d）：萬用字元、否定、Match 區塊略過。"""
+    try:
+        with open(os.path.expanduser(path), encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return []
+    hosts = []
+    for ln in text.splitlines():
+        m = re.match(r"^\s*host\s*(?:=|\s)\s*(.+?)\s*$", ln.split("#", 1)[0], re.I)
+        if not m:
+            continue
+        for h in m.group(1).split():
+            h = h.strip('"')
+            if h and not re.search(r"[*?!]", h) and h not in hosts:
+                hosts.append(h)
+    return hosts
+
+
+def tailscale_peers():
+    """Tailscale 上的其他機器：[(名稱, IP, 作業系統, 是否在線)]。沒裝 Tailscale 就是空的。"""
+    exe = shutil.which("tailscale") or "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+    if not os.path.exists(exe) and not shutil.which("tailscale"):
+        return []
+    try:
+        d = json.loads(run_cmd([exe, "status", "--json"], timeout=10) or "{}")
+    except ValueError:
+        return []
+    out = []
+    for p in (d.get("Peer") or {}).values():
+        ips = [ip for ip in p.get("TailscaleIPs") or [] if "." in ip]
+        name = (p.get("HostName") or p.get("DNSName") or "").split(".")[0]
+        if ips and name:
+            out.append((name, ips[0], (p.get("OS") or "").lower(), bool(p.get("Online"))))
+    return out
+
+
+def try_ssh(host, timeout=8):
+    """能不能不經提示就用 ssh 登入；回傳 (成功, 系統資訊或錯誤原因)。"""
+    errs = []
+    out = run_cmd(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", host,
+                   "uname -sm; command -v nvidia-smi /usr/lib/wsl/lib/nvidia-smi 2>/dev/null | head -1"],
+                  timeout=timeout, errors=errs)
+    if out.strip():
+        lines = untrusted(out).strip().splitlines()
+        return True, lines[0] + (" + NVIDIA" if len(lines) > 1 else "")
+    return False, errs[-1] if errs else "no answer"
+
+
+def discover():
+    """候選機器：ssh config 的 Host、Tailscale 上在線的 Linux／macOS 機器（同一台優先用 IP，
+    因為 known_hosts 裡常常只記了 IP）。同時試連，回傳每台的結果。"""
+    cands = []
+    for h in ssh_config_hosts():
+        cands.append({"name": re.sub(r"[^\w-]", "-", h), "host": h, "via": "ssh config"})
+    have = {c["host"] for c in cands}
+    for name, ip, os_, online in tailscale_peers():
+        if not online or os_ not in ("linux", "macos", "darwin", "freebsd"):
+            continue
+        for c in cands:
+            if c["host"] in (name, ip):
+                c["via"] += " + tailscale"
+                if re.match(r"^[\d.]+$", c["host"]):  # ssh config 裡寫的是 IP：名字用 Tailscale 上的
+                    c["name"] = name
+                break
+        else:
+            if ip not in have:
+                cands.append({"name": name, "host": ip, "via": "tailscale"})
+    configured = {m["host"] for m in machines()}
+    results = [None] * len(cands)
+
+    def work(i, c):
+        ok, info = try_ssh(c["host"])
+        results[i] = dict(c, ok=ok, info=info, hint="" if ok else ssh_hint(info),
+                          configured=c["host"] in configured)
+    threads = [threading.Thread(target=work, args=(i, c), daemon=True) for i, c in enumerate(cands)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join(15)
+    return [r for r in results if r]
+
+
+def render_discover(found):
+    if not found:
+        return "No candidates found in ~/.ssh/config or Tailscale."
+    lines = []
+    for r in found:
+        mark = "ok " if r["ok"] else "-- "
+        state = r["info"] if r["ok"] else "%s%s" % (r["info"], ("; " + r["hint"]) if r["hint"] else "")
+        lines.append("%s %s %s %s%s" % (mark, cell(r["name"], 18), cell(r["host"], 22), state,
+                                        "  (already in config)" if r["configured"] else ""))
+    new = [r for r in found if r["ok"] and not r["configured"]]
+    if new:
+        lines += ["", "Add these under [machines] in %s:" % os.path.join(config_dir(), "config.ini"), ""]
+        lines += ["%s = %s" % (r["name"], r["host"]) for r in new]
+    return "\n".join(lines)
 
 
 def sample_machines(db, only=None, timeout=25):
@@ -4387,6 +4492,8 @@ def parse_args(argv=None):
                    help="break the summary down by model (default), project, session or day")
     p.add_argument("--sample", action="store_true",
                    help="read every machine in [machines] once (CPU, GPU, power, loaded models)")
+    p.add_argument("--discover", action="store_true",
+                   help="look for machines in ~/.ssh/config and Tailscale, test SSH, print config lines")
     p.add_argument("--cloud", action="store_true",
                    help="list your RunPod, Vast.ai and Lambda GPUs (read-only API calls)")
     p.add_argument("--proxy", action="store_true",
@@ -4475,7 +4582,7 @@ def local_hostname():
 
 
 ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "report", "once")
+           "report", "once", "discover")
 
 
 def run(args, db):
@@ -4510,6 +4617,10 @@ def run(args, db):
         add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()), only_changes=True)
         db.commit()
         args.line = True
+    if args.discover:
+        found = discover()
+        emit(found, render_discover(found), args.json)
+        return 0
     if args.cloud:
         insts, errors = sample_clouds(db)
         if not args.summary and not args.sample:
