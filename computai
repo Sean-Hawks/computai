@@ -75,6 +75,9 @@ theme = cyber
 limits = left
 # Play the short start-up animation of the live dashboard (cyber theme). --no-intro skips it once.
 intro = yes
+# Once a day, read the version line of computai on GitHub and say when a newer one is out.
+# Only that file is fetched; nothing about you or your usage is sent. no turns it off.
+update_check = yes
 local_currency = TWD
 
 [plans]
@@ -1575,6 +1578,78 @@ def fmt_usd(v):
     if abs(v) >= 1000:
         return "$%s" % format(int(round(v)), ",")
     return "$%.2f" % v
+
+
+UPDATE_URL = "https://raw.githubusercontent.com/Sean-Hawks/computai/main/computai"
+UPDATE_CMD = "curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh"
+
+
+def version_tuple(v):
+    """'0.1.0' -> (0, 1, 0)；'0.2.0b1' 這種預覽版排在 0.2.0 前面。"""
+    m = re.match(r"^\s*(\d+(?:\.\d+)*)(.*)$", v or "")
+    if not m:
+        return ()
+    return tuple(int(x) for x in m.group(1).split(".")) + ((0,) if m.group(2).strip() else (1,))
+
+
+def update_check_on(cp=None):
+    if os.environ.get("COMPUTAI_FIXTURES") or os.environ.get("COMPUTAI_NO_UPDATE_CHECK"):
+        return False
+    cp = cp or load_config()
+    return (cp.get("general", "update_check", fallback="yes") or "yes").strip().lower() not in ("no", "false", "0", "off")
+
+
+def fetch_latest_version(timeout=3):
+    """只讀 GitHub 上 computai 檔案的開頭（版本那一行），不帶任何使用者資料。讀不到回傳 None。"""
+    import urllib.request
+    req = urllib.request.Request(UPDATE_URL, headers={"Range": "bytes=0-2047", "User-Agent": "computai"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            head = r.read(4096).decode("utf-8", "replace")
+    except Exception:
+        return None
+    m = re.search(r'^__version__ = "([^"]+)"', head, re.M)
+    return m.group(1) if m else None
+
+
+def check_update(db, fetch=None, t=None):
+    """一天最多查一次有沒有新版；查過的結果放在帳本 meta。回傳比現在新的版本號，沒有就是 None。"""
+    if not update_check_on():
+        return None
+    t = now() if t is None else t
+    row = db.execute("SELECT value FROM meta WHERE key = 'update_checked'").fetchone()
+    if not row or t - _float(row["value"], 0) >= 86400:
+        latest = (fetch or fetch_latest_version)()
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('update_checked', ?)", (str(int(t)),))
+        if latest:
+            db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('update_latest', ?)", (latest,))
+        db.commit()
+    return newer_version(db)
+
+
+def newer_version(db):
+    """上次查到、比現在這份新的版本號（不連網）。"""
+    if not update_check_on():
+        return None
+    row = db.execute("SELECT value FROM meta WHERE key = 'update_latest'").fetchone()
+    if row and version_tuple(row["value"]) > version_tuple(__version__):
+        return row["value"]
+    return None
+
+
+def check_update_in_background():
+    """背景查一次（用自己的帳本連線），不擋住畫面；結果下次開啟時看得到。"""
+    def go():
+        try:
+            db = open_ledger()
+            try:
+                check_update(db)
+            finally:
+                db.close()
+        except Exception:
+            pass
+    if update_check_on():
+        threading.Thread(target=go, daemon=True).start()
 
 
 def ledger_empty(db):
@@ -4594,7 +4669,7 @@ UI = {
         "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "Subscriptions", "machine": "Machines",
                     "machines": "Machines", "power": "Electricity", "prices": "Prices", "secrets": "Keys",
-                    "card": "Profile card"},
+                    "card": "Profile card", "update": "Update"},
         "dr_card_off": "no GitHub profile card yet", "dr_card_missing": "the card folder %s is gone",
         "dr_card_stale": "the card was last written %s ago", "dr_card_ok": "card in %s, updated %s ago (daily %s)",
         "dr_logs": "%s logs found (%d files)", "dr_nologs": "no %s logs (looked in %s)",
@@ -4602,6 +4677,7 @@ UI = {
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
         "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
         "dr_cl_cli": "Claude account limits are read from the claude CLI at least every %d minutes (no status line needed)",
+        "dr_update": "computai %s is out (you have %s)", "update_note": "computai %s is out (you have %s); update: %s",
         "dr_next": "%s limits: next check %s (%s)", "dr_now": "now", "dr_in": "in %s",
         "why_first": "not read yet", "why_fixed": "fixed: every %s", "why_idle": "not being used: every %s",
         "why_calm": "nothing close to running out: every %s",
@@ -4798,7 +4874,7 @@ UI = {
         "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "訂閱", "machine": "機器",
                     "machines": "機器", "power": "電價", "prices": "價格", "secrets": "金鑰",
-                    "card": "個人頁卡片"},
+                    "card": "個人頁卡片", "update": "更新"},
         "dr_card_off": "還沒有 GitHub 個人頁卡片", "dr_card_missing": "卡片資料夾 %s 不見了",
         "dr_card_stale": "卡片上次更新是 %s 前", "dr_card_ok": "卡片在 %s，%s 前更新（每天 %s）",
         "dr_logs": "找到 %s 的 log（%d 個檔案）", "dr_nologs": "沒有 %s 的 log（找過 %s）",
@@ -4806,6 +4882,7 @@ UI = {
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
         "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
         "dr_cl_cli": "Claude 帳號額度從 claude 程式讀，最久 %d 分鐘一次（不用設 statusline）",
+        "dr_update": "computai 有新版 %s（你的是 %s）", "update_note": "computai 有新版 %s（你的是 %s），更新：%s",
         "dr_next": "%s 額度：%s再查（%s）", "dr_now": "現在", "dr_in": "%s 後",
         "why_first": "還沒讀過", "why_fixed": "固定每 %s", "why_idle": "沒在消耗 → 每 %s",
         "why_calm": "沒有快用完的額度 → 每 %s",
@@ -9065,6 +9142,10 @@ def doctor(db, sample=True):
             add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
         else:
             add("claude", "todo", T("dr_sl_none"), "computai --setup")
+    # 新版
+    newer = newer_version(db)
+    if newer:
+        add("update", "tip", T("dr_update") % (newer, __version__), UPDATE_CMD)
     # 帳號額度下次什麼時候查、為什麼（跟著消耗速度走）
     for src, name in (("claude", "Claude"), ("codex", "Codex")):
         row = db.execute("SELECT value FROM meta WHERE key = ?", (src + "_account_read",)).fetchone()
@@ -9896,10 +9977,26 @@ def main(argv=None):
         sys.stderr.write("computai: first run - settings are in %s. Run `computai --setup` to tailor them "
                          "(plans, machines, power), or `computai --doctor` to see what is detected.\n" % config_dir())
     db = open_ledger()
+    # 給人看的指令才查新版（背景、一天一次）；給程式讀的輸出（--json、statusline、MCP）不碰網路也不多印字
+    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp)
+    if human:
+        check_update_in_background()
     try:
-        return run(args, db)
+        code = run(args, db)
     finally:
         db.close()
+    if human and not args.doctor:
+        try:
+            db = open_ledger()
+            try:
+                newer = newer_version(db)
+            finally:
+                db.close()
+            if newer:
+                sys.stderr.write(T("update_note") % (newer, __version__, UPDATE_CMD) + "\n")
+        except Exception:
+            pass
+    return code
 
 
 def default_machine():

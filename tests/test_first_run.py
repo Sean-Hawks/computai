@@ -49,5 +49,27 @@ class FirstRun(unittest.TestCase):
         self.assertEqual(m.ask_plans_once(db, ask=lambda q: self.fail("asked twice")), 0)
 
 
+    def test_update_check_once_a_day(self):
+        old = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
+        os.environ.update(self.sb.env())
+        os.environ.pop("COMPUTAI_NO_UPDATE_CHECK", None)
+        m = helpers.load()
+        db = m.open_ledger()
+        self.addCleanup(db.close)
+        calls = []
+        fetch = lambda: calls.append(1) or "9.0.0"
+        self.assertEqual(m.check_update(db, fetch=fetch, t=1000), "9.0.0")
+        self.assertEqual(m.check_update(db, fetch=fetch, t=1000 + 3600), "9.0.0")   # 一天內不再連網
+        self.assertEqual(len(calls), 1)
+        m.check_update(db, fetch=lambda: calls.append(1) or m.__version__, t=1000 + 86400)
+        self.assertEqual((len(calls), m.newer_version(db)), (2, None))              # 已經是最新
+        self.assertTrue(m.version_tuple("0.2.0") > m.version_tuple("0.2.0b1") > m.version_tuple("0.1.0"))
+        m.write_config([("general", "update_check", "no")])
+        self.assertIsNone(m.check_update(db, fetch=lambda: self.fail("should not fetch"), t=10 ** 9))
+        os.environ["COMPUTAI_NO_UPDATE_CHECK"] = "1"
+        self.assertFalse(m.update_check_on())
+
+
 if __name__ == "__main__":
     unittest.main()
