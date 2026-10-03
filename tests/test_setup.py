@@ -243,7 +243,7 @@ class Wizard(unittest.TestCase):
         import json
         import stat
         code, text = self.run_wizard(
-            ["", "classic", "2", "c", "My Plus", "20", "", "y", "all", "y", "100,50", "2", "31.5", "300", "", "y", ""],
+            ["", "classic", "2", "c", "My Plus", "20", "", "y", "y", "y", "all", "y", "100,50", "2", "31.5", "300", "", "y", ""],
             secrets=["rp_SECRET"])
         self.assertEqual(code, 0)
         cfg = open(os.path.join(self.sb.config, "config.ini"), encoding="utf-8").read()
@@ -263,12 +263,19 @@ class Wizard(unittest.TestCase):
         self.assertNotIn("rp_SECRET", text)                       # 確認畫面上不會出現金鑰
         settings = json.load(open(os.path.join(self.cc, "settings.json")))
         self.assertTrue(settings["statusLine"]["command"].endswith("--statusline"))
+        # 額度護欄：hook 指到產生好的小腳本，嚴格模式寫進設定
+        pre = settings["hooks"]["PreToolUse"][0]
+        self.assertEqual(pre["matcher"], "Task|Agent")
+        self.assertTrue(pre["hooks"][0]["command"].endswith("claude-hook.py pretool"))
+        self.assertTrue(os.path.exists(self.m.hook_shim_path()))
+        self.assertIn("strict = yes", cfg)
+        self.assertIn("+", text)                                   # 裝之前有顯示 diff
 
     def test_wraps_existing_statusline_and_keeps_settings(self):
         import json
         with open(os.path.join(self.cc, "settings.json"), "w") as f:
             json.dump({"statusLine": {"type": "command", "command": "~/bin/my-line"}, "theme": "dark"}, f)
-        code, _ = self.run_wizard(["", "", "s", "s", "y", "n", "", "s", "", "", "", ""])
+        code, _ = self.run_wizard(["", "", "s", "s", "y", "n", "n", "", "s", "", "", "", ""])
         self.assertEqual(code, 0)
         settings = json.load(open(os.path.join(self.cc, "settings.json")))
         self.assertEqual(settings["theme"], "dark")
@@ -280,21 +287,21 @@ class Wizard(unittest.TestCase):
 
     def test_skip_everything_changes_nothing(self):
         before = open(os.path.join(self.sb.config, "config.ini")).read()
-        code, text = self.run_wizard(["", "", "s", "s", "n", "n", "s", "", "", "", "n"])
+        code, text = self.run_wizard(["", "", "s", "s", "n", "n", "n", "s", "", "", "", "n"])
         self.assertEqual(code, 0)
         self.assertIn("Nothing changed", text)
         self.assertEqual(open(os.path.join(self.sb.config, "config.ini")).read(), before)
 
     def test_cancel_saves_nothing(self):
         before = open(os.path.join(self.sb.config, "config.ini")).read()
-        code, _ = self.run_wizard(["", "", "1", "s", "n", "n", "s", "", "", "", "n", "n"])
+        code, _ = self.run_wizard(["", "", "1", "s", "n", "n", "n", "s", "", "", "", "n", "n"])
         self.assertEqual(code, 1)
         self.assertEqual(open(os.path.join(self.sb.config, "config.ini")).read(), before)
 
     def test_profile_card_step(self):
         repo = os.path.join(self.sb.root, "octocat")
         os.makedirs(os.path.join(repo, "assets"))
-        code, text = self.run_wizard(["", "", "s", "s", "n", "n", "s", "", "",
+        code, text = self.run_wizard(["", "", "s", "s", "n", "n", "n", "s", "", "",
                                       "y", os.path.join(repo, "assets"), "matrix", "n", "n", ""])
         self.assertEqual(code, 0)
         cfg = open(os.path.join(self.sb.config, "config.ini"), encoding="utf-8").read()
