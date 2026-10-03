@@ -262,7 +262,7 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 
 ## Dashboards
 
-- `computai` / `--live`, top to bottom:
+- `computai` / `--live` (cyber theme) has tabs: **1 overview** (fits one screen: limit gauges, one line per machine, spend, the top alerts and advice), **2 limits**, **3 machines**, **4 local models**, **5 spend**; `1`-`5` or `Tab` switch, `q` quits. Limits show what is left by default (`[general] limits = used` flips it). The panels, top to bottom:
   - **Verdict**: ALL CLEAR, WATCH or ALERT and the worst problem in plain words
     ("Codex weekly limit is used up - resets in 4h43m · +1 more").
   - **LIMITS**: a thick gauge per limit window with its percentage. A white `┃` marks how much of the

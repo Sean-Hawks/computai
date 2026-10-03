@@ -90,7 +90,7 @@ computai --discover --add             # add every reachable machine with suggest
 ## Use
 
 ```sh
-computai                          # live dashboard: compute, AI usage, alerts (q to quit)
+computai                          # live dashboard: tabs 1-5 (overview, limits, machines, local models, spend), q quits
 computai --summary --month        # this month; --since 2026-09-01, --by project|day|session
 computai --line                   # Claude 42%｜Codex 100% (1d0h)｜today $6.9
 computai --analyze                # forecast, plan check, cache waste, energy

@@ -71,7 +71,7 @@ computai --discover --add             # 把連得上的機器都加進來，附�
 ## 使用
 
 ```sh
-computai                          # 終端機 live 畫面：算力／AI 用量／警示（按 q 離開）
+computai                          # 終端機 live 畫面：1-5 切分頁（總覽、額度、機器、本地模型、花費），q 離開
 computai --summary --month        # 這個月；--since 2026-09-01、--by project|day|session
 computai --line                   # Claude 42%｜Codex 100% (1d0h)｜today $6.9
 computai --analyze                # 預測、方案建議、快取浪費、電費
