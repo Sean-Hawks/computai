@@ -300,6 +300,36 @@ or running several copies does not repeat anything. The first run only records h
 - `computai --install-watch` starts `--watch` at login: launchd on macOS, `systemd --user` on Linux,
   Task Scheduler on Windows. `--uninstall-watch` removes it.
 
+## Local models panel
+
+The LOCAL MODELS panel (terminal and web) lists every model per machine:
+
+- whether it is generating, and its tokens per second now;
+- tokens today and this month;
+- what those tokens would cost at an API price. That price comes from `[local] compare_model`, or else the cheapest model in `prices.ini`.
+
+vLLM, llama.cpp and SGLang report token totals themselves. Ollama does not: put the token-counting proxy in front of it.
+
+1. Move Ollama to another port: `OLLAMA_HOST=127.0.0.1:11436 ollama serve`.
+2. Start the proxy on the old port: `computai --proxy --listen 127.0.0.1:11434 --upstream http://127.0.0.1:11436 --machine NAME`.
+
+Clients keep using `:11434` unchanged. The proxy serves running totals at `/metrics`, which sampling reads over SSH, so this works on other machines too.
+
+- If the machine is already in `[machines]`, the proxy only keeps totals, so nothing is counted twice.
+- On a machine that another computai samples, use `--no-ledger`.
+
+## GitHub profile card, kept fresh
+
+Set these in `config.ini`:
+
+```ini
+[card]
+repo = ~/path/to/your-profile-repo/assets
+push = yes
+```
+
+Once a day, `computai`, `--web` or `--watch` rewrites the two card SVGs there and commits them. Before pushing it rebases onto any commit a bot pushed in the meantime.
+
 ## Local model benchmark
 
 `computai --bench [--machine NAME]` sends the same fixed prompt to every running inference server for a

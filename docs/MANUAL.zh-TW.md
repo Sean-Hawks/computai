@@ -271,6 +271,36 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
 - `computai --install-watch`：登入就在背景跑 `--watch`（macOS 用 launchd、Linux 用 `systemd --user`、
   Windows 用工作排程器）。`--uninstall-watch` 移除。
 
+## 本地模型面板
+
+「本地模型」面板（終端機和網頁）每台機器的每個模型一列：
+
+- 是不是在推論、現在每秒幾 token；
+- 今天和本月的 token；
+- 照 API 價格值多少。價格用 `[local] compare_model`，沒設就用 `prices.ini` 最便宜的。
+
+vLLM、llama.cpp、SGLang 自己會報 token 累計數。Ollama 不會，要在它前面接 token 計數 proxy：
+
+1. 把 Ollama 搬到別的埠：`OLLAMA_HOST=127.0.0.1:11436 ollama serve`。
+2. proxy 接手原本的埠：`computai --proxy --listen 127.0.0.1:11434 --upstream http://127.0.0.1:11436 --machine 名稱`。
+
+用戶端照樣打 `:11434`，不用改。proxy 在 `/metrics` 提供累計數，取樣時透過 SSH 讀，所以遠端機器也行。
+
+- 機器已經在 `[machines]` 裡被取樣時，proxy 只交計數，不會算兩次。
+- 在給別台 computai 取樣的機器上，用 `--no-ledger`。
+
+## 自動更新的 GitHub 個人頁卡片
+
+在 `config.ini` 設定：
+
+```ini
+[card]
+repo = ~/你的個人頁repo/assets
+push = yes
+```
+
+`computai`、`--web` 或 `--watch` 每天會重寫一次那兩張卡片並 commit。推之前會先接上機器人推的 commit。
+
 ## 本地模型跑分
 
 `computai --bench [--machine 名稱]` 對每個正在跑的推論服務，用同一段固定題目連續生成幾秒鐘。
