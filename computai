@@ -3605,12 +3605,13 @@ THEMES = {
     # cyber：顏色依用途命名（見 docs/DESIGN.md）。grey＝框線，cyan＝品牌，mag＝一般數值（不再用洋紅），
     # red／amber／green＝故障／注意／正常。flat＝長條不做熱度漸層，dim 改用 meta 色而不是 SGR 2。
     "cyber": {
-        # netrunner 霓虹：青（品牌／一般）、黃（注意）、熱粉紅（故障／用完）、螢光綠（正常／推論中）
-        "grey": (70, 70, 98), "cyan": (0, 240, 255), "mag": (242, 242, 247), "red": (255, 42, 109),
-        "amber": (252, 238, 10), "green": (57, 255, 136), "meta": (138, 138, 160), "magenta": (255, 0, 170),
-        "heat": ((0, (0, 240, 255)), (100, (0, 240, 255))), "flat": True,
+        # 照 Minerva 的先進極簡：字一律白、框線和空的量表是灰，顏色只代表狀態
+        # （綠 = 活著／正常、琥珀 = 注意、紅 = 故障），都站在 -400 的亮度階；「cyan」這格是品牌色，也是白。
+        "grey": (58, 58, 58), "cyan": (255, 255, 255), "mag": (245, 245, 245), "red": (248, 113, 113),
+        "amber": (251, 191, 36), "green": (74, 222, 128), "meta": (170, 170, 170), "magenta": (150, 150, 150),
+        "heat": ((0, (255, 255, 255)), (100, (255, 255, 255))), "flat": True,
         "bar": ("\u2501", "\u2500", "", ""),
-        "box": ("\u250c", "\u2510", "\u2514", "\u2518", "\u2500", "\u2502"),
+        "box": ("\u256d", "\u256e", "\u2570", "\u256f", "\u2500", "\u2502"),
         "title": (" ", " "), "led": "\u25cf", "head": ("", ""),
     },
 }
@@ -3851,7 +3852,7 @@ def gauge(pct, width, level="brand", marker=None):
     for i in range(width):
         on = i < filled
         if _color:
-            c = tone(level) if on else (40, 44, 50)
+            c = tone(level) if on else GREY
             ch, fg = ("\u2503", "38;2;245;246;247;") if i == mk else (" ", "")
             out.append("\033[%s48;2;%d;%d;%dm%s\033[0m" % (fg, c[0], c[1], c[2], ch))
         else:
@@ -3871,7 +3872,7 @@ def gradbar(pct, width=12, level=None):
         # cyber：▆（下方 3/4 的方塊）畫的粗長條，上面留一點縫，上下兩列的長條才不會黏成一塊
         pct = max(0.0, min(100.0, pct or 0.0))
         filled = int(round(pct / 100 * width)) or (1 if pct > 0 else 0)
-        return rgb(tone(level or "brand"), "\u2586" * filled) + rgb((40, 44, 50), "\u2586" * (width - filled))
+        return rgb(tone(level or "brand"), "\u2586" * filled) + rgb(GREY, "\u2586" * (width - filled))
     if theme().get("flat"):
         return gauge(pct, width, level or "brand")
     pct = max(0.0, min(100.0, pct or 0.0))
@@ -3948,16 +3949,8 @@ def panel(left, right, lines, width, load=0.0, foot="", level=None):
     if vlen(left) + vlen(right) + 2 > inner:
         right = clip(right, max(0, inner - vlen(left) - 2))
     fill = max(0, inner - vlen(left) - vlen(right) - 2)
-    if theme().get("flat") and not _ascii:   # cyber：HUD 框角（◤◥◣◢）、沒有左右邊框，故障時框角變紅
-        col = RED if level == "fail" else CYAN
-        rt = (" " + right.strip() + " ") if right else ""
-        fill = max(0, width - vlen(left) - vlen(rt) - 4)
-        rows = [rgb(col, "\u25e4") + " " + left + " " + rgb(GREY, "\u2500" * fill) + rt + rgb(col, "\u25e5")]
-        rows += [" " + pad(clip(ln, width - 2), width - 2) + " " for ln in lines]
-        ft = (" " + foot + " ") if foot else ""
-        ft = clip(ft, width - 4) if vlen(ft) > width - 4 else ft
-        rows.append(rgb(col, "\u25e3") + ft + rgb(GREY, "\u2500" * max(0, width - 2 - vlen(ft))) + rgb(col, "\u25e2"))
-        return rows
+    if theme().get("flat") and not _ascii:   # cyber：Minerva 的三段式面板（標題列／主體／來源列）
+        return mpanel(left.strip(), lines, width, right.strip(), foot, level=level)
     if level:
         col = tone(level) if level == "fail" or not theme().get("flat") else GREY
     else:
@@ -4827,7 +4820,7 @@ def machine_panel(m, width, energy=None, error=None):
     ai = " " + rgb(GREEN, spinner() + " " + T("busy")) if m["ai_active"] else ""
     stale = (" " + rgb(AMBER, T("ago") % fmt_dur(m["age"]))) if m["age"] > 300 else ""
     if theme().get("flat"):  # cyber：標題只放名字和狀態字，來源（SSH／本機、多久前取樣）放在下框線
-        left = "%s%s%s%s" % (rgb(CYAN, sym("\u25e2", ">")), bold(m["machine"]), ai, stale)
+        left = "%s%s%s" % (bold(m["machine"]), ai, stale)
         foot = dim("%s %s %s" % (where, sym("\u00b7", "|"), T("sampled") % fmt_dur(m["age"])))
     else:
         left = "%s %s %s %s%s%s" % (dim(T("node")), bold(rgb(CYAN, m["machine"])), rgb(heat(load), dot), dim(where),
@@ -5251,23 +5244,17 @@ def verdict(st):
 
 
 def hud_header(st, width, clock, frame=0):
-    """cyber 的標頭：◢◤ C O M P U T A I ◥◣ 加副標，右邊是時間、在線機器數和全部機器的功耗心電圖。"""
-    hz = rgb(AMBER, sym("\u259a\u259a\u259a\u259a ", "//// "))   # 警示條紋
-    logo = hz + bold(rgb(CYAN, " ".join("COMPUTAI"))) + rgb(THEMES["cyber"]["magenta"], sym(" \u25e2\u25e4", " //"))
-    left = " " + logo + "  " + dim(T("hud_tag")) + (dim("  \u30a8\u30fc\u30b8\u30a7\u30f3\u30c8\u7a3c\u50cd") if not _ascii else "")
+    """標頭（Minerva 的 instrument rail）：左邊品牌和這是什麼、這個月；右邊在線機器數和時間。"""
+    left = " " + bold(sym("\u25ce ", "") + "COMPUTAI") + "  " + dim(T("hud_tag")) + rgb(GREY, sym("  \u2502  ", "  |  ")) + \
+        dim("Month ") + bold(st["month"])
     ms = st["machines"]
     errors = sum(1 for a in st["alerts"] if a["kind"] == "machine_unreachable")
     bits = []
     if ms or errors:
         total = len(ms) + errors
         bits.append(rgb(GREEN if not errors else AMBER, sym("\u25cf ", "* ") + T("h_online") % (len(ms), total)))
-        n = max(len(m["history"]["power"]) for m in ms) if ms else 0
-        watts = [sum((m["history"]["power"][-n + i] or 0) if len(m["history"]["power"]) >= n - i else 0 for m in ms)
-                 for i in range(n)]
-        if any(watts):
-            bits.append(braille(watts, 8, color=CYAN)[0])
     bits.append(dim(clock))
-    right = "  ".join(bits) + " "
+    right = "   ".join(bits) + " "
     gap = width - vlen(left) - vlen(right)
     return left + " " * gap + right if gap >= 2 else left
 
@@ -5361,7 +5348,8 @@ def verdict_line(v, width):
     if v["level"] == "ok":
         return " " + rgb(GREEN, sym("\u25cf ", "* ") + v["word"])
     more = (dim(sym(" \u00b7 ", " | ")) + dim(T("v_more") % (len(v["items"]) - 1))) if len(v["items"]) > 1 else ""
-    lead = " " + badge(v["level"], v["word"]) + " "
+    lead = (" " + bold(rgb(tone(v["level"]), sym("\u25b2 ", "! ") + v["word"])) + "  ") if theme().get("flat") and _color \
+        else " " + badge(v["level"], v["word"]) + " "
     text = rgb(tone(v["level"]), v["items"][0][1]) + more
     rows = wrap(v["items"][0][1], max(20, width - vlen(lead) - 1))
     if len(rows) == 1 and vlen(lead + text) <= width:
@@ -5394,59 +5382,37 @@ INK = (10, 10, 15)
 
 
 def tag(s, color=None):
-    """黃底黑字的標籤（cyberpunk 的區段名牌）；沒有顏色時用方括號。"""
-    if not _color:
-        return "[%s]" % s
-    c = color or AMBER
-    return "\033[1;38;2;%d;%d;%d;48;2;%d;%d;%dm %s \033[0m" % (INK + c + (s,))
+    """區段標籤：粗體大寫，顏色只在有狀態時才給（沒有色底、沒有括號）。"""
+    return bold(rgb(color, s)) if color else bold(s)
+
+
+def mpanel(title, lines, width, right="", foot="", foot_right="", level=None, height=None):
+    """Minerva 的面板：圓角細框；標題列（左邊是什麼、右邊現在怎樣）／主體／來源列（數字從哪來）。
+    level="fail" 時框線變紅。height 給了就把主體補到那麼多列，並排的面板才會等高。"""
+    tl, tr, bl, br, h, v = glyphs()[5]
+    col = RED if level == "fail" else GREY
+    e = lambda x: rgb(col, x)
+    inner = max(10, width - 2)
+    head = (" " + title + " ") if title else ""
+    rt = (" " + right + " ") if right else ""
+    if vlen(head) + vlen(rt) + 2 > inner:
+        rt = ""
+    rows = [e(tl + h) + head + e(h * max(0, inner - 1 - vlen(head) - vlen(rt))) + rt + e(tr)]
+    body = list(lines)
+    if height is not None:
+        body = body[:height] + [""] * max(0, height - len(body))
+    rows += [e(v) + " " + pad(clip(ln, inner - 2), inner - 2) + " " + e(v) for ln in body]
+    if foot or foot_right:
+        l_, r_ = (" " + foot) if foot else "", (foot_right + " ") if foot_right else ""
+        rows.append(e(sym("\u251c", "+") + h * inner + sym("\u2524", "+")))
+        gap = max(1, inner - vlen(l_) - vlen(r_))
+        rows.append(e(v) + clip(l_ + " " * gap + r_, inner) + e(v))
+    rows.append(e(bl + h * inner + br))
+    return rows
 
 
 def hud_frame(title, lines, width, right=""):
-    """cyberpunk 外框：四角 ◤◥◣◢、黃底標題、細線；沒有左右邊框，像 HUD 的框角。"""
-    tl, tr, bl, br = (sym("\u25e4", "+"), sym("\u25e5", "+"), sym("\u25e3", "+"), sym("\u25e2", "+"))
-    head = rgb(CYAN, tl) + " " + tag(title) + " "
-    rt = (" " + right + " ") if right else ""
-    fill = max(0, width - vlen(head) - vlen(rt) - 1)
-    out = [head + rgb(GREY, sym("\u2500", "-") * fill) + rt + rgb(CYAN, tr)]
-    out += [" " + clip(ln, width - 2) for ln in lines]
-    out.append(rgb(CYAN, bl) + rgb(GREY, sym("\u2500", "-") * (width - 2)) + rgb(CYAN, br))
-    return out
-
-
-def vu(pct, rows=4, color=None):
-    """直立的 VU 條：rows 列高、2 格寬，最上面那格用 1/8 方塊畫出零頭。回傳由上到下的字串。"""
-    pct = max(0.0, min(100.0, pct or 0.0))
-    eighths = int(round(pct / 100.0 * rows * 8))
-    out = []
-    for r in range(rows - 1, -1, -1):
-        n = max(0, min(8, eighths - r * 8))
-        ch = " " if n == 0 else "\u2588" if n == 8 else " \u2581\u2582\u2583\u2584\u2585\u2586\u2587"[n]
-        if _ascii:
-            ch = "#" if n >= 4 else "." if n else " "
-        cell_ = ch * 2
-        out.append(rgb(color or CYAN, cell_) if n else rgb(GREY, sym("\u2581\u2581", "..")) if r == 0 else "  ")
-    return out
-
-
-def node_tile(m, width=28):
-    """一台機器的儀表：CPU／GPU／MEM 三根 VU 條、功耗、正在跑的模型。"""
-    busy = m["ai_active"]
-    gpus = m.get("gpus") or []
-    mem = (100.0 * (m["mem_used"] or 0) / m["mem_total"]) if m.get("mem_total") else 0
-    lamp = rgb(GREEN, spinner()) if busy else rgb(GREY, sym("\u25cf", "o"))
-    bars = [vu(m["cpu_pct"], 4, CYAN), vu(m["gpu_util"] if gpus else 0, 4, THEMES["cyber"]["magenta"]),
-            vu(mem, 4, AMBER)]
-    loaded = [x["name"] for x in m.get("loaded") or []]
-    rate = m["recent"]["tok_s"]
-    side = [bold(rgb(MAG, "%4.0f" % (m["power_w"] or 0))) + dim(" W"),
-            (rgb(GREEN if busy else MAG, clip(loaded[0], width - 13)) if loaded else dim("no model")),
-            (rgb(GREEN, "%.0f tok/s" % rate) if rate else dim(T("busy") if busy else T("idle"))), ""]
-    lines = [lamp + " " + bold(clip(m["machine"], width - 3))]
-    for r in range(4):
-        lines.append(" " + " ".join(b[r] for b in bars) + "  " + side[r])
-    lines.append(dim(" C  G  M ") + dim(" %s %s %s" % (_num(m["cpu_pct"], "%2.0f", "-"),
-                                                    _num(m["gpu_util"], "%2.0f", "-") if gpus else "-", "%2.0f" % mem)))
-    return [pad(clip(x, width), width) for x in lines]
+    return mpanel(tag(title), lines, width, right)
 
 
 def roi_meter(ratio, width=16):
@@ -5456,7 +5422,7 @@ def roi_meter(ratio, width=16):
     out = ""
     for i in range(width):
         on = i < filled
-        ch = sym("\u25b0" if on else "\u25b1", "#" if on else ".")
+        ch = sym("\u2501", "#" if on else ".")
         col = (GREEN if (ratio or 0) >= 1 else AMBER) if on else GREY
         out += rgb(MAG if i == one and not on else col, sym("\u2503", "|") if i == one and not on else ch)
     return out
@@ -5471,9 +5437,9 @@ def seg_meter(pct, width=24, color=None, mark=None):
         if i == at:
             out += bold(rgb(MAG, sym("\u2503", "|")))
         elif i < filled:
-            out += rgb(color or CYAN, sym("\u25b0", "#"))
+            out += rgb(color or CYAN, sym("\u2501", "#"))
         else:
-            out += rgb(GREY, sym("\u25b1", "."))
+            out += rgb(GREY, sym("\u2501", "."))
     return out
 
 
@@ -5509,11 +5475,11 @@ def machine_gauges(m):
     """機器分頁每台上面一排小錶盤：CPU、GPU、記憶體、功耗。"""
     gpus = m.get("gpus") or []
     mem = (100.0 * (m["mem_used"] or 0) / m["mem_total"]) if m.get("mem_total") else 0
-    mg = THEMES["cyber"]["magenta"]
+    mg = MAG   # 錶盤一律白，只有記憶體快滿才變色
     ds = [dial((m["cpu_pct"] or 0) / 100.0, 14, 6, CYAN, GREY, "%d" % round(m["cpu_pct"] or 0), "CPU")]
     if gpus:
         ds.append(dial((m["gpu_util"] or 0) / 100.0, 14, 6, mg, GREY, "%d" % round(m["gpu_util"] or 0), "GPU"))
-    ds.append(dial(mem / 100.0, 14, 6, AMBER if mem < 90 else RED, GREY, "%d" % round(mem), "MEM"))
+    ds.append(dial(mem / 100.0, 14, 6, MAG if mem < 90 else AMBER, GREY, "%d" % round(mem), "MEM"))
     if m["power_w"] is not None:
         ds.append(dial(min(1.0, (m["power_w"] or 0) / 450.0), 14, 6, mg, GREY, "%d" % round(m["power_w"]), "WATT"))
     return side_by_side_many(ds, 1)
@@ -5565,74 +5531,255 @@ def render_limits_hud(st, width):
     return out
 
 
-def render_cockpit(st, width, height, frame):
-    """總覽：駕駛艙。能用圖表示的就不用字——額度和推論速度是圓形儀表，機器是 VU 條，
-    回本是長條表，功耗是示波器；文字只剩短代號和最多兩行注意事項。"""
+def rail(pct, width, color=None, mark=None):
+    """Minerva 的細進度條：走過的是白（或狀態色）、沒走的是灰，同一個 ━ 字；mark 用 ┃ 標一個位置。"""
+    return seg_meter(pct, width, color or CYAN, mark)
+
+
+def big_value(text, unit="", color=None):
+    """大字讀數加單位（單位放在最後一列，像「37 of 39」）。回傳 3 列。"""
+    rows = bigtext(text)
+    out = [bold(rgb(color or MAG, r)) for r in rows]
+    if unit:
+        out[-1] += " " + dim(unit)
+    return out
+
+
+def spaced(word):
+    """寬字距的狀態字（N O M I N A L）：Minerva 的大寫標籤加寬字距。"""
+    return " ".join(word)
+
+
+def donut(parts, cols=14, rows=7, center=("", "")):
+    """甜甜圈圖：parts = [(比例, 顏色)]，從 12 點鐘順時針；中間放兩行字。"""
+    cv = Braille(cols, rows)
+    w, h = cols * 2, rows * 4
+    cx, cy = (w - 1) / 2.0, (h - 1) / 2.0
+    r = min(w, h) / 2.0 - 0.5
+    total = sum(p for p, _ in parts) or 1.0
+    steps = 720
+    for i in range(steps):
+        f = i / float(steps)
+        acc, colr = 0.0, GREY
+        for p, c in parts:
+            acc += p / total
+            if f < acc:
+                colr = c
+                break
+        a = math.radians(90 - 360 * f)
+        for rr in (r, r - 1, r - 2, r - 3):
+            cv.dot(cx + rr * math.cos(a), cy - rr * math.sin(a), colr)
+    for k, txt in enumerate(center):
+        if txt:
+            cv.put(max(0, (cols - vlen(txt)) // 2), rows // 2 - 1 + k, txt, MAG, k == 0)
+    return cv.lines()
+
+
+def line_chart(vals, cols, rows, color=None):
+    """點字折線圖（不是長條）：每個值一個點，相鄰兩點連成線，自動縮放到最大值。"""
+    cv = Braille(cols, rows)
+    vals = [v or 0 for v in vals]
+    if not vals:
+        return cv.lines()
+    w, h = cols * 2, rows * 4
+    lo_, hi = min(vals), max(vals)
+    span = (hi - lo_) or 1.0
+    pts = [(int(round(i * (w - 1) / float(max(1, len(vals) - 1)))),
+            int(round((h - 1) * (0.5 if hi == lo_ else 1 - (v - lo_) / span)))) for i, v in enumerate(vals)]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:] or pts):
+        n = max(abs(x1 - x0), abs(y1 - y0), 1)
+        for k in range(n + 1):
+            cv.dot(x0 + (x1 - x0) * k / float(n), y0 + (y1 - y0) * k / float(n), color or MAG)
+    return cv.lines()
+
+
+ALERT_KIND = {"idle_model": "MODEL", "machine_unreachable": "MACHINE", "cloud_idle": "CLOUD", "budget": "BUDGET"}
+
+
+def attention_cards(st, width):
+    """需要處理：每件事一張小卡（分類字用狀態色、內容白字），最嚴重的在上面，最後是建議。"""
     out = []
-    # 儀表列：每個額度一個錶盤（剩下多少），加上推論速度、功耗
-    dials = []
-    for r in sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0)):
+    v = verdict(st)
+    for lv, txt in v["items"]:
+        out.append((lv, "CRITICAL" if lv == "fail" else "WARNING", txt))
+    for x in st.get("insights") or []:
+        out.append(("text", "INSIGHT", x["text"]))
+    lines = []
+    for lv, cat, txt in out:
+        lines.append(tag(cat, tone(lv) if lv != "text" else None) + " " * max(1, width - vlen(cat) - 4) + dim("open" if lv != "text" else ""))
+        lines += wrap(txt, width)
+        lines.append("")
+    return lines or [rgb(GREEN, sym("● ", "* ") + T("v_ok"))]
+
+
+def fit_cards(lines, h):
+    """卡片清單放不下時整張卡整張卡地拿掉（卡片之間是空行），最後一行說還有更多。"""
+    if len(lines) <= h:
+        return lines
+    cut = max([i for i, x in enumerate(lines[:h]) if x == ""] or [h - 1])
+    return lines[:cut] + ["", dim("\u2026 " + T("more_in_tab"))]
+
+
+def render_mission(st, width, height, frame):
+    """總覽 = Minerva 的 Mission Control：
+    上面一條三欄總控（最吃緊的額度／今天的用量價值／整體狀態），下面四張指標卡，右邊一欄「需要處理」，
+    最底下是機器表和本月用量的甜甜圈。字一律白，顏色只代表狀態。"""
+    out = []
+    v = verdict(st)
+    word = {"ok": "NOMINAL", "warn": "ATTENTION", "fail": "CRITICAL"}[v["level"]]
+    wcol = tone(v["level"])
+    limits = sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0))
+    # ── 總控 ──
+    cw = (width - 4) // 3
+    if limits:
+        r = limits[0]
         used = r["used_percent"] or 0
         lv = limit_level(used)
-        col = {"brand": CYAN, "warn": AMBER, "fail": RED}[lv]
-        code = "%s\u00b7%s" % (r["source"].upper()[:6], {"week": "WK", "5h": "5H"}.get(r["name"], r["name"].upper()))
-        reset = ("\u21bb" + fmt_dur(r["resets_in"])) if r.get("resets_in") is not None else ""
-        dials.append(dial(shown_pct(used) / 100.0, 20, 8, col, GREY, "%d%%" % round(shown_pct(used)),
-                          (code + " " + reset).strip(), col if lv != "brand" else None))
-    rate = sum(m["recent"]["tok_s"] for m in st["machines"])
-    if st["machines"]:
-        dials.append(dial(min(1.0, rate / 300.0), 20, 8, GREEN, GREY, "%d" % round(rate), "TOK/S"))
-        watts = sum(m["power_w"] or 0 for m in st["machines"])
-        dials.append(dial(min(1.0, watts / 600.0), 20, 8, THEMES["cyber"]["magenta"], GREY, "%d" % round(watts), "WATTS"))
-    today = bigtext(fmt_usd(st["today_usd"]).replace(",", "").replace(".00", ""))
-    money = ["", ""] + [bold(rgb(CYAN, x)) for x in today] + ["", dim("TODAY \u00b7 MONTH ") + bold(fmt_usd(st["total_cost_usd"]))]
-    blocks, used_w = [], 0
-    for d in dials + [money]:
-        w = max(vlen(x) for x in d) + 2
-        if used_w + w > width - 4:
-            break
-        blocks.append(d)
-        used_w += w
-    out += hud_frame("GAUGES", side_by_side_many(blocks, 2), width, dim("[2]"))
-    # 機器：每台一塊 VU 儀表
-    tiles = [node_tile(m) for m in st["machines"]]
+        c1 = [dim("TIGHTEST LIMIT"), bold("%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])))]
+        c1 += big_value("%d%%" % round(shown_pct(used)), "LEFT" if _limit_view == "left" else "USED",
+                        tone(lv) if lv != "brand" else None)
+        if used >= LIMIT_FAIL:
+            c1.append(rgb(RED, sym("● ", "* ") + T("used_up")) + dim(" · ") + T("resets") % fmt_dur(r["resets_in"] or 0))
+        elif lv == "warn":
+            c1.append(rgb(AMBER, sym("\u25b2 ", "! ") + "nearly used up") + dim(" \u00b7 resets " + fmt_dur(r["resets_in"] or 0)))
+        elif r.get("eta_full"):
+            c1.append(rgb(AMBER, sym("▲ ", "! ") + "empty in " + fmt_dur(r["eta_full"])) + dim(" · resets " + fmt_dur(r["resets_in"] or 0)))
+        else:
+            c1.append(rgb(GREEN, sym("● ", "* ") + "on pace") + dim(" · resets " + fmt_dur(r["resets_in"] or 0)))
+    else:
+        c1 = [dim("TIGHTEST LIMIT"), dim(T("q_unlinked"))[:cw]]
+    ms = st["machines"]
+    down = sum(1 for a in st["alerts"] if a["kind"] == "machine_unreachable")
+    c2 = [dim("TODAY · USAGE VALUE"), ""] + big_value(fmt_usd(st["today_usd"]).replace(",", "")) + \
+         ["", bold(fmt_usd(st["total_cost_usd"])) + dim(" month") + "    " +
+          bold(rgb(GREEN if not down else AMBER, "%d" % len(ms))) + dim(" of %d nodes" % (len(ms) + down))]
+    c2 = [" " * max(0, (cw - vlen(x)) // 2) + x for x in c2]
+    n_fail = sum(1 for lv, _ in v["items"] if lv == "fail")
+    n_warn = len(v["items"]) - n_fail
+    f = st["forecast"]
+    c3 = [dim("LEDGER HEALTH"), "", bold(rgb(wcol, spaced(word))),
+          dim("%d critical, %d warning" % (n_fail, n_warn)), "",
+          dim("PROJECTED THIS MONTH"),
+          bold(rgb(RED if f.get("over_budget") else MAG, fmt_usd(f["projected_usd"]))) + dim(" plans + power")]
+    sep = rgb(GREY, sym("│", "|"))
+    body = []
+    for i in range(7):
+        cells = [pad(clip(c[i] if i < len(c) else "", cw - 1), cw - 1) for c in (c1, c2, c3)]
+        body.append((" " + sep + " ").join(cells))
+    online = rgb(GREEN, sym("● ", "* ") + "ONLINE") if not down else rgb(AMBER, sym("▲ ", "! ") + "%d DOWN" % down)
+    out += mpanel(tag(sym("◎ ", "") + "MISSION CONTROL"), body, width, online,
+                  dim("sources ") + " · ".join(x["source"] for x in st["sources"]) + dim("  ·  %d machines" % len(ms)),
+                  dim("Local ") + time.strftime("%Y-%m-%d %H:%M", time.localtime(st["time"])))
+    # ── 右欄寬度、左邊卡片 ──
+    side = width >= 130
+    aw = max(34, width // 4) if side else width
+    lw = width - aw - 1 if side else width
+    ncard = 4 if lw >= 100 else 2
+    cw = (lw - (ncard - 1)) // ncard
+    iw = cw - 4
+    cards = []
+    # 額度卡
+    lim_rows = []
+    have = {r["source"] for r in limits}
+    for r in sorted(st["limits"], key=lambda r: (r["source"], r["window_minutes"] or 0))[:4]:
+        used = r["used_percent"] or 0
+        lv = limit_level(used)
+        nm = "%s %s" % (T("src").get(r["source"], r["source"]).split()[0], {"week": "wk", "5h": "5h"}.get(r["name"], r["name"]))
+        el = r.get("elapsed_pct")
+        mark = None if el is None else (100 - el if _limit_view == "left" else el)
+        lim_rows.append(cell(nm, 10) + rail(shown_pct(used), max(4, iw - 16), tone(lv) if lv != "brand" else None, mark) +
+                        " " + bold(rgb(tone(lv) if lv != "brand" else MAG, "%3d%%" % round(shown_pct(used)))))
+    for x in st["sources"]:
+        if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
+            lim_rows.append(cell(T("src").get(x["source"], x["source"]).split()[0], 10) + dim("not linked"))
+    high = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_WARN)
+    cards.append(mpanel(tag("LIMITS"), [""] + lim_rows, cw, rgb(AMBER, "%d HIGH" % high) if high else rgb(GREEN, "OK"),
+                        dim(sym("┃", "|") + " = time left"), "", height=5))
+    # 推論卡
+    rate = sum(m["recent"]["tok_s"] or 0 for m in ms)
+    busy = [m for m in ms if m["ai_active"]]
+    thr = big_value("%d" % round(rate), "tok/s", GREEN if rate else None) + [""]
+    for m in busy[:1]:
+        mdl = (m.get("loaded") or [{}])[0].get("name", "")
+        thr.append(rgb(GREEN, spinner()) + " " + clip(m["machine"] + dim(" · ") + mdl, iw - 2))
+    lo = st.get("local") or {}
+    cards.append(mpanel(tag("THROUGHPUT"), thr, cw, rgb(GREEN, "LIVE") if busy else dim("IDLE"),
+                        dim("today ") + bold(fmt_tok(lo.get("today_tokens") or 0)) + dim(" tok"), "", height=5))
+    # 功耗卡
+    watts = sum(m["power_w"] or 0 for m in ms)
+    n = max([len(m["history"]["power"]) for m in ms] or [0])
+    hist = [sum((m["history"]["power"][-n + i] or 0) if len(m["history"]["power"]) >= n - i else 0 for m in ms)
+            for i in range(n)]
+    pw = big_value("%d" % round(watts), "W") + [""]
+    pw.append(line_chart(hist[-iw * 2:], iw, 1)[0] if any(hist) else dim("no power meter"))
+    kwh = sum(e["kwh"] or 0 for e in st["energy"])
+    ecost = sum(e.get("energy_cost_usd") or 0 for e in st["energy"])
+    cards.append(mpanel(tag("POWER"), pw, cw, "", dim("month ") + bold("%.2f kWh" % kwh) + dim(" · ") + fmt_usd(ecost), "", height=5))
+    # 價值卡
+    val = big_value(fmt_usd(st["total_cost_usd"]).replace(",", "").split(".")[0], "month")
+    for x in st["sources"]:
+        plan = x.get("plan")
+        if plan and len(val) < 5:
+            ratio = plan["value_ratio"] or 0
+            val.append(cell(T("src").get(x["source"], x["source"]).split()[0], 7) + roi_meter(ratio, max(4, iw - 13)) +
+                       " " + bold(rgb(GREEN if ratio >= 1 else AMBER, "%.1fx" % ratio)))
+    cards.append(mpanel(tag("VALUE"), val, cw, dim("API PRICES"), dim("pay ") + bold(fmt_usd(f["projected_usd"])) + dim("/mo"), "", height=5))
+    left = []
+    for i in range(0, len(cards), ncard):
+        row = cards[i:i + ncard]
+        left += side_by_side_many(row, 1)
+    # ── 機器表＋用量甜甜圈 ──
+    mixw = 44 if lw >= 100 else lw
+    nw = lw - mixw - 1 if lw >= 100 else lw
+    rows_ = []
+    namew = min(14, max([vlen(m["machine"]) for m in ms] + [6]))
+    bw = 5 if nw >= 76 else 0
+    def meter(p):
+        txt = _num(p, "%3.0f%%", "   -")
+        return (txt + " " + rail(p or 0, bw) if bw else txt) + "  "
+    rows_.append(dim(cell("STATE", 8) + cell("NODE", namew + 1) + cell("CPU", 6 + (bw + 1 if bw else 0)) +
+                     cell("GPU", 6 + (bw + 1 if bw else 0)) + cell("MEM", 6 + (bw + 1 if bw else 0)) + cell("W", 6) + "MODEL"))
+    for m in ms:
+        mem = (100.0 * (m["mem_used"] or 0) / m["mem_total"]) if m.get("mem_total") else None
+        st_ = rgb(GREEN, cell(spinner() + " LIVE", 8)) if m["ai_active"] else cell(sym("○", "o") + " IDLE", 8)
+        mdl = ", ".join(x["name"] for x in (m.get("loaded") or [])) or dim("-")
+        rate_ = m["recent"]["tok_s"]
+        rows_.append(st_ + bold(cell(m["machine"], namew)) + " " + meter(m["cpu_pct"]) +
+                     (meter(m["gpu_util"]) if m.get("gpus") else cell("   -", 6 + (bw + 1 if bw else 0))) + meter(mem) +
+                     cell(_num(m["power_w"], "%3.0f", "  -"), 6) + mdl + (rgb(GREEN, " %.0f tok/s" % rate_) if rate_ else ""))
     for a in st["alerts"]:
         if a["kind"] == "machine_unreachable":
-            tiles.append([rgb(RED, "! ") + bold(a["machine"]), "", rgb(RED, "  OFFLINE"), "", "", ""])
-    if tiles:
-        out += hud_frame("NODES", hud_tiles(tiles, width - 4), width, dim("[3]"))
-    # 下排：回本表＋示波器
-    col = (width - 2) // 2
-    roi = []
-    for x in st["sources"]:
-        name = T("src").get(x["source"], x["source"]).upper()
-        plan = x.get("plan")
-        if plan:
-            ratio = plan["value_ratio"] or 0
-            roi.append("%s %s %s" % (cell(name, 12), roi_meter(ratio, 16), bold(rgb(GREEN if ratio >= 1 else AMBER, "%.1fx" % ratio))))
-        elif x["source"] == "local":
-            lo = st.get("local") or {}
-            roi.append("%s %s" % (cell(name, 12), rgb(GREEN, "\u2248" + fmt_usd(lo.get("api_usd") or 0)) + dim(" FREE")))
-    f = st["forecast"]
-    roi.append(dim("PAY/MO ") + bold(rgb(RED if f.get("over_budget") else MAG, fmt_usd(f["projected_usd"]))))
-    left = hud_frame("ROI", roi, col, dim("[5]"))
-    n = max([len(m["history"]["power"]) for m in st["machines"]] or [0])
-    watts_hist = [sum((m["history"]["power"][-n + i] or 0) if len(m["history"]["power"]) >= n - i else 0
-                      for m in st["machines"]) for i in range(n)]
-    k = max(1, ((col - 4) * 2) // max(1, len(watts_hist)))   # 拉伸到整個寬度
-    scope = braille([w for w in watts_hist for _ in range(k)], col - 4, rows=4, color=THEMES["cyber"]["magenta"],
-                    relative=True) \
-        if any(watts_hist) else [dim("no signal")]
-    right = hud_frame("SIGNAL", scope, col, dim("PWR"))
-    out += side_by_side(left, right)
-    # 注意：最多兩行
-    att = []
-    for lv, txt in verdict(st)["items"][:2]:
-        att.append(rgb(tone(lv), sym("\u25b2 ", "! ")) + clip(txt, width - 6))
-    for x in (st.get("insights") or [])[:max(0, 2 - len(att))]:
-        att.append(rgb(CYAN, sym("\u25b8 ", "> ")) + clip(x["text"], width - 6))
-    if att:
-        out += hud_frame("ALERT" if any(lv == "fail" for lv, _ in verdict(st)["items"]) else "INTEL", att, width, dim("[5]"))
+            rows_.append(rgb(RED, cell(sym("▲", "!") + " DOWN", 8)) + bold(cell(a["machine"], namew)) + " " + dim(T("v_down") % ""))
+    bh = max(len(rows_), 6)
+    nodes = mpanel(tag("NODES"), rows_, nw, rgb(GREEN if not down else AMBER, "%d/%d ONLINE" % (len(ms), len(ms) + down)),
+                   dim("SSH · sampled every few seconds"), "", height=bh)
+    mix = []
+    parts, legend = [], []
+    shades = [MAG, THEMES["cyber"]["magenta"], GREEN, AMBER]
+    srcs = [x for x in st["sources"] if (x["cost_usd"] or 0) > 0 or x["source"] == "local"]
+    tot = sum((x["cost_usd"] or 0) if x["source"] != "local" else (lo.get("api_usd") or 0) for x in srcs) or 1
+    for i, x in enumerate(srcs):
+        val_ = (x["cost_usd"] or 0) if x["source"] != "local" else (lo.get("api_usd") or 0)
+        c = GREEN if x["source"] == "local" else shades[min(i, 1)]
+        parts.append((val_, c))
+        legend.append(rgb(c, sym("■ ", "# ")) + cell(T("src").get(x["source"], x["source"]), 11) +
+                      bold("%5s" % fmt_usd(val_).split(".")[0]) + dim(" %3d%%" % round(100 * val_ / tot)))
+    dn = donut(parts, 12, 6, (fmt_usd(tot).split(".")[0], "MONTH")) if not _ascii else []
+    mix = side_by_side_many([dn, [""] * 2 + legend], 2) if dn else legend
+    mixp = mpanel(tag("USAGE MIX"), mix, mixw, dim(st["month"]), dim("$ = value at API prices"), "", height=bh)
+    left += side_by_side_many([nodes, mixp], 1) if lw >= 100 else nodes + mixp
+    # ── 右欄：需要處理 ──
+    att = attention_cards(st, aw - 4)
+    total_items = len(v["items"])
+    right_ = rgb(wcol, "%d OPEN" % total_items) if total_items else rgb(GREEN, "CLEAR")
+    if side:
+        h_ = len(left) - 4
+        att = fit_cards(att, h_)
+        rp = mpanel(tag("ATTENTION REQUIRED"), att, aw, right_, dim("worst first"),
+                    bold(rgb(RED, "%d critical" % n_fail)) if n_fail else dim("0 critical"), height=h_)
+        out += side_by_side_many([left, rp], 1)
+    else:
+        out += left + mpanel(tag("ATTENTION REQUIRED"), fit_cards(att, 4), width, right_)
     return out
 
 
@@ -5641,9 +5788,11 @@ def hud_tabs(view, width):
     parts = []
     for i, v in enumerate(HUD_VIEWS):
         label = " %d %s " % (i + 1, T("tab_" + v))
-        parts.append(badge("brand", label.strip()) if v == view and _color else
-                     ("[%s]" % label.strip() if v == view else dim(label)))
-    return " " + " ".join(parts)
+        if v == view:
+            parts.append("\033[1;38;2;0;0;0;48;2;%d;%d;%dm%s\033[0m" % (MAG + (label,)) if _color else "[%s]" % label.strip())
+        else:
+            parts.append(label)
+    return " " + "".join(parts)
 
 
 def machine_row(m, width):
@@ -5706,10 +5855,12 @@ def attention_lines(st, width):
 def render_hud(st, width, height, frame, view):
     """cyber 主題的分頁畫面。總覽一定放得進一個畫面；細節在其他分頁。"""
     clock = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))
-    head = [hud_header(st, width, clock, frame), hud_tabs(view, width)] + verdict_line(verdict(st), width).split("\n")
+    head = [hud_header(st, width, clock, frame), hud_tabs(view, width)]
+    if view != "overview" or _ascii:
+        head += verdict_line(verdict(st), width).split("\n")
     body = []
     if view == "overview" and not _ascii:
-        body += render_cockpit(st, width, height, frame)
+        body += render_mission(st, width, height, frame)
     elif view == "overview":
         body += hero_panel(st, width, frame)
         if st["machines"]:
@@ -5739,7 +5890,8 @@ def render_hud(st, width, height, frame, view):
         for m in st["machines"]:
             pnl = machine_panel(m, pw, energy.get(m["machine"]))
             if not _ascii:   # 每台先一排小錶盤，細節在下面
-                pnl[1:1] = [" " + pad(clip(x, pw - 2), pw - 2) + " " for x in machine_gauges(m)]
+                bar_ = rgb(GREY, sym("\u2502", "|"))
+                pnl[1:1] = [bar_ + " " + pad(clip(x, pw - 4), pw - 4) + " " + bar_ for x in machine_gauges(m)]
             panels.append(pnl)
         panels += [machine_panel(None, (width - 2) // 2 if width >= 150 else width, error=e)
                    for n, e in errors.items() if n not in {m["machine"] for m in st["machines"]}]
@@ -5760,7 +5912,7 @@ def render_hud(st, width, height, frame, view):
     elif view == "spend":
         body += usage_panel(st, width) + alerts_panel(st, width) + advice_panel(st, width)
     keys = dim(sym(" \u00b7 ", " | ").join(T("hud_keys")))
-    return "\n".join(head + [""] + body + [ticker(st, width, frame), keys])
+    return "\n".join(head + [""] + body + [keys])
 
 
 def render_live(st, width=100, color=False, ascii_=False, height=None, theme_name=None, frame=0, view=None):
