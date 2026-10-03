@@ -1571,11 +1571,25 @@ def fmt_usd(v):
     return "$%.2f" % v
 
 
-def render_summary(s):
+def ledger_empty(db):
+    """帳本裡一筆用量都沒有（通常是還沒用過 Claude Code、Codex，或 log 不在預設的位置）。"""
+    return db.execute("SELECT 1 FROM usage LIMIT 1").fetchone() is None
+
+
+def log_places():
+    """去哪裡找 log：給「找不到 log」的提示用，家目錄寫成 ~。"""
+    home = os.path.expanduser("~")
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    claude = [p.strip() for p in env.split(",") if p.strip()] if env else [os.path.join(home, ".claude")]
+    paths = [os.path.join(c, "projects") for c in claude] + [os.path.join(codex_home(), "sessions")]
+    return ", ".join(("~" + p[len(home):]) if p.startswith(home) else p for p in paths)
+
+
+def render_summary(s, ledger_empty=False):
     lines = ["ComputAI  %s  (%s - %s)" % (s["range"]["label"], day_label(s["range"]["start"]),
                                          day_label(s["range"]["end"] - 1)), ""]
     if not s["sources"]:
-        lines.append("No usage recorded in this range. Run `computai --sync` first.")
+        lines.append(T("no_logs") % log_places() if ledger_empty else "No usage recorded in this range.")
         return "\n".join(lines)
     head = "%-26s %8s %8s %9s %9s %8s %10s" % ("", "requests", "input", "cache rd", "cache wr",
                                                 "output", "API equiv")
@@ -4374,6 +4388,7 @@ def dashboard_state(db):
     _reset_credits["codex"] = st["reset_credits"] = _int(row[0]) if row else 0
     st["verdict"] = verdict(st)
     st["local"] = local_overview(db, st["machines"], energy, t)
+    st["ledger_empty"] = not st["sources"] and ledger_empty(db)
     return st
 
 
@@ -4553,7 +4568,9 @@ UI = {
         "no_model": "no model loaded", "rate": "%d req/5m, %s tok/s", "rate_tok": "%s tok/s",
         "no_server": "no inference server found", "usage": "AI SUBSCRIPTIONS & SPEND", "api_equiv": "$ = value at API prices",
         "resets": "resets in %s", "d14": "last 14 days", "today_x": "today %s", "line_today": "today $%s", "tok_req": "%s tokens, %s requests", "tok_only": "%s tokens",
-        "no_usage": "no usage yet - run computai --sync", "today": "today", "month": "month",
+        "no_usage": "no usage this month yet",
+        "no_logs": "no Claude Code or Codex logs found yet (looked in %s); use either one and it shows up here",
+        "today": "today", "month": "month",
         "forecast": "forecast", "cloud": "CLOUD", "alerts": "ALERTS", "clear": "all clear",
         "compute": "COMPUTE", "machines_n": "%d machines", "machine_1": "1 machine", "machines": "MACHINES",
         "compact": "compact: enlarge the window for details", "no_gpu": "no GPU",
@@ -4748,7 +4765,9 @@ UI = {
         "no_model": "沒有載入模型", "rate": "5 分鐘 %d 個請求，%s tok/s", "rate_tok": "%s tok/s",
         "no_server": "沒有找到推論服務", "usage": "AI 訂閱與花費", "api_equiv": "金額 = 照 API 價格算的價值",
         "resets": "%s 後重置", "d14": "近 14 天", "today_x": "今天 %s", "line_today": "今天 $%s", "tok_req": "%s token、%s 個請求", "tok_only": "%s token",
-        "no_usage": "還沒有用量，先跑 computai --sync", "today": "今天", "month": "本月",
+        "no_usage": "這個月還沒有用量",
+        "no_logs": "還沒找到 Claude Code 或 Codex 的 log（看了 %s）；用過其中一個，這裡就會出現",
+        "today": "今天", "month": "本月",
         "forecast": "月底預估", "cloud": "雲端", "alerts": "警示", "clear": "一切正常",
         "compute": "算力", "machines_n": "%d 台機器", "machine_1": "1 台機器", "machines": "機器",
         "compact": "精簡模式：視窗放大可以看細節", "no_gpu": "無 GPU",
@@ -5338,7 +5357,7 @@ def usage_panel(st, width):
             lines.append(" %s %s %s %s" % (bold(cell(T("src").get(src, src), 14)), dim(limit_label(r["name"])),
                                           gradbar(r["used_percent"], bar_w), T("used_pct") % r["used_percent"]))
     if not lines:
-        lines.append(dim(" " + T("no_usage")))
+        lines.append(dim(" " + (T("no_logs") % log_places() if st.get("ledger_empty") else T("no_usage"))))
     f = st["forecast"]
     lines.append("")
     lines.append(" " + T("sum_value") % (bold(fmt_usd(st["total_cost_usd"])), bold(fmt_usd(st["today_usd"]))))
@@ -5487,6 +5506,8 @@ def ticker(st, width, frame=0):
         items.append(txt)
     items.append(T("hdr_today") % fmt_usd(st["today_usd"]))
     sep = sym("  \u25c6  ", "  *  ")
+    if vlen(sep.join(items)) <= width - 3:   # 放得下就不捲動，也不重複同一句
+        return rgb(CYAN, sym("\u25b6 ", "> ")) + sep.join(items)
     text = sep.join(items) + sep
     chars = list(text)
     k = frame % len(chars) if chars else 0
@@ -10015,7 +10036,7 @@ def run(args, db):
     start, end, label = pick_range(args)
     s = summary(db, start, end, label=label)
     s["limits"] = current_limits(db)
-    text = render_summary(s)
+    text = render_summary(s, ledger_empty=ledger_empty(db))
     if s["limits"]:
         text += "\n\n" + render_limits(s["limits"])
     s["machines"] = machine_report(db, start, end)
