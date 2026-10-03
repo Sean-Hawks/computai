@@ -70,6 +70,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--statusline` | For Claude Code's `statusLine`: records Claude's limits from stdin, prints `--line`. |
 | `--live [-n SEC]` | Live terminal dashboard: one panel per machine (bars and sparklines for CPU, memory, every GPU and power, plus its inference servers), AI usage with limit bars and 14-day cost trends, and alerts. Two columns on wide terminals, one line per machine when the window is short. `q` quits. |
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
+| `--card --setup` | Set up the GitHub profile card in a few questions (finds or clones the profile repo, writes the first card, adds it to the README). |
 | `--watch` | No screen: keep the ledger fresh and send notifications (see Notifications). |
 | `--notify-test` | Send a test notification. |
 | `--install-watch` / `--uninstall-watch` | Start `--watch` automatically at login, or stop doing so. |
@@ -319,6 +320,8 @@ Clients keep using `:11434` unchanged. The proxy serves running totals at `/metr
 - On a machine that another computai samples, use `--no-ledger`.
 
 ## GitHub profile card, kept fresh
+
+The quickest way is `computai --card --setup`; the README has the full guide (what each part means, styles, privacy, troubleshooting). `computai --doctor` shows whether the card is set up and when it was last written. The manual way:
 
 Set these in `config.ini`:
 

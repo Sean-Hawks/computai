@@ -63,6 +63,7 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--statusline` | 給 Claude Code 的 `statusLine` 用：從 stdin 記下 Claude 的額度，印出 `--line`。 |
 | `--live [-n 秒]` | 終端機 live 畫面：每台機器一個面板（CPU、記憶體、每張 GPU、功耗的長條和走勢，以及推論服務），AI 用量（額度長條、14 天花費走勢），警示。寬的終端機分兩欄，視窗太矮時每台機器縮成一行。按 `q` 離開。 |
 | `--once` | 印一次 live 畫面就結束（會先讀 log、取樣機器）。 |
+| `--card --setup` | 幾個問題設定好 GitHub 個人頁卡片（找到或 clone 個人頁 repo、產生第一張卡片、加進 README）。 |
 | `--watch` | 不開畫面：在背景更新帳本並送通知（見「通知」）。 |
 | `--notify-test` | 送一則測試通知。 |
 | `--install-watch`／`--uninstall-watch` | 登入時自動在背景跑 `--watch`，或取消。 |
@@ -290,6 +291,8 @@ vLLM、llama.cpp、SGLang 自己會報 token 累計數。Ollama 不會，要在�
 - 在給別台 computai 取樣的機器上，用 `--no-ledger`。
 
 ## 自動更新的 GitHub 個人頁卡片
+
+最快的方式是 `computai --card --setup`；README 有完整說明（每個區塊的意思、主題、隱私、疑難排解）。`computai --doctor` 會顯示卡片有沒有設定好、上次什麼時候更新。手動設定的方式：
 
 在 `config.ini` 設定：
 
