@@ -90,3 +90,52 @@ class PlanHint(unittest.TestCase):
         cp = m._ini()
         cp.read_string(m.DEFAULT_CONFIG)
         self.assertEqual(cp.items("plans"), [])
+
+
+class Doctor(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        self.old = dict(os.environ)
+        os.makedirs(self.sb.config)
+        with open(os.path.join(self.sb.config, "config.ini"), "w") as f:
+            f.write("[machines]\nmac = mac\ngone = nowhere\n\n[machine.mac]\nservices = ollama:11434\n\n"
+                    "[power]\ncurrency = TWD\n")
+        os.environ.update(COMPUTAI_CONFIG_DIR=self.sb.config, COMPUTAI_DATA_DIR=self.sb.data,
+                          COMPUTAI_FIXTURES=helpers.fixture("machines"), CLAUDE_CONFIG_DIR=helpers.fixture("claude"),
+                          CODEX_HOME=os.path.join(self.sb.root, "none"))
+        self.m = helpers.load()
+        self.db = self.m.open_ledger()
+
+    def tearDown(self):
+        self.db.close()
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def test_findings(self):
+        self.m.sync(self.db, quiet=True)
+        items = self.m.doctor(self.db)
+        by = {}
+        for x in items:
+            by.setdefault(x["area"], []).append(x)
+        self.assertEqual(by["claude"][0]["level"], "ok")
+        self.assertEqual(by["codex"][0]["level"], "tip")                      # 沒有 Codex 的 log
+        plan = [x for x in by["plans"] if "claude" in x["text"]][0]
+        self.assertEqual((plan["level"], plan["fix"]), ("todo", "computai --setup"))
+        sl = [x for x in by["claude"] if "status" in x["text"]][0]
+        self.assertEqual(sl["level"], "todo")
+        pw = [x for x in by["machine:mac"] if x["fix"].startswith("computai --set")][0]
+        self.assertIn("--set machine.mac.idle_watts=5 --set machine.mac.max_watts=30", pw["fix"])
+        self.assertTrue(any("proxy" in x["fix"] for x in by["machine:mac"]))
+        self.assertEqual(by["machine:gone"][0]["level"], "todo")
+        self.assertEqual(by["power"][0]["level"], "todo")                    # TWD 沒有匯率
+        text = self.m.render_doctor(items)
+        self.assertEqual(text.count("Claude Code\n"), 1)                      # 同一類只出現一次
+        self.assertIn("thing(s) to set up", text)
+
+    def test_statusline_detection(self):
+        os.makedirs(os.path.join(self.sb.root, "cc"))
+        os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(self.sb.root, "cc")
+        with open(os.path.join(self.sb.root, "cc", "settings.json"), "w") as f:
+            f.write('{"statusLine": {"type": "command", "command": "computai --statusline"}, "x": 1}')
+        self.assertEqual(self.m.claude_statusline(), "computai --statusline")

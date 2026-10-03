@@ -3789,6 +3789,22 @@ UI = {
         "w_no_usage": "No usage yet.", "w_requests": "requests", "w_tokens": "tokens",
         "w_kwh_month": "kWh this month", "w_cloud": "Cloud GPUs", "w_cols": ["Instance", "GPU", "Status", "GPU use", "Price"],
         "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
+        "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "Subscriptions", "machine": "Machines",
+                    "machines": "Machines", "power": "Electricity", "prices": "Prices", "secrets": "Keys"},
+        "dr_logs": "%s logs found (%d files)", "dr_nologs": "no %s logs (looked in %s)",
+        "dr_plan": "%s plan: %s, %s/month", "dr_plan_det": "the logs say %r",
+        "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
+        "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
+        "dr_sl_other": "Claude Code uses another status line; combine it with computai to see Claude limits",
+        "dr_sl_none": "Claude limit percentages need computai as Claude Code's status line",
+        "dr_unreach": "%s: cannot read", "dr_pw_plug": "power measured by the plug %s",
+        "dr_pw_set": "power settings present", "dr_pw_gpu": "GPU power is measured; add the rest of the machine (%s)",
+        "dr_pw_none": "power unknown, so no kWh yet; suggested values for a %s",
+        "dr_ollama": "Ollama has no token counter; run the proxy to count its tokens",
+        "dr_nomachines": "no machines configured", "dr_rate": "electricity is in %s but there is no exchange rate",
+        "dr_power": "electricity: %s", "dr_unpriced": "no price for %s",
+        "dr_perm": "secrets.ini can be read by other users and is ignored", "dr_keys": "keys found: %s",
+        "dr_all_ok": "Everything is set up.", "dr_todo": "%d thing(s) to set up: run computai --setup, or the commands above.",
         "advice": "ADVICE", "w_advice": "Advice",
         "wk_title": "ComputAI weekly report (%s - %s)", "wk_src": "%s: %s (%s tokens out%s)",
         "wk_none": "no AI usage recorded", "wk_peaks": "limit peaks: ", "wk_machines": "machines: ",
@@ -3823,6 +3839,22 @@ UI = {
         "w_no_usage": "還沒有用量。", "w_requests": "個請求", "w_tokens": "token",
         "w_kwh_month": "本月度數", "w_cloud": "雲端 GPU", "w_cols": ["機器", "GPU", "狀態", "GPU 使用率", "價格"],
         "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
+        "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "訂閱", "machine": "機器",
+                    "machines": "機器", "power": "電價", "prices": "價格", "secrets": "金鑰"},
+        "dr_logs": "找到 %s 的 log（%d 個檔案）", "dr_nologs": "沒有 %s 的 log（找過 %s）",
+        "dr_plan": "%s 方案：%s，每月 %s", "dr_plan_det": "log 裡記錄的是 %r",
+        "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
+        "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
+        "dr_sl_other": "Claude Code 用的是別的 statusline；要跟 computai 並用才看得到 Claude 額度",
+        "dr_sl_none": "要看 Claude 的額度百分比，需要把 computai 設成 Claude Code 的 statusline",
+        "dr_unreach": "%s：讀不到", "dr_pw_plug": "功耗由插座 %s 實測",
+        "dr_pw_set": "功耗已設定", "dr_pw_gpu": "GPU 功耗有實測；建議補上整台其他部分（%s）",
+        "dr_pw_none": "不知道功耗，所以還沒有度數；%s 的建議值",
+        "dr_ollama": "Ollama 沒有 token 計數器；要統計它的 token 請開 proxy",
+        "dr_nomachines": "還沒有設定機器", "dr_rate": "電價用 %s，但還沒設匯率",
+        "dr_power": "電價：%s", "dr_unpriced": "%s 沒有價格",
+        "dr_perm": "secrets.ini 其他使用者讀得到，所以被忽略", "dr_keys": "找到的金鑰：%s",
+        "dr_all_ok": "全部設定好了。", "dr_todo": "還有 %d 件事要設定：跑 computai --setup，或照上面的指令做。",
         "advice": "建議", "w_advice": "建議",
         "wk_title": "ComputAI 週報（%s ～ %s）", "wk_src": "%s：%s（輸出 %s token%s）",
         "wk_none": "這週沒有 AI 用量", "wk_peaks": "額度最高：", "wk_machines": "機器耗電：",
@@ -5095,6 +5127,144 @@ def serve_mcp(db, stdin=None, stdout=None):
     return 0
 
 
+# ---- 健康檢查（--doctor）
+
+def claude_settings_path():
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    base = env.split(",")[0].strip() if env else os.path.join(os.path.expanduser("~"), ".claude")
+    return os.path.join(base, "settings.json")
+
+
+def claude_statusline():
+    """Claude Code 設定裡的 statusLine 指令（只讀這一個欄位）；沒有就是 None。"""
+    try:
+        with open(claude_settings_path(), encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    sl = d.get("statusLine") if isinstance(d, dict) else None
+    return sl.get("command") if isinstance(sl, dict) else None
+
+
+def doctor(db, sample=True):
+    """檢查每個來源和每台機器，回傳 [{area, level: ok|tip|todo, text, fix}]。"""
+    out = []
+    add = lambda area, level, text, fix="": out.append({"area": area, "level": level, "text": text, "fix": fix})
+    t = now()
+    # 訂閱的 log
+    roots = claude_roots()
+    n_claude = sum(1 for r in roots for _ in walk_files(r))
+    if n_claude:
+        add("claude", "ok", T("dr_logs") % ("Claude Code", n_claude))
+    else:
+        add("claude", "tip", T("dr_nologs") % ("Claude Code", "~/.claude/projects"))
+    home = codex_home()
+    n_codex = sum(1 for sub in ("sessions", "archived_sessions") if os.path.isdir(os.path.join(home, sub))
+                  for _ in walk_files(os.path.join(home, sub)))
+    if n_codex:
+        add("codex", "ok", T("dr_logs") % ("Codex", n_codex))
+    else:
+        add("codex", "tip", T("dr_nologs") % ("Codex", "~/.codex/sessions"))
+    # 月費
+    current = plans()
+    used = {r[0] for r in db.execute("SELECT DISTINCT source FROM usage WHERE ts > ?", (t - 60 * 86400,))}
+    for src in SUBSCRIPTION_SOURCES:
+        if src not in used and src not in current:
+            continue
+        det = detected_plan(db, src)
+        if src in current:
+            p_ = current[src]
+            msg = T("dr_plan") % (src, p_["name"], fmt_usd(p_["usd"]))
+            if det and det.lower().replace(" ", "") not in p_["name"].lower().replace(" ", ""):
+                add("plans", "tip", msg + " - " + T("dr_plan_det") % det, "computai --setup")
+            else:
+                add("plans", "ok", msg)
+        else:
+            add("plans", "todo", T("dr_noplan") % (src, (" (" + T("dr_plan_det") % det + ")") if det else ""),
+                "computai --setup")
+    # Claude 的額度百分比
+    if n_claude:
+        sl = claude_statusline()
+        if sl and "computai" in sl:
+            add("claude", "ok", T("dr_sl_ok"))
+        elif sl:
+            add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
+        else:
+            add("claude", "todo", T("dr_sl_none"), "computai --setup")
+    # 機器
+    ms = machines()
+    snaps = sample_machines(db) if (sample and ms) else {}
+    for m in ms:
+        name = m["name"]
+        d = snaps.get(name)
+        if sample and not d:
+            add("machine:" + name, "todo", machine_errors.get(name, T("dr_unreach") % name),
+                "ssh -o BatchMode=yes %s true" % m["host"] if m["host"] != "local" else "")
+            continue
+        bits = []
+        if d:
+            g = d.get("gpus") or []
+            bits.append(", ".join(sorted({x.get("model") or x.get("vendor") for x in g})) or T("no_gpu"))
+            svcs = ["%s:%d" % (x["kind"], x["port"]) for x in d.get("services") or []]
+            if svcs:
+                bits.append(" ".join(svcs))
+        add("machine:" + name, "ok", "%s (%s)" % (name, "; ".join(bits)) if bits else name)
+        measured = d and any(x.get("power") is not None for x in d.get("gpus") or [])
+        if m.get("plug"):
+            add("machine:" + name, "ok", T("dr_pw_plug") % m["plug"])
+        elif m.get("max_watts") or m.get("idle_watts") or (measured and m.get("base_watts")):
+            add("machine:" + name, "ok", T("dr_pw_set"))
+        elif d:
+            sug, why = suggest_power(d)
+            fix = "computai " + " ".join("--set machine.%s.%s=%g" % (name, k, v) for k, v in sorted(sug.items()))
+            add("machine:" + name, "todo" if not measured else "tip",
+                (T("dr_pw_gpu") if measured else T("dr_pw_none")) % why, fix)
+        if d and any(x["kind"] == "ollama" for x in d.get("services") or []):
+            add("machine:" + name, "tip", T("dr_ollama"), "computai --proxy --machine %s" % name)
+    if not ms:
+        add("machines", "tip", T("dr_nomachines"), "computai --discover --add")
+    # 電價
+    ps = power_settings()
+    if ps["currency"] != "USD" and not ps["usd_to_local"]:
+        add("power", "todo", T("dr_rate") % ps["currency"], "computai --set general.usd_to_local=32")
+    else:
+        add("power", "ok", T("dr_power") % ("time-of-use" if ps["tou"] else "%g %s/kWh" % (ps["price_per_kwh"], ps["currency"])))
+    # 價目表
+    s = summary(db, t - 30 * 86400, t + 1, plan_table={})
+    if s["unpriced_models"]:
+        add("prices", "tip", T("dr_unpriced") % ", ".join(s["unpriced_models"]),
+            os.path.join(config_dir(), "prices.ini"))
+    # 金鑰
+    sec = os.path.join(config_dir(), "secrets.ini")
+    if os.path.exists(sec) and os.name != "nt" and os.stat(sec).st_mode & 0o077:
+        add("secrets", "todo", T("dr_perm"), "chmod 600 " + sec)
+    keys = [env for _n, env, _f in CLOUDS if secret(env)] + [k for k in ("ANTHROPIC_ADMIN_KEY", "OPENAI_ADMIN_KEY")
+                                                              if secret(k)]
+    if keys:
+        add("secrets", "ok", T("dr_keys") % ", ".join(keys))
+    return out
+
+
+def render_doctor(items):
+    mark = {"ok": rgb(GREEN, sym("\u2714", "ok")), "tip": rgb(AMBER, sym("\u25b2", "!")),
+            "todo": rgb(RED, sym("\u2716", "x"))}
+    groups = {}
+    for x in items:  # 同一類放在一起，照第一次出現的順序
+        groups.setdefault(x["area"].split(":")[0].rstrip("s") if x["area"].startswith("machine") else
+                          x["area"].split(":")[0], []).append(x)
+    lines = []
+    for area, xs in groups.items():
+        lines.append(bold(T("dr_area").get(area, area)))
+        for x in xs:
+            lines.append("  %s %s" % (mark[x["level"]], x["text"]))
+            if x["fix"]:
+                lines.append("      %s %s" % (dim(sym("\u2192", "->")), rgb(CYAN, x["fix"])))
+    todo = sum(1 for x in items if x["level"] == "todo")
+    lines.append("")
+    lines.append(T("dr_all_ok") if not todo else T("dr_todo") % todo)
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- 指令
 
 HELP_GROUPS = (
@@ -5104,6 +5274,7 @@ HELP_GROUPS = (
     ("machines and cloud", ("sample", "discover", "wake", "cloud", "proxy", "listen", "upstream", "machine",
                             "sample_every", "no_usage_injection")),
     ("integrations", ("mcp",)),
+    ("setup", ("doctor", "set", "unset")),
 )
 
 
@@ -5138,6 +5309,8 @@ def parse_args(argv=None):
                    help="break the summary down by model (default), project, session or day")
     p.add_argument("--sample", action="store_true",
                    help="read every machine in [machines] once (CPU, GPU, power, loaded models)")
+    p.add_argument("--doctor", action="store_true",
+                   help="check every source and machine and say what is missing and how to fix it")
     p.add_argument("--discover", action="store_true",
                    help="look for machines in ~/.ssh/config and Tailscale, test SSH, print config lines")
     p.add_argument("--mcp", action="store_true",
@@ -5245,7 +5418,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
 
 
@@ -5297,6 +5470,13 @@ def run(args, db):
         return 0
     if args.mcp:
         return serve_mcp(db)
+    if args.doctor:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        set_style(use_color(), not can_draw_blocks())
+        items = doctor(db, sample=not args.no_sync)
+        emit(items, render_doctor(items), args.json)
+        return 0
     if args.discover:
         found = discover()
         emit(found, render_discover(found), args.json)
