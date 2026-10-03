@@ -6185,7 +6185,7 @@ def wrapped(db, start, end, label, kind="month", prices=None, plan_table=None, c
 
 
 def _short_num(v):
-    return "%d" % v if v >= 10 else "%.1f" % v
+    return format(int(v), ",") if v >= 10 else "%.1f" % v
 
 
 def _sign(p):
@@ -6224,7 +6224,7 @@ def wrapped_slides(w):
         add("hour", T("wr_hour_k"), "%02d:00" % w["peak_hour"], T("wr_persona_" + w["persona"]))
     if w["top_models"]:
         add("models", T("wr_models_k"), w["top_models"][0]["model"], T("wr_models_p"),
-            [[m["model"], "%d%%" % m["share_pct"]] for m in w["top_models"]])
+            [[m["model"], "%d%%" % m["share_pct"] if m["share_pct"] else "<1%"] for m in w["top_models"]])
     if w["sessions"]:
         b = w["biggest_session"]
         add("sessions", T("wr_sessions_k"), str(w["sessions"]),
@@ -6254,13 +6254,186 @@ def render_wrapped(w):
     for s in wrapped_slides(w):
         if s["id"] in ("intro", "card"):
             continue
-        out.append("  %-24s %s" % (s["kicker"], s["big"]))
+        out.append("  %s %s" % (cell(s["kicker"], 24), s["big"]))
         for label, val in s["rows"]:
             out.append("      %-30s %s" % (cell(label, 30), val))
         out.append("      " + s["punch"])
     if len(out) == 2:
         out.append("  " + T("wr_none"))
     return "\n".join(out)
+
+
+def wrapped_bars(w):
+    """迷你長條圖用的數字：月份是每天的金額，年是每個月的金額（API 等值）。"""
+    import calendar
+    daily = dict(w["daily"])
+    try:
+        if w["kind"] == "year":
+            y = int(w["label"])
+            return [round(sum(v for d, v in daily.items() if d[:7] == "%04d-%02d" % (y, mo)), 2) for mo in range(1, 13)]
+        y, mo = (int(x) for x in w["label"].split("-"))
+        return [daily.get("%04d-%02d-%02d" % (y, mo, d), 0.0) for d in range(1, calendar.monthrange(y, mo)[1] + 1)]
+    except ValueError:
+        return [v for _, v in w["daily"]]
+
+
+def json_for_script(obj):
+    """放進 <script> 的 JSON：<、>、& 和行分隔字元都跳脫，不可能提早結束 script 標籤。"""
+    s = json.dumps(obj, ensure_ascii=False)
+    for ch, esc in (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"), (" ", "\\u2028"), (" ", "\\u2029")):
+        s = s.replace(ch, esc)
+    return s
+
+
+# 故事頁的樣式與腳本。整份檔案自給自足：沒有外部字型、圖片或網路請求。
+WRAPPED_CSS = """
+:root { --bg:#07080b; --fg:#e8f1f5; --dim:#8a97a3; --accent:#67e8f9; --line:#2a323b; }
+* { box-sizing:border-box; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--fg); }
+body { font:16px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,"Noto Sans Mono CJK TC","PingFang TC",monospace; overflow:hidden; }
+#app { position:fixed; inset:0; display:flex; flex-direction:column; outline:none; user-select:none; -webkit-user-select:none;
+  touch-action:pan-y; cursor:pointer;
+  background:radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 4px), var(--bg); }
+#bars { display:flex; gap:4px; padding:max(12px,env(safe-area-inset-top)) 12px 0; }
+#bars i { flex:1; height:3px; background:var(--line); border-radius:2px; overflow:hidden; }
+#bars i.done, #bars i.now { background:var(--accent); }
+#bars i.now { box-shadow:0 0 10px var(--accent); }
+#brand { padding:10px 16px 0; font-size:12px; letter-spacing:.3em; color:var(--dim); text-transform:uppercase; }
+#stage { flex:1; display:flex; flex-direction:column; justify-content:center; padding:16px 22px 28px; max-width:900px;
+  width:100%; margin:0 auto; min-height:0; }
+.kicker { color:var(--accent); font-size:clamp(12px,3.4vw,18px); letter-spacing:.28em; text-transform:uppercase; }
+.big { font-weight:800; line-height:1.02; margin:.25em 0 .3em; font-size:clamp(52px,17vw,150px); letter-spacing:-.03em;
+  overflow-wrap:anywhere; text-shadow:0 0 28px color-mix(in srgb, var(--accent) 55%, transparent); }
+.big.mid { font-size:clamp(38px,11vw,96px); } .big.long { font-size:clamp(26px,7vw,60px); letter-spacing:-.01em; }
+.punch { font-size:clamp(16px,4.4vw,26px); color:#c9d4dc; max-width:34em; }
+.rows { margin:6px 0 18px; display:grid; gap:10px; }
+.row { display:grid; grid-template-columns:1fr auto; gap:4px 12px; font-size:clamp(14px,3.8vw,20px); }
+.row u { grid-column:1/3; display:block; height:6px; border-radius:3px; background:var(--accent); text-decoration:none;
+  box-shadow:0 0 12px var(--accent); }
+.card { margin-top:8px; border:1px solid var(--accent); border-radius:14px; padding:18px 18px 14px;
+  background:linear-gradient(160deg, rgba(103,232,249,.10), rgba(244,114,182,.08) 60%, rgba(10,12,16,.9));
+  box-shadow:0 0 40px -14px var(--accent); }
+.card .big { font-size:clamp(30px,9vw,60px); margin:.1em 0 .2em; }
+.card dl { margin:8px 0 12px; display:grid; grid-template-columns:auto 1fr; gap:6px 14px; font-size:clamp(13px,3.6vw,17px); }
+.card dt { color:var(--dim); } .card dd { margin:0; text-align:right; overflow-wrap:anywhere; }
+.spark { display:flex; align-items:flex-end; gap:2px; height:44px; margin:6px 0 14px; }
+.spark i { flex:1; min-width:2px; background:var(--accent); border-radius:1px 1px 0 0; opacity:.9; }
+.card .tag { margin-top:10px; color:var(--dim); font-size:12px; letter-spacing:.14em; text-transform:uppercase; }
+button { margin-top:14px; font:inherit; color:var(--fg); background:transparent; border:1px solid var(--line);
+  border-radius:8px; padding:8px 16px; cursor:pointer; }
+button:hover, button:focus-visible { border-color:var(--accent); outline:none; }
+#hint { padding:0 16px max(14px,env(safe-area-inset-bottom)); color:var(--dim); font-size:12px; text-align:center; }
+@media (prefers-reduced-motion: no-preference) {
+  #stage > * { animation:rise .55s cubic-bezier(.2,.8,.2,1) both; }
+  #stage > :nth-child(2) { animation-delay:.06s; } #stage > :nth-child(3) { animation-delay:.16s; }
+  #stage > :nth-child(4) { animation-delay:.26s; }
+  .row u { transform-origin:left; animation:grow .8s .3s cubic-bezier(.2,.8,.2,1) both; }
+  .big { animation:rise .55s .06s cubic-bezier(.2,.8,.2,1) both, glow 3.2s 1s ease-in-out infinite alternate; }
+  @keyframes rise { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:none; } }
+  @keyframes grow { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+  @keyframes glow { from { text-shadow:0 0 18px color-mix(in srgb, var(--accent) 40%, transparent); }
+                    to { text-shadow:0 0 40px color-mix(in srgb, var(--accent) 80%, transparent); } }
+}
+noscript { position:fixed; inset:0; z-index:5; overflow:auto; padding:24px; background:var(--bg); }
+"""
+
+WRAPPED_JS = r"""
+(function () {
+  var data = JSON.parse(document.getElementById("wrapped-data").textContent);
+  var slides = data.slides, i = 0;
+  var accents = ["#67e8f9", "#f472b6", "#a3e635", "#fbbf24", "#a78bfa", "#fb7185"];
+  var app = document.getElementById("app"), bars = document.getElementById("bars"),
+      stage = document.getElementById("stage");
+  document.getElementById("hint").textContent = data.hint;
+  slides.forEach(function () { bars.appendChild(document.createElement("i")); });
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function show(n) {
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    var s = slides[i];
+    Array.prototype.forEach.call(bars.children, function (b, k) { b.className = k < i ? "done" : (k === i ? "now" : ""); });
+    document.documentElement.style.setProperty("--accent", accents[i % accents.length]);
+    stage.textContent = "";
+    var big = el("div", "big" + (s.big.length > 12 ? " long" : s.big.length > 7 ? " mid" : ""), s.big);
+    if (s.id === "card") {
+      var card = el("div", "card");
+      card.appendChild(el("div", "kicker", s.kicker));
+      card.appendChild(big);
+      var dl = el("dl");
+      s.rows.forEach(function (r) { dl.appendChild(el("dt", "", r[0])); dl.appendChild(el("dd", "", r[1])); });
+      card.appendChild(dl);
+      var max = Math.max.apply(null, data.bars.concat([0.0001])), sp = el("div", "spark");
+      data.bars.forEach(function (v) {
+        var b = el("i"); b.style.height = Math.max(4, Math.round(100 * v / max)) + "%"; sp.appendChild(b);
+      });
+      card.appendChild(sp);
+      card.appendChild(el("div", "punch", s.punch));
+      card.appendChild(el("div", "tag", "computai · " + data.tagline));
+      stage.appendChild(card);
+      var again = el("button", "", data.replay);
+      again.type = "button";
+      again.addEventListener("click", function (ev) { ev.stopPropagation(); show(0); });
+      stage.appendChild(again);
+      return;
+    }
+    stage.appendChild(el("div", "kicker", s.kicker));
+    stage.appendChild(big);
+    if (s.rows.length) {
+      var rows = el("div", "rows");
+      s.rows.forEach(function (r) {
+        var row = el("div", "row");
+        row.appendChild(el("span", "", r[0])); row.appendChild(el("b", "", r[1]));
+        var pct = parseInt(r[1], 10) || 0, u = el("u"); u.style.width = Math.max(2, pct) + "%";
+        row.appendChild(u); rows.appendChild(row);
+      });
+      stage.appendChild(rows);
+    }
+    stage.appendChild(el("div", "punch", s.punch));
+  }
+  var x0 = null, y0 = null;
+  app.addEventListener("pointerdown", function (e) { x0 = e.clientX; y0 = e.clientY; });
+  app.addEventListener("pointerup", function (e) {
+    if (x0 === null || (e.target.closest && e.target.closest("button"))) { x0 = null; return; }
+    var dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) { show(i + (dx < 0 ? 1 : -1)); return; }
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) return;
+    show(e.clientX < window.innerWidth / 3 ? i - 1 : i + 1);
+  });
+  document.addEventListener("keydown", function (e) {
+    var k = e.key;
+    if (k === "ArrowRight" || k === "ArrowDown" || k === " " || k === "PageDown") { e.preventDefault(); show(i + 1); }
+    else if (k === "ArrowLeft" || k === "ArrowUp" || k === "Backspace" || k === "PageUp") { e.preventDefault(); show(i - 1); }
+    else if (k === "Home") { show(0); } else if (k === "End") { show(slides.length - 1); }
+  });
+  app.focus();
+  show(parseInt(location.hash.slice(1), 10) || 0);
+})();
+"""
+
+
+def render_wrapped_html(w):
+    """全螢幕、像限時動態的回顧頁。一個檔案，不連網。所有文字都是 textContent 或 html.escape 過。"""
+    import html
+    slides = wrapped_slides(w)
+    data = {"slides": slides, "bars": wrapped_bars(w), "hint": T("wr_hint"), "replay": T("wr_replay"),
+            "tagline": T("wr_tagline")}
+    plain = "".join("<li><b>%s</b> %s<br>%s</li>" % (html.escape(s["kicker"]), html.escape(s["big"]),
+                                                    html.escape(s["punch"])) for s in slides)
+    return ('<!doctype html>\n<html lang="%s"><head><meta charset="utf-8">\n'
+            '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+            '<meta name="color-scheme" content="dark"><title>%s</title>\n<style>%s</style></head>\n'
+            '<body><div id="app" tabindex="0" role="application" aria-label="%s" aria-live="polite">'
+            '<div id="bars"></div><div id="brand">computai</div><div id="stage"></div><div id="hint"></div></div>\n'
+            '<noscript><ol>%s</ol></noscript>\n'
+            '<script type="application/json" id="wrapped-data">%s</script>\n<script>%s</script>\n</body></html>\n'
+            % ("zh-Hant" if _lang == "zh" else "en", html.escape("ComputAI Wrapped " + w["label"]), WRAPPED_CSS,
+               html.escape(T("wr_title") + " " + w["label"]), plain, json_for_script(data), WRAPPED_JS))
 
 
 # ---- 實驗室彙總（--totals 匯出、--lab 合併）
@@ -7023,7 +7196,7 @@ def parse_args(argv=None):
     p.add_argument("--uninstall-watch", action="store_true", help="undo --install-watch")
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
-    p.add_argument("--html", metavar="FILE", help="with --report or --recap: write an HTML page")
+    p.add_argument("--html", metavar="FILE", help="with --report, --recap or --wrapped: write an HTML page")
     p.add_argument("--weekly", action="store_true", help="the last 7 days as a short report")
     p.add_argument("--send", action="store_true",
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
@@ -7254,6 +7427,11 @@ def run(args, db):
             sync(db, quiet=True)
         start, end, label, kind = wrapped_period(args.wrapped)
         w = wrapped(db, start, end, label, kind)
+        if args.html:
+            with open(args.html, "w", encoding="utf-8") as f:
+                f.write(render_wrapped_html(w))
+            print("computai: wrote %s" % args.html)
+            return 0
         emit(w, render_wrapped(w), args.json)
         return 0
     if args.recap is not None:

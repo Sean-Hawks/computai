@@ -189,3 +189,84 @@ class WrappedCli(unittest.TestCase):
         r = sb.run("--wrapped", "2026", "--no-sync")
         self.assertIn("ComputAI Wrapped 2026", r.stdout)
         self.assertNotEqual(sb.run("--wrapped", "nonsense", "--no-sync").returncode, 0)
+
+
+class WrappedHtml(unittest.TestCase):
+    def setUp(self):
+        if hasattr(time, "tzset"):
+            os.environ["TZ"] = "UTC"
+            time.tzset()
+        self.m = helpers.load()
+        self.db = self.m.open_ledger(":memory:")
+        self.addCleanup(self.db.close)
+        seed(self.m, self.db)
+        self.addCleanup(self.m.set_lang, "en")
+        s, e, label, kind = self.m.wrapped_period("2026-09")
+        self.w = self.m.wrapped(self.db, s, e, label, kind, PRICES, PLANS, t=self.m.calendar_ts(2026, 10, 3, 12))
+
+    def page(self):
+        return self.m.render_wrapped_html(self.w)
+
+    def data(self, page):
+        raw = re.search(r'<script type="application/json" id="wrapped-data">(.*?)</script>', page, re.S).group(1)
+        return json.loads(raw)
+
+    def test_self_contained_and_private(self):
+        page = self.page()
+        self.assertNotIn("secret", page)
+        self.assertNotIn("sess-3f9a1c", page)
+        self.assertEqual(page.count("<style>"), 1)
+        self.assertEqual(page.count("<script"), 2)                  # 資料 + 程式，各一個
+        self.assertNotRegex(page, r"(src|href)\s*=")                # 沒有外部資源
+        self.assertNotRegex(page, r"https?://")
+        self.assertNotIn("@import", page)
+        self.assertNotRegex(page, r"\son[a-z]+\s*=")                # 沒有行內事件
+        self.assertIn("prefers-reduced-motion", page)
+
+    def test_story_features(self):
+        page = self.page()
+        for want in ("ArrowRight", "pointerup", "touch-action", 'id="bars"', "Night owl"):
+            self.assertIn(want, page)
+        slides = self.data(page)["slides"]
+        self.assertEqual(slides[0]["id"], "intro")
+        self.assertEqual(slides[-1]["id"], "card")
+        self.assertIn("tokens", [s["id"] for s in slides])
+        self.assertEqual(len(self.data(page)["bars"]), 30)         # 九月 30 天
+
+    def test_script_breakout_is_escaped(self):
+        self.m.add_usage(self.db, [dict(source="claude", uid="evil", ts=self.m.calendar_ts(2026, 9, 11, 3),
+                                        model="m</script><img src=x onerror=alert(1)>&", output=10 ** 9)])
+        s, e, label, kind = self.m.wrapped_period("2026-09")
+        self.w = self.m.wrapped(self.db, s, e, label, kind, PRICES, PLANS)
+        page = self.page()
+        self.assertEqual(page.count("</script>"), 2)
+        self.assertNotIn("<img", page)
+        self.assertIn("m</script><img", json.dumps(self.data(page)))   # 解回來資料還是原樣
+
+    def test_zh_page(self):
+        self.m.set_lang("zh")
+        page = self.page()
+        self.assertIn('lang="zh-Hant"', page)
+        self.assertIn("夜貓子", page)
+
+    def test_js_parses(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        js = re.findall(r"<script>(.*?)</script>", self.page(), re.S)[0]
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        path = os.path.join(d, "story.js")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(js)
+        r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_cli_writes_html(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        out = os.path.join(sb.root, "w.html")
+        r = sb.run("--wrapped", "2026-09", "--no-sync", "--html", out)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(out, encoding="utf-8") as f:
+            self.assertIn("ComputAI Wrapped 2026-09", f.read())
