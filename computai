@@ -3154,20 +3154,60 @@ def side_by_side(a, b, gap=2):
     return [pad(x, wa) + " " * gap + y for x, y in zip(a, b)]
 
 
-def latest_samples(db, t=None):
+HISTORY = 40  # sparkline 用最近幾次取樣
+
+
+def latest_samples(db, t=None, n=HISTORY):
+    """每台機器最新的狀態，加上最近 n 次取樣的走勢（CPU、GPU、功耗、每張卡）和最近 5 分鐘的 token 速率。"""
     t = now() if t is None else t
-    rows = db.execute("SELECT s.* FROM samples s JOIN (SELECT machine, MAX(ts) AS ts FROM samples "
-                      "GROUP BY machine) x ON s.machine = x.machine AND s.ts = x.ts ORDER BY s.machine")
+    hosts = {m["name"]: m["host"] for m in machines()}
     out = []
-    for r in rows:
-        r = dict(r)
-        out.append({"machine": r["machine"], "age": int(t - r["ts"]), "cpu_pct": r["cpu_pct"],
-                    "gpu_util": r["gpu_util"], "gpu_mem_used": r["gpu_mem_used"],
+    for (name,) in db.execute("SELECT DISTINCT machine FROM samples ORDER BY machine").fetchall():
+        rows = [dict(r) for r in db.execute("SELECT * FROM samples WHERE machine = ? ORDER BY ts DESC LIMIT ?",
+                                            (name, n)).fetchall()][::-1]
+        r = rows[-1]
+        try:
+            detail = json.loads(r.get("detail") or "{}")
+        except ValueError:
+            detail = {}
+        gpus_hist = {}
+        for x in rows:
+            try:
+                for g in json.loads(x.get("detail") or "{}").get("gpus") or []:
+                    gpus_hist.setdefault(str(g.get("idx")), []).append(g.get("util"))
+            except ValueError:
+                pass
+        rec = db.execute("SELECT COUNT(*) AS n, COALESCE(SUM(output), 0) AS o FROM usage WHERE source = 'local' "
+                         "AND project = ? AND ts > ?", (name, t - 300)).fetchone()
+        out.append({"machine": name, "host": hosts.get(name, ""), "age": int(t - r["ts"]),
+                    "cpu_pct": r["cpu_pct"], "gpu_util": r["gpu_util"], "gpu_mem_used": r["gpu_mem_used"],
                     "gpu_mem_total": r["gpu_mem_total"], "power_w": r["power_w"],
                     "ai_active": bool(r["ai_active"]),
-                    "loaded": [{k: x.get(k) for k in ("service", "name", "vram_mb")}
-                               for x in json.loads(r["loaded"] or "[]")]})
+                    "mem_used": detail.get("mem_used"), "mem_total": detail.get("mem_total"),
+                    "load": detail.get("load"), "ncpu": detail.get("ncpu"),
+                    "gpus": [dict(g, history=gpus_hist.get(str(g.get("idx")), [])) for g in detail.get("gpus") or []],
+                    "services": detail.get("services") or [],
+                    "loaded": [{k: x.get(k) for k in ("service", "port", "name", "vram_mb")}
+                               for x in json.loads(r["loaded"] or "[]")],
+                    "history": {"cpu": [x["cpu_pct"] for x in rows], "gpu": [x["gpu_util"] for x in rows],
+                                "power": [x["power_w"] for x in rows], "ai": [x["ai_active"] for x in rows]},
+                    "recent": {"requests": rec["n"], "output": rec["o"], "tok_s": round(rec["o"] / 300.0, 1)}})
     return out
+
+
+def daily_costs(db, days=14, t=None):
+    """最近 days 天每天的花費（每個來源分開），給 sparkline 用。"""
+    t = now() if t is None else t
+    lt = time.localtime(t)
+    end = local_ts(lt.tm_year, lt.tm_mon, lt.tm_mday) + 86400
+    start = end - days * 86400
+    labels = [day_label(start + i * 86400 + 3600) for i in range(days)]
+    out = {}
+    for g in breakdown(db, start, end, "day"):
+        out.setdefault(g["source"], dict.fromkeys(labels, 0.0))
+        if g["day"] in out[g["source"]]:
+            out[g["source"]][g["day"]] += g["cost_usd"]
+    return {"days": labels, "sources": {k: [round(v[d], 2) for d in labels] for k, v in out.items()}}
 
 
 def dashboard_state(db):
@@ -3188,7 +3228,7 @@ def dashboard_state(db):
                          "output": x["totals"]["output"], "plan": x.get("plan")} for x in s["sources"]],
             "total_cost_usd": s["total_cost_usd"], "unpriced_models": s["unpriced_models"],
             "limits": current_limits(db), "machines": latest_samples(db, t),
-            "energy": energy, "cloud": latest_cloud(db),
+            "energy": energy, "cloud": latest_cloud(db), "daily": daily_costs(db, 14, t),
             "forecast": forecast(db, t, month_machines=energy),
             "alerts": machine_alerts() + idle_alerts(db, t) + cloud_alerts(db, t)}
 

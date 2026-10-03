@@ -38,6 +38,19 @@ class Dashboard(unittest.TestCase):
         self.assertTrue(any(a["kind"] == "idle_model" for a in st["alerts"]))
         self.assertIn("Codex 97% (1h00m)", st["line_text"])
 
+    def test_history_and_daily(self):
+        os.environ["COMPUTAI_FAKE_NOW"] = "1790000060"
+        self.m.sample_machines(self.db)
+        mac = self.m.latest_samples(self.db)[0]
+        self.assertEqual(len(mac["history"]["gpu"]), 2)
+        self.assertEqual(mac["host"], "mac")
+        self.assertEqual(mac["gpus"][0]["model"], "Apple M3 10-core")
+        self.assertEqual(len(mac["gpus"][0]["history"]), 2)
+        self.assertEqual(mac["mem_total"], 16384)
+        d = self.m.daily_costs(self.db, 3)
+        self.assertEqual(len(d["days"]), 3)
+        self.assertEqual(d["sources"]["claude"][-1], 20.0)   # 今天（9/21）那筆 $20
+
     def test_live_render_has_three_areas(self):
         text = self.m.render_live(self.st, 90)
         for title in ("Compute", "AI usage", "Alerts"):
