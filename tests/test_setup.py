@@ -69,3 +69,24 @@ class SetCli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanHint(unittest.TestCase):
+    def test_missing_plan_hint_uses_detected_plan(self):
+        m = helpers.load()
+        db = m.open_ledger(":memory:")
+        m.add_usage(db, [dict(source="codex", uid="1", ts=100, model="gpt-5.5", output=10)])
+        m.add_limits(db, [dict(source="codex", name="week", ts=90, used_percent=5.0, plan="pro")])
+        s = m.summary(db, 0, 1000, plan_table={})
+        self.assertTrue(s["sources"][0]["plan_missing"])
+        self.assertEqual(s["sources"][0]["plan_detected"], "pro")
+        self.assertIn("plan: not set (the logs say 'pro') - run `computai --setup`", m.render_summary(s))
+        s = m.summary(db, 0, 1000, plan_table={"codex": {"name": "Pro", "usd": 200.0, "checked": ""}})
+        self.assertNotIn("plan_missing", s["sources"][0])
+        db.close()
+
+    def test_default_template_has_no_plans(self):
+        m = helpers.load()
+        cp = m._ini()
+        cp.read_string(m.DEFAULT_CONFIG)
+        self.assertEqual(cp.items("plans"), [])

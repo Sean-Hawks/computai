@@ -71,10 +71,14 @@ lang = en
 local_currency = TWD
 
 [plans]
-# Monthly subscription fees, compared against the API-equivalent cost of what you used.
-# Format: <source> = <plan name>, <USD per month>, <date you checked the price>
-claude = Claude Max 5x, 100, 2026-10-03
-codex = ChatGPT Pro, 200, 2026-10-03
+# What you pay each month, compared against the API-equivalent cost of what you used.
+# `computai --setup` fills this in for you. Format: <source> = <plan name>, <USD per month>, <date checked>
+# Examples (prices as listed on 2026-10-03):
+# claude = Claude Pro, 20, 2026-10-03
+# claude = Claude Max 5x, 100, 2026-10-03
+# claude = Claude Max 20x, 200, 2026-10-03
+# codex = ChatGPT Plus, 20, 2026-10-03
+# codex = ChatGPT Pro, 200, 2026-10-03
 
 [plan_options]
 # Plans the simulator compares: <name> <USD per month> x<usage allowance relative to the
@@ -1034,6 +1038,13 @@ def row_cost(r, price):
             + r["output"] * price["output"]) / 1e6
 
 
+def detected_plan(db, source):
+    """log 裡記錄的方案名稱（Codex 的 rate_limits 有 plan_type）；沒有就是 None。"""
+    row = db.execute("SELECT plan FROM limits WHERE source = ? AND plan != '' ORDER BY ts DESC LIMIT 1",
+                     (source,)).fetchone()
+    return row["plan"] if row else None
+
+
 def summary(db, start, end, prices=None, plan_table=None, label=""):
     prices = load_prices() if prices is None else prices
     plan_table = plans() if plan_table is None else plan_table
@@ -1069,6 +1080,9 @@ def summary(db, start, end, prices=None, plan_table=None, label=""):
         s = by_src[name]
         s["models"].sort(key=lambda m: -(m["cost_usd"] or 0))
         plan = plan_table.get(name)
+        if not plan and name in SUBSCRIPTION_SOURCES:
+            s["plan_missing"] = True
+            s["plan_detected"] = detected_plan(db, name)
         if plan:
             fee = plan["usd"] if 27 <= days <= 32 else plan["usd"] * days / 30.44
             s["plan"] = dict(plan, fee_in_range=round(fee, 2),
@@ -1271,6 +1285,10 @@ def render_summary(s):
             extra.append("subagents %d%% of requests" % round(100.0 * t["subagent_requests"] / t["requests"]))
         if extra:
             lines.append("  " + ", ".join(extra))
+        if src.get("plan_missing"):
+            det = src.get("plan_detected")
+            lines.append("  plan: not set%s - run `computai --setup`, or `computai --set 'plans.%s=NAME, USD'`" % (
+                (" (the logs say %r)" % det) if det else "", src["source"]))
         if src.get("plan"):
             p = src["plan"]
             lines.append("  plan: %s, %s for this range -> usage worth %sx the fee" % (
@@ -3580,7 +3598,8 @@ def dashboard_state(db):
                          "requests": x["totals"]["requests"],
                          "tokens": sum(x["totals"][c] for c in ("input", "cache_read", "cache_write_5m",
                                                                 "cache_write_1h", "output")),
-                         "output": x["totals"]["output"], "plan": x.get("plan")} for x in s["sources"]],
+                         "output": x["totals"]["output"], "plan": x.get("plan"),
+                         "plan_missing": x.get("plan_missing", False)} for x in s["sources"]],
             "total_cost_usd": s["total_cost_usd"], "unpriced_models": s["unpriced_models"],
             "limits": current_limits(db), "machines": latest_samples(db, t),
             "energy": energy, "cloud": latest_cloud(db), "daily": daily_costs(db, 14, t),
@@ -3719,7 +3738,7 @@ UI = {
         "compact": "compact: enlarge the window for details", "no_gpu": "no GPU",
         "no_machines": "no machines yet: add them under [machines] in config.ini",
         "foot": ["q quit", "-n SEC refresh", "computai --web for the browser", "--analyze for advice"],
-        "gpus_n": "%d GPUs", "fits": "%.1f GB free: room for a ~%s model (4-bit)",
+        "plan_unset": "plan not set: computai --setup", "gpus_n": "%d GPUs", "fits": "%.1f GB free: room for a ~%s model (4-bit)",
         "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "local": "Local models",
                                      "cloud": "Cloud GPUs", "anthropic-api": "Anthropic API",
                                      "openai-api": "OpenAI API"},
@@ -3753,7 +3772,7 @@ UI = {
         "compact": "精簡模式：視窗放大可以看細節", "no_gpu": "無 GPU",
         "no_machines": "還沒有機器：在 config.ini 的 [machines] 加上去",
         "foot": ["q 離開", "-n 秒數 更新間隔", "computai --web 開網頁版", "--analyze 看建議"],
-        "gpus_n": "%d 張 GPU", "fits": "還有 %.1f GB：放得下約 %s 的模型（4-bit）",
+        "plan_unset": "還沒設月費：computai --setup", "gpus_n": "%d 張 GPU", "fits": "還有 %.1f GB：放得下約 %s 的模型（4-bit）",
         "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "local": "本地模型",
                                       "cloud": "雲端 GPU", "anthropic-api": "Anthropic API",
                                       "openai-api": "OpenAI API"},
@@ -3915,6 +3934,8 @@ def usage_panel(st, width):
             ratio = plan["value_ratio"] or 0
             col = GREEN if ratio >= 1 else AMBER
             tail = dim("  %s %s -> " % (plan["name"], fmt_usd(plan["fee_in_range"]))) + rgb(col, "%.1fx" % ratio)
+        elif x.get("plan_missing"):
+            tail = "  " + rgb(AMBER, T("plan_unset"))
         lines.append(" %s %s%s" % (bold(cell(name, 14)), rgb(CYAN, "%9s" % fmt_usd(x["cost_usd"])), tail))
         for r in sorted(lim.pop(x["source"], []), key=lambda r: r["window_minutes"] or 0):
             when = dim(T("resets") % fmt_dur(r["resets_in"])) if r["resets_in"] is not None else ""
@@ -4357,7 +4378,8 @@ function usageCard(st) {
     const box = el("div", {class: "src"}, el("div", {class: "top"}, el("b", {}, t.src[s.source] || s.source),
       el("span", {class: "cost"}, usd(s.cost_usd)),
       p ? el("span", {class: "muted", style: `color:${(p.value_ratio || 0) >= 1 ? "var(--ok)" : "var(--warn)"}`},
-             `${p.name} ${usd(p.fee_in_range)} → ${(p.value_ratio || 0).toFixed(1)}×`) : null));
+             `${p.name} ${usd(p.fee_in_range)} → ${(p.value_ratio || 0).toFixed(1)}×`)
+        : s.plan_missing ? el("span", {style: "color:var(--warn)"}, t.plan_unset) : null));
     for (const l of (lim[s.source] || []).sort((a, b) => (a.window_minutes || 0) - (b.window_minutes || 0)))
       box.append(rowBar(l.name, l.used_percent, pct(l.used_percent)),
                  l.resets_in !== null ? el("div", {class: "legend"}, fmt(t.resets, dur(l.resets_in))) : null);
