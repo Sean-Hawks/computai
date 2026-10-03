@@ -6268,11 +6268,11 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
   border-top:1px solid var(--line); color:var(--dim); font-size:12px; }
 .card.fail { border-color:var(--red); }
 
-/* ---- cyber 主題（預設）：冷靜的儀器，不是霓虹招牌。規則見 docs/DESIGN.md ----
-   顏色依用途：--accent 品牌／互動、--ok 正常、--warn 注意、--red 故障或用完、--dim 次要資訊。
-   沒有掃描線、故障閃爍、切角、光暈、漸層長條；反白色塊只用在總結列。 */
-html[data-theme="cyber"] { color-scheme:dark; --bg:#0a0b0d; --panel:#0f1114; --line:#2a2f36;
-  --text:#e6e8eb; --dim:#9aa1ab; --accent:#67e8f9; --mag:#e6e8eb; --warn:#fbbf24; --red:#f87171; --ok:#4ade80; }
+/* ---- cyber 主題（預設）：Minerva 的先進極簡，規則見 docs/DESIGN.md ----
+   字一律白、框線灰，顏色只代表狀態：--ok 正常、--warn 注意、--red 故障或用完；--accent 是白。
+   沒有掃描線、故障閃爍、切角、光暈、漸層長條、霓虹色。 */
+html[data-theme="cyber"] { color-scheme:dark; --bg:#000000; --panel:#050505; --line:#2e2e2e;
+  --text:#f5f5f5; --dim:#aaaaaa; --accent:#ffffff; --mag:#f5f5f5; --warn:#fbbf24; --red:#f87171; --ok:#4ade80; }
 html[data-theme="cyber"] body { font-size:13px; }
 html[data-theme="cyber"] header { background:var(--bg); }
 html[data-theme="cyber"] .brand { letter-spacing:.22em; }
