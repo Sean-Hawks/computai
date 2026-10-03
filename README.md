@@ -46,7 +46,7 @@ a GPU payback calculator and time-of-use electricity prices (Taipower two-tier p
 Also: `--discover` finds machines in `~/.ssh/config` and Tailscale; each machine shows how large a model
 still fits; smart plugs (Shelly, Tasmota, Home Assistant) give measured power; `--wake` sends Wake-on-LAN;
 `--mcp` lets agents ask about their own budget; `--weekly --send` posts a weekly summary to Discord or
-Telegram; `--recap` makes a year-in-review card; `--csv` exports records; `--totals`/`--lab` combine a
+Telegram; `--wrapped` makes a Spotify-Wrapped-style story page and share card, `--card` a GitHub profile card (`--recap` is the older year card); `--csv` exports records; `--totals`/`--lab` combine a
 group's totals; `--lang zh` switches the dashboards to Traditional Chinese.
 
 ## Install
@@ -101,6 +101,10 @@ computai --discover               # which of my machines can ComputAI read?
 computai --bench                  # tokens/s and electricity per 1M tokens for each local model
 computai --install-watch          # notify me when a limit runs low, runs out or resets (at login)
 computai --once --lang zh         # 中文、印一次
+computai --wrapped 2026-09        # Spotify-Wrapped-style recap of a month (or 2026 for a year)
+computai --wrapped --html story.html --svg card.svg   # story page + 1200x630 share card
+computai --card --svg card.svg    # small card for your GitHub profile README (--card-theme light)
+computai --card --publish ~/Documents/me   # commit the card into your profile repo (no push without --push)
 ```
 
 Every command takes `--json`. The first run writes `config.ini` and `prices.ini` to
