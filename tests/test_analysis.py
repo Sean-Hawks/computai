@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 
@@ -240,3 +241,58 @@ class Recap(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old)
             sb.close()
+
+
+class Weekly(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        self.old = dict(os.environ)
+        os.environ.update(COMPUTAI_CONFIG_DIR=self.sb.config, COMPUTAI_FAKE_NOW="1790000000")
+        for k in ("DISCORD_WEBHOOK_URL", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
+            os.environ.pop(k, None)
+        self.m = helpers.load()
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.old)
+        self.sb.close()
+
+    def test_text(self):
+        db = self.m.open_ledger(":memory:")
+        self.m.add_usage(db, [dict(source="claude", uid="1", ts=1790000000 - 3600, model="claude-opus-5-5",
+                                   output=1000000)])
+        text = self.m.weekly(db)
+        self.assertIn("Claude Code: $20.00", text)
+        self.assertIn("total at API prices: $20.00", text)
+        db.close()
+
+    def test_send(self):
+        import urllib.error
+        import urllib.request
+        sent = []
+
+        class Resp:
+            status = 204
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+
+        def fake(req, timeout=0):
+            sent.append((req.full_url, json.loads(req.data)))
+            if "telegram" in req.full_url:
+                raise urllib.error.HTTPError(req.full_url, 401, "no", {}, None)
+            return Resp()
+        orig = urllib.request.urlopen
+        urllib.request.urlopen = fake
+        try:
+            self.assertEqual(self.m.send_report("hi"), [])            # 沒設定就什麼都不送
+            os.environ.update(DISCORD_WEBHOOK_URL="https://discord.example/hook/SECRET1",
+                              TELEGRAM_BOT_TOKEN="SECRET2", TELEGRAM_CHAT_ID="42")
+            res = self.m.send_report("hello")
+        finally:
+            urllib.request.urlopen = orig
+        self.assertEqual(res, [("discord", True, "HTTP 204"), ("telegram", False, "HTTP 401")])
+        self.assertEqual(sent[0][1], {"content": "hello"})
+        self.assertEqual(sent[1][1], {"chat_id": "42", "text": "hello"})
+        self.assertNotIn("SECRET", json.dumps(res))

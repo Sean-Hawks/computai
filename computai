@@ -4521,6 +4521,65 @@ def render_report_html(r):
     return "\n".join(h)
 
 
+# ---- 週報（--weekly，--send 送到 Discord／Telegram）
+
+def weekly(db, t=None):
+    """最近 7 天：花費、最常用的模型、額度最高點、機器耗電、警示和建議。"""
+    t = now() if t is None else t
+    start, end = t - 7 * 86400, t + 1
+    s = summary(db, start, end, plan_table={})
+    lines = ["ComputAI weekly report (%s - %s)" % (day_label(start), day_label(t)), ""]
+    for src in s["sources"]:
+        top = ", ".join(m["model"] for m in src["models"][:2])
+        lines.append("- %s: %s (%s tokens out%s)" % (T("src").get(src["source"], src["source"]), fmt_usd(src["cost_usd"]),
+                                                   fmt_tok(src["totals"]["output"]), ("; " + top) if top else ""))
+    if not s["sources"]:
+        lines.append("- no AI usage recorded")
+    peaks = db.execute("SELECT source, name, MAX(used_percent) AS p FROM limits WHERE ts >= ? GROUP BY source, name "
+                       "ORDER BY p DESC", (start,)).fetchall()
+    if peaks:
+        lines.append("- limit peaks: " + ", ".join("%s %s %d%%" % (r["source"], r["name"], r["p"]) for r in peaks))
+    energy = [r for r in machine_report(db, start, end) if r["kwh"]]
+    if energy:
+        lines.append("- machines: " + ", ".join("%s %.2f kWh" % (r["machine"], r["kwh"]) for r in energy))
+    lines.append("- total at API prices: %s" % fmt_usd(s["total_cost_usd"]))
+    for a in idle_alerts(db, t) + cloud_alerts(db, t):
+        lines.append("! " + a["message"])
+    for x in insights(db, t):
+        lines.append("> " + x["text"])
+    return "\n".join(lines)
+
+
+def send_report(text):
+    """送到有設定的地方：DISCORD_WEBHOOK_URL、TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID。
+    回傳 [(目的地, 成功, 訊息)]。錯誤訊息不會帶出網址或 token。"""
+    import urllib.error
+    import urllib.request
+    out = []
+    targets = []
+    hook = secret("DISCORD_WEBHOOK_URL")
+    if hook:
+        targets.append(("discord", hook, {"content": text[:1990]}))
+    tok, chat = secret("TELEGRAM_BOT_TOKEN"), secret("TELEGRAM_CHAT_ID")
+    if tok and chat:
+        targets.append(("telegram", "https://api.telegram.org/bot%s/sendMessage" % tok,
+                        {"chat_id": chat, "text": text[:4000]}))
+    for name, url, body in targets:
+        if not url.startswith("https://"):
+            out.append((name, False, "the URL must start with https://"))
+            continue
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={
+            "Content-Type": "application/json", "User-Agent": "computai/" + __version__})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                out.append((name, 200 <= r.status < 300, "HTTP %d" % r.status))
+        except urllib.error.HTTPError as e:
+            out.append((name, False, "HTTP %d" % e.code))
+        except (OSError, ValueError) as e:
+            out.append((name, False, type(e).__name__))
+    return out
+
+
 # ---- 年度回顧（--recap）
 
 def recap(db, year):
@@ -4776,6 +4835,9 @@ def parse_args(argv=None):
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
     p.add_argument("--html", metavar="FILE", help="with --report: write the report as an HTML page")
+    p.add_argument("--weekly", action="store_true", help="the last 7 days as a short report")
+    p.add_argument("--send", action="store_true",
+                   help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
     p.add_argument("--recap", nargs="?", const=0, type=int, metavar="YEAR",
                    help="a year in review (default: this year); with --html, a shareable card")
     p.add_argument("--csv", metavar="FILE", help="write every usage record in the range to a CSV file")
@@ -4834,7 +4896,7 @@ def local_hostname():
 
 
 ACTIONS = ("sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
-           "report", "once", "discover", "csv", "mcp", "recap")
+           "report", "once", "discover", "csv", "mcp", "recap", "weekly")
 
 
 def run(args, db):
@@ -4900,6 +4962,20 @@ def run(args, db):
         r = payback(db, args.payback, args.gpu_watts, args.hours_per_day, args.rent_per_hour)
         emit(r, render_payback(r), args.json)
         return 0 if not r.get("error") else 1
+    if args.weekly:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        text = untrusted(weekly(db))
+        print(text)
+        if args.send:
+            res = send_report(text)
+            if not res:
+                warn("nothing to send to: set DISCORD_WEBHOOK_URL or TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID")
+                return 1
+            for name, ok_, msg in res:
+                print("computai: %s %s (%s)" % (name, "sent" if ok_ else "failed", msg))
+            return 0 if all(r[1] for r in res) else 1
+        return 0
     if args.recap is not None:
         if not args.no_sync:
             sync(db, quiet=True)
