@@ -3636,6 +3636,9 @@ UI = {
         "w_kwh_month": "kWh this month", "w_cloud": "Cloud GPUs", "w_cols": ["Instance", "GPU", "Status", "GPU use", "Price"],
         "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
         "advice": "ADVICE", "w_advice": "Advice",
+        "wk_title": "ComputAI weekly report (%s - %s)", "wk_src": "%s: %s (%s tokens out%s)",
+        "wk_none": "no AI usage recorded", "wk_peaks": "limit peaks: ", "wk_machines": "machines: ",
+        "wk_total": "total at API prices: %s",
         "i_plan_down": "%(src)s: peak was %(peak)d%% of the %(win)s limit; %(plan)s ($%(usd)d) would peak near %(proj)d%%",
         "i_plan_up": "%(src)s: reached %(peak)d%% of the %(win)s limit; %(plan)s ($%(usd)d) would peak near %(proj)d%%",
         "i_plan_ok": "%(src)s: plan fits, peak %(peak)d%% of the %(win)s limit",
@@ -3667,6 +3670,9 @@ UI = {
         "w_kwh_month": "本月度數", "w_cloud": "雲端 GPU", "w_cols": ["機器", "GPU", "狀態", "GPU 使用率", "價格"],
         "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
         "advice": "建議", "w_advice": "建議",
+        "wk_title": "ComputAI 週報（%s ～ %s）", "wk_src": "%s：%s（輸出 %s token%s）",
+        "wk_none": "這週沒有 AI 用量", "wk_peaks": "額度最高：", "wk_machines": "機器耗電：",
+        "wk_total": "等值 API 花費合計：%s",
         "i_plan_down": "%(src)s：%(win)s 額度最高只用到 %(peak)d%%，改用 %(plan)s（$%(usd)d）約 %(proj)d%%",
         "i_plan_up": "%(src)s：%(win)s 額度已經用到 %(peak)d%%，改用 %(plan)s（$%(usd)d）約 %(proj)d%%",
         "i_plan_ok": "%(src)s：方案剛好，%(win)s 額度最高用到 %(peak)d%%",
@@ -4618,21 +4624,21 @@ def weekly(db, t=None):
     t = now() if t is None else t
     start, end = t - 7 * 86400, t + 1
     s = summary(db, start, end, plan_table={})
-    lines = ["ComputAI weekly report (%s - %s)" % (day_label(start), day_label(t)), ""]
+    lines = [T("wk_title") % (day_label(start), day_label(t)), ""]
     for src in s["sources"]:
         top = ", ".join(m["model"] for m in src["models"][:2])
-        lines.append("- %s: %s (%s tokens out%s)" % (T("src").get(src["source"], src["source"]), fmt_usd(src["cost_usd"]),
+        lines.append("- " + T("wk_src") % (T("src").get(src["source"], src["source"]), fmt_usd(src["cost_usd"]),
                                                    fmt_tok(src["totals"]["output"]), ("; " + top) if top else ""))
     if not s["sources"]:
-        lines.append("- no AI usage recorded")
+        lines.append("- " + T("wk_none"))
     peaks = db.execute("SELECT source, name, MAX(used_percent) AS p FROM limits WHERE ts >= ? GROUP BY source, name "
                        "ORDER BY p DESC", (start,)).fetchall()
     if peaks:
-        lines.append("- limit peaks: " + ", ".join("%s %s %d%%" % (r["source"], r["name"], r["p"]) for r in peaks))
+        lines.append("- " + T("wk_peaks") + ", ".join("%s %s %d%%" % (r["source"], r["name"], r["p"]) for r in peaks))
     energy = [r for r in machine_report(db, start, end) if r["kwh"]]
     if energy:
-        lines.append("- machines: " + ", ".join("%s %.2f kWh" % (r["machine"], r["kwh"]) for r in energy))
-    lines.append("- total at API prices: %s" % fmt_usd(s["total_cost_usd"]))
+        lines.append("- " + T("wk_machines") + ", ".join("%s %.2f kWh" % (r["machine"], r["kwh"]) for r in energy))
+    lines.append("- " + T("wk_total") % fmt_usd(s["total_cost_usd"]))
     for a in idle_alerts(db, t) + cloud_alerts(db, t):
         lines.append("! " + a["message"])
     for x in insights(db, t):
