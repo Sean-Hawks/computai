@@ -4613,6 +4613,10 @@ UI = {
         "su_searching": "searching (SSH to each candidate, up to 15 s)...", "su_per_month": "%s/month",
         "su_intro": "ComputAI setup", "su_keys": "Enter accepts the value in [brackets], s skips a step, Ctrl-C quits without saving.",
         "su_lang": "Language / 語言 (en, zh)", "su_theme": "Look: cyber (dark, calm) or classic (slurmtop)", "su_plans": "Subscriptions", "su_detected": "the logs say %r",
+        "ask_plan": "%(src)s looks like %(plan)s (%(usd)s/month, %(why)s). Enter to keep, n to skip, or type one of %(names)s: ",
+        "ask_why_log": "from the logs", "ask_why_usage": "guessed from your usage",
+        "ask_plan_saved": "saved to %s; change it any time with computai --setup",
+        "ask_plan_skip": "not one of the listed plans; set it later with %s",
         "su_none": "I don't pay for this", "su_custom": "other (type name and price)", "su_current": "now: %s",
         "su_pick": "Choice", "su_plan_name": "Plan name", "su_plan_usd": "USD per month", "su_bad": "not understood, skipped",
         "su_sl": "Claude limit percentages",
@@ -4813,6 +4817,10 @@ UI = {
         "su_searching": "搜尋中（逐台試 SSH，最多 15 秒）…", "su_per_month": "每月 %s",
         "su_intro": "ComputAI 設定", "su_keys": "Enter 接受 [方括號] 裡的值，s 跳過這一步，Ctrl-C 離開且不存檔。",
         "su_lang": "Language / 語言 (en, zh)", "su_theme": "外觀：cyber（深色、安靜）或 classic（slurmtop 樣式）", "su_plans": "訂閱方案", "su_detected": "log 裡記錄的是 %r",
+        "ask_plan": "%(src)s 看起來是 %(plan)s（%(usd)s/月，%(why)s）。Enter 確認、n 跳過，或打 %(names)s 其中一個：",
+        "ask_why_log": "log 裡寫的", "ask_why_usage": "照用量猜的",
+        "ask_plan_saved": "已寫進 %s；之後可以用 computai --setup 改",
+        "ask_plan_skip": "不是列出來的方案；之後用 %s 設定",
         "su_none": "沒有付這個", "su_custom": "其他（自己輸入名稱和價格）", "su_current": "目前：%s",
         "su_pick": "選擇", "su_plan_name": "方案名稱", "su_plan_usd": "每月美元", "su_bad": "看不懂，先跳過",
         "su_sl": "Claude 額度百分比",
@@ -9130,6 +9138,74 @@ def computai_command():
     return "computai" if found and os.path.realpath(found) == os.path.realpath(here) else here
 
 
+# Claude 的方案沒有寫在任何本機紀錄裡，只能照用量猜：近 30 天照 API 價格算的價值低於這個數字，就猜比較小的方案
+CLAUDE_PLAN_GUESS = ((150, "Pro"), (1500, "Max 5x"), (None, "Max 20x"))
+
+
+def guess_plan(db, src, t=None):
+    """還沒設月費時猜一個方案：Codex 看 log 裡的 plan_type，Claude 照近 30 天的用量價值猜。
+    回傳 ({"name", "usd"}, "log" 或 "usage")；這個來源沒有用量或對不到選項就是 (None, None)。"""
+    t = now() if t is None else t
+    opts = plan_options().get(src) or []
+    if not opts:
+        return None, None
+    norm = lambda x: (x or "").lower().replace(" ", "")
+    det = detected_plan(db, src)
+    if det:
+        hit = next((o for o in opts if norm(o["name"]) == norm(det)), None)
+        if hit:
+            return hit, "log"
+    s = summary(db, t - 30 * 86400, t + 1, plan_table={})
+    worth = sum(x["cost_usd"] for x in s["sources"] if x["source"] == src)
+    if not any(x["source"] == src for x in s["sources"]):
+        return None, None
+    if src == "claude":
+        name = next(n for top, n in CLAUDE_PLAN_GUESS if top is None or worth < top)
+        hit = next((o for o in opts if norm(o["name"]) == norm(name)), None)
+        if hit:
+            return hit, "usage"
+    return opts[0], "usage"
+
+
+def ask_plans_once(db, ask=None, out=None, t=None):
+    """第一次在終端機打開時，對還沒設月費、但有用量的訂閱各問一句（只問這一次，答案寫進 config.ini）。
+    Enter 接受猜的方案，n 跳過，也可以直接打選項的名字（例如 max 20x）。回傳寫了幾個。"""
+    if ask is None:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return 0
+        ask = input
+    out = out or print
+    if db.execute("SELECT 1 FROM meta WHERE key = 'plans_asked'").fetchone():
+        return 0
+    current, opts = plans(), plan_options()
+    today = time.strftime("%Y-%m-%d", time.localtime(now() if t is None else t))
+    changes = []
+    for src in SUBSCRIPTION_SOURCES:
+        if src in current:
+            continue
+        guess, why = guess_plan(db, src, t)
+        if not guess:
+            continue
+        label = PLAN_LABELS.get(src, src)
+        names = " / ".join(o["name"] for o in opts.get(src, []))
+        a = ask(T("ask_plan") % {"src": T("src").get(src, src), "plan": "%s %s" % (label, guess["name"]),
+                                 "usd": fmt_usd(guess["usd"]), "why": T("ask_why_" + why), "names": names}).strip()
+        if a.lower() in ("n", "no", "否", "0"):
+            continue
+        pick = guess if not a else next((o for o in opts.get(src, [])
+                                         if o["name"].lower().replace(" ", "") == a.lower().replace(" ", "")), None)
+        if pick is None:
+            out(T("ask_plan_skip") % "computai --setup")
+            continue
+        changes.append(("plans", src, "%s %s, %g, %s" % (label, pick["name"], pick["usd"], today)))
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('plans_asked', '1')")
+    db.commit()
+    if changes:
+        write_config(changes)
+        out(T("ask_plan_saved") % os.path.join(config_dir(), "config.ini"))
+    return len(changes)
+
+
 class Setup:
     def __init__(self, db, ask=None, secret_ask=None, out=None, sample=True):
         self.db = db
@@ -9807,6 +9883,12 @@ def run(args, db):
             print(render_live(st, cols, use_color(), ascii_=not can_draw_blocks()))
         return 0
     if args.live:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        try:
+            ask_plans_once(db)   # 第一次打開、還沒設月費：照 log 猜一個，問一句就好
+        except (KeyboardInterrupt, EOFError):
+            print()
         db.close()
         intro = not args.no_intro and (load_config().get("general", "intro", fallback="yes") or "yes").strip().lower() \
             not in ("no", "false", "0", "off")

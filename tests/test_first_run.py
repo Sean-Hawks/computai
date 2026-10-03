@@ -1,3 +1,4 @@
+import os
 import unittest
 
 from tests import helpers
@@ -24,6 +25,28 @@ class FirstRun(unittest.TestCase):
         st = {"machines": [], "limits": [], "today_usd": 0.0}
         line = m.ticker(st, 120)
         self.assertEqual(line.count("today"), 1, line)
+
+
+    def test_guess_the_plan_and_ask_once(self):
+        old = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))
+        os.environ.update(self.sb.env(CLAUDE_CONFIG_DIR=helpers.fixture("claude"), CODEX_HOME=helpers.fixture("codex"),
+                                      COMPUTAI_FAKE_NOW="1789430400"))
+        m = helpers.load()
+        m.set_lang("en")
+        db = m.open_ledger()
+        self.addCleanup(db.close)
+        m.sync(db, quiet=True)
+        self.assertEqual(m.guess_plan(db, "codex")[0]["name"], "Pro")       # log 裡的 plan_type
+        self.assertEqual(m.guess_plan(db, "claude"), ({"name": "Pro", "usd": 20.0, "capacity": 1.0}, "usage"))
+        asked = []
+        answers = iter(["", "PRO"])
+        said = []
+        n = m.ask_plans_once(db, ask=lambda q: asked.append(q) or next(answers), out=said.append)
+        self.assertEqual(n, 2)
+        self.assertIn("Claude Code looks like Claude Pro ($20.00/month, guessed from your usage)", asked[0])
+        self.assertEqual({k: v["name"] for k, v in m.plans().items()}, {"claude": "Claude Pro", "codex": "ChatGPT Pro"})
+        self.assertEqual(m.ask_plans_once(db, ask=lambda q: self.fail("asked twice")), 0)
 
 
 if __name__ == "__main__":
