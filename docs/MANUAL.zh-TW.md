@@ -65,6 +65,7 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 | `--analyze` | 月底預測、方案檢查、快取效率、電費分析。 |
 | `--payback 美元 [--gpu-watts W --hours-per-day H --rent-per-hour 美元]` | 買一張卡跟租雲端比，多久回本。 |
 | `--discover` | 從 `~/.ssh/config` 和 Tailscale 找機器，逐台試 SSH，說明連不上的原因，並印出可以貼進 `[machines]` 的設定。 |
+| `--wake 名稱` | 對 `[machine.名稱]` 裡有設 `mac = ...`（可選 `wol_address = ...`）的機器送 Wake-on-LAN 封包。 |
 | `--sample` | 讀一次每台機器，印出機器表。 |
 | `--cloud` | 列出 RunPod、Vast.ai、Lambda 的機器並記下花費。 |
 | `--proxy [--listen ... --upstream ... --machine 名稱]` | Ollama 和 OpenAI 相容服務的 token 計數 proxy。 |

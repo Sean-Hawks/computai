@@ -71,6 +71,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--analyze` | Month-end forecast, plan check, cache efficiency, energy. |
 | `--payback USD [--gpu-watts W --hours-per-day H --rent-per-hour USD]` | How long a GPU takes to pay for itself versus renting. |
 | `--discover` | Look for machines in `~/.ssh/config` and on Tailscale, try SSH to each, explain failures and print `[machines]` lines to paste. |
+| `--wake NAME` | Send a Wake-on-LAN packet to a machine that has `mac = ...` (and optionally `wol_address = ...`) in its `[machine.NAME]` section. |
 | `--sample` | Read every machine once and print the machine table. |
 | `--cloud` | List RunPod, Vast.ai and Lambda instances and record their cost. |
 | `--proxy [--listen ... --upstream ... --machine NAME]` | Token-counting proxy for Ollama and OpenAI-compatible servers. |
