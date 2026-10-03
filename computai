@@ -5512,6 +5512,8 @@ def dashboard_state(db):
     st["devices"] = devices_report(db, start, end, t)
     st["timeline"] = timeline_data(db, t=t)
     st["local_cost"] = local_cost_report(db, start, end, t=t)
+    ts_ = team_settings()
+    st["team"] = team_board(ts_["repo"], ts_["handle"]) if ts_["repo"] else []
     return st
 
 
@@ -5898,6 +5900,7 @@ UI = {
         "win": {"5h": "5-hour limit", "week": "weekly limit"}, "used_up": "used up", "used_pct": "%d%% used",
         "today_worth": "today %s worth", "today_spent": "today %s",
         "sum_value": "Usage value: %s this month, %s today (at API prices)",
+        "wr_team_k": "YOUR TEAM", "wr_team_p": "Your place this week among %d friends, by tokens.",
         "tm_title": "Team this week (totals only)", "tm_empty": "No team totals yet: computai --team publish",
         "tm_who": "who", "tm_change": "vs last", "tm_hours": "agent h", "tm_peak": "at once", "tm_streak": "streak",
         "tm_old": "(%s old)", "tm_show": "This is everything that will be written to %s:",
@@ -6142,6 +6145,7 @@ UI = {
         "win": {"5h": "5 小時額度", "week": "每週額度"}, "used_up": "已用完", "used_pct": "已用 %d%%",
         "today_worth": "今天價值 %s", "today_spent": "今天 %s",
         "sum_value": "用量價值：本月 %s、今天 %s（照 API 價格算）",
+        "wr_team_k": "小隊", "wr_team_p": "這週在 %d 個朋友裡的名次（照 token）。",
         "tm_title": "小隊這週（只有總數）", "tm_empty": "小隊還沒有資料：computai --team publish",
         "tm_who": "誰", "tm_change": "比上週", "tm_hours": "agent 時", "tm_peak": "最多同時", "tm_streak": "連續天",
         "tm_old": "（%s 前）", "tm_show": "這就是會寫進 %s 的全部內容：",
@@ -7553,6 +7557,8 @@ def render_hud(st, width, height, frame, view):
         body += [dim("  " + T("local_tip"))]
     elif view == "spend":
         body += usage_panel(st, width) + alerts_panel(st, width) + advice_panel(st, width)
+        if st.get("team"):   # 小隊排行榜（只讀本機的 clone，不連網）
+            body += panel(ptitle(5, T("tm_title")), "", [" " + clip(ln, width - 6) for ln in render_team(st["team"]).splitlines()[1:]], width, 0)
     elif view == "timeline":
         tl = st.get("timeline") or {"rows": [], "stats": {"agent_seconds": 0}}
         body += panel(ptitle(6, T("tab_timeline")), "", render_timeline(tl, width - 4, height and height - 8), width, 0)
@@ -9333,7 +9339,10 @@ def wrapped(db, start, end, label, kind="month", prices=None, plan_table=None, c
            "cache_savings_usd": round(saved, 2), "local_tokens": local, "kwh": round(kwh, 2),
            "equivalents": equivalents(output),
            "daily": [[d, round(days[d], 2)] for d in sorted(days)], "previous": None, "busiest_timeline_svg": None,
-           "local_saved_usd": None}
+           "local_saved_usd": None, "team": []}
+    ts_ = team_settings()
+    if ts_["repo"]:
+        out["team"] = team_board(ts_["repo"], ts_["handle"])
     if local:   # 本地模型替你省了多少（照小雲端模型的價格扣掉電費）
         try:
             lc = local_cost_report(db, start, end, prices=prices, t=t)
@@ -9403,6 +9412,11 @@ def wrapped_slides(w):
     if w["top_models"]:
         add("models", T("wr_models_k"), w["top_models"][0]["model"], T("wr_models_p"),
             [[m["model"], "%d%%" % m["share_pct"] if m["share_pct"] else "<1%"] for m in w["top_models"]])
+    if w.get("team"):   # 小隊：這週第幾名（只有總數）
+        me = [r for r in w["team"] if r["me"]]
+        if me:
+            add("team", T("wr_team_k"), "#%d" % me[0]["rank"], T("wr_team_p") % len(w["team"]),
+                [[r["handle"], fmt_tok(r["week"]["tokens"])] for r in w["team"][:5]])
     if w["sessions"]:
         b = w["biggest_session"]
         add("sessions", T("wr_sessions_k"), str(w["sessions"]),

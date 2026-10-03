@@ -82,6 +82,13 @@ class Team(unittest.TestCase):
         self.assertNotIn("project", rows[0]["week"])
         text = self.m.render_team(rows, T0)
         self.assertIn("neo *", text)
+        # TUI 的花費分頁和 Wrapped 都看得到
+        st = self.m.dashboard_state(self.db)
+        self.assertIn("Team this week", self.m.render_live(st, 120, theme_name="cyber", height=60, view="spend"))
+        start, end, label = self.m.month_range()
+        w = self.m.wrapped(self.db, start, end, label, compare=False)
+        team = [x for x in self.m.wrapped_slides(w) if x["id"] == "team"]
+        self.assertEqual(team[0]["big"], "#1")
         # 撤回：檔案從遠端消失
         self.assertEqual(self.m.team_leave(ask=lambda q: "y", out=said.append), 0)
         git("pull", "-q", cwd=other)
