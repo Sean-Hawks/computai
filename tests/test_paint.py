@@ -6,6 +6,7 @@ from tests import helpers
 class Paint(unittest.TestCase):
     def setUp(self):
         self.m = helpers.load()
+        self.m.set_style(theme="classic")
 
     def test_no_color_means_no_escape_codes(self):
         m = self.m
@@ -13,6 +14,17 @@ class Paint(unittest.TestCase):
         out = m.gradbar(50, 10) + m.spark([0, 50, 100], 6) + "".join(m.panel("T", "r", ["x"], 20, 80))
         self.assertNotIn("\033", out)
         self.assertEqual(m.gradbar(50, 10), "▕" + "█" * 5 + "░" * 5 + "▏")
+
+    def test_cyber_theme(self):
+        m = self.m
+        m.set_style(color=False, theme="cyber")
+        self.assertEqual(m.heat(0), (0, 240, 255))
+        self.assertEqual(m.heat(100), (255, 42, 109))
+        self.assertEqual(m.gradbar(50, 4), "\u25b0\u25b0\u25b1\u25b1")
+        rows = m.panel("NODE", "x", ["a"], 20)
+        self.assertTrue(rows[0].startswith("\u250f\u2501\u2501\u252b NODE \u2523"))
+        self.assertTrue(all(m.vlen(r) == 20 for r in rows))
+        m.set_style(theme="classic")
 
     def test_heat_endpoints(self):
         self.assertEqual(self.m.heat(0), (46, 204, 113))

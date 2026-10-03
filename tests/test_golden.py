@@ -64,20 +64,30 @@ class Golden(unittest.TestCase):
             self.assertEqual(text, f.read(), "%s changed; rerun with COMPUTAI_UPDATE_GOLDEN=1 if intended" % name)
 
     def test_wide(self):
-        self.check("live-wide.txt", self.m.render_live(self.st, 170))
+        self.check("live-wide.txt", self.m.render_live(self.st, 170, theme_name="classic"))
 
     def test_narrow(self):
-        self.check("live-narrow.txt", self.m.render_live(self.st, 90))
+        self.check("live-narrow.txt", self.m.render_live(self.st, 90, theme_name="classic"))
 
     def test_compact(self):
-        self.check("live-compact.txt", self.m.render_live(self.st, 90, height=20))
+        self.check("live-compact.txt", self.m.render_live(self.st, 90, height=20, theme_name="classic"))
 
     def test_ascii(self):
-        self.check("live-ascii.txt", self.m.render_live(self.st, 90, ascii_=True))
+        self.check("live-ascii.txt", self.m.render_live(self.st, 90, ascii_=True, theme_name="classic"))
+
+    def test_cyber(self):
+        self.check("live-cyber.txt", self.m.render_live(self.st, 100, theme_name="cyber"))
+
+    def test_cyber_color(self):
+        # 有色碼的版本：確認 cyber 的霓虹色真的有用上
+        text = self.m.render_live(self.st, 100, color=True, theme_name="cyber")
+        self.assertIn("38;2;0;240;255m", text)       # 霓虹青
+        self.assertIn("38;2;255;0;170m", text)       # 洋紅
+        self.m.set_style(theme="classic")
 
     def test_zh(self):
         self.m.set_lang("zh")
-        self.check("live-zh.txt", self.m.render_live(self.st, 100))
+        self.check("live-zh.txt", self.m.render_live(self.st, 100, theme_name="classic"))
         self.m.set_lang("en")
 
 

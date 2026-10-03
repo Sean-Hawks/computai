@@ -68,6 +68,8 @@ DEFAULT_CONFIG = """\
 usd_to_local = 0
 # Language of the live and web dashboards: en or zh (Traditional Chinese).
 lang = en
+# Look of the terminal and web dashboards: cyber (neon) or classic.
+theme = cyber
 local_currency = TWD
 
 [plans]
@@ -3407,20 +3409,54 @@ def render_line(info, sep="\uff5c"):
 
 _color = False
 _ascii = False
-SPARK = "▁▂▃▄▅▆▇█"
+_theme = "cyber"
+SPARK = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"
 SPARK_ASCII = "._-~=+*#"
 
+# 主題：classic 是 slurmtop 的配色；cyber 是霓虹的 cyberpunk 風格（預設）。
+# heat 是 0-100 的漸層停靠點；box 是 (TL, TR, BL, BR, H, V)；title 包住面板標題。
+THEMES = {
+    "classic": {
+        "grey": (110, 118, 129), "cyan": (86, 211, 240), "mag": (199, 146, 234), "red": (231, 76, 60),
+        "amber": (241, 196, 15), "green": (46, 204, 113),
+        "heat": ((0, (46, 204, 113)), (60, (241, 196, 15)), (100, (231, 76, 60))),
+        "bar": ("\u2588", "\u2591", "\u2595", "\u258f"),
+        "box": ("\u256d", "\u256e", "\u2570", "\u256f", "\u2500", "\u2502"),
+        "title": (" ", " "), "led": "\u25c9", "head": ("", ""),
+    },
+    "cyber": {
+        "grey": (78, 70, 112), "cyan": (0, 240, 255), "mag": (255, 0, 170), "red": (255, 42, 109),
+        "amber": (252, 238, 10), "green": (57, 255, 20),
+        "heat": ((0, (0, 240, 255)), (45, (130, 90, 255)), (75, (255, 0, 170)), (100, (255, 42, 109))),
+        "bar": ("\u25b0", "\u25b1", "", ""),
+        "box": ("\u250f", "\u2513", "\u2517", "\u251b", "\u2501", "\u2503"),
+        "title": ("\u252b ", " \u2523"), "led": "\u25c6", "head": ("\u2593\u2592\u2591 ", " \u2591\u2592\u2593"),
+    },
+}
 
-def set_style(color=False, ascii_=False):
-    global _color, _ascii
+GREY, CYAN, MAG, RED, AMBER, GREEN = (THEMES["cyber"][k] for k in ("grey", "cyan", "mag", "red", "amber", "green"))
+
+
+def set_style(color=False, ascii_=False, theme=None):
+    """顏色、ASCII、主題。主題沒給就沿用目前的。"""
+    global _color, _ascii, _theme, GREY, CYAN, MAG, RED, AMBER, GREEN
     _color, _ascii = color, ascii_
+    if theme in THEMES:
+        _theme = theme
+    t = THEMES[_theme]
+    GREY, CYAN, MAG, RED, AMBER, GREEN = (t[k] for k in ("grey", "cyan", "mag", "red", "amber", "green"))
+
+
+def theme():
+    return THEMES[_theme]
 
 
 def glyphs():
     """(sparkline 字元, 填滿, 空, 左端, 右端, 框線 TL TR BL BR H V)"""
     if _ascii:
         return SPARK_ASCII, "#", ".", "[", "]", ("+", "+", "+", "+", "-", "|")
-    return SPARK, "█", "░", "▕", "▏", ("╭", "╮", "╰", "╯", "─", "│")
+    full, empty, lcap, rcap = theme()["bar"]
+    return SPARK, full, empty, lcap, rcap, theme()["box"]
 
 
 def sym(u, a):
@@ -3444,18 +3480,15 @@ def dim(s):
     return sgr("2", s)
 
 
-GREY, CYAN, MAG, RED, AMBER, GREEN = (110, 118, 129), (86, 211, 240), (199, 146, 234), (231, 76, 60), \
-    (241, 196, 15), (46, 204, 113)
-
-
 def heat(pct):
-    """0% 綠 -> 60% 黃 -> 100% 紅。"""
+    """0-100 的熱度顏色，照主題的漸層停靠點內插（classic：綠 -> 黃 -> 紅；cyber：青 -> 紫 -> 洋紅 -> 紅）。"""
     pct = max(0.0, min(100.0, pct or 0.0))
-    if pct <= 60:
-        t = pct / 60
-        return (int(46 + (241 - 46) * t), int(204 + (196 - 204) * t), int(113 + (15 - 113) * t))
-    t = (pct - 60) / 40
-    return (int(241 + (231 - 241) * t), int(196 + (76 - 196) * t), int(15 + (60 - 15) * t))
+    stops = theme()["heat"]
+    for (p0, c0), (p1, c1) in zip(stops, stops[1:]):
+        if pct <= p1:
+            t = (pct - p0) / float(p1 - p0) if p1 > p0 else 0.0
+            return tuple(int(c0[i] + (c1[i] - c0[i]) * t) for i in range(3))
+    return stops[-1][1]
 
 
 def temp_color(t):
@@ -3527,7 +3560,8 @@ def panel(left, right, lines, width, load=0.0):
     """圓角面板：標題在上框線左邊，摘要在右邊，框線顏色跟著負載（0-100）走。"""
     tl, tr, bl, br, h, v = glyphs()[5]
     inner = max(10, width - 2)
-    left = " %s " % left
+    o, c = (" ", " ") if _ascii else theme()["title"]
+    left = edge_title(o, load) + left + edge_title(c, load)
     right = (" %s " % right) if right else ""
     if vlen(left) + vlen(right) + 2 > inner:
         right = clip(right, max(0, inner - vlen(left) - 2))
@@ -3538,6 +3572,15 @@ def panel(left, right, lines, width, load=0.0):
         rows.append(edge(v) + pad(clip(ln, inner), inner) + edge(v))
     rows.append(edge(bl + h * inner + br))
     return rows
+
+
+def led():
+    return "o" if _ascii else theme()["led"]
+
+
+def edge_title(s, load=0.0):
+    """面板標題兩側的括號（cyber 的 ┫ ┣）跟框線同色。"""
+    return rgb(heat(load), s) if s.strip() else s
 
 
 def side_by_side(a, b, gap=2):
@@ -3662,7 +3705,7 @@ def dashboard_state(db):
     today = summary(db, ts, te, plan_table={})
     line = line_parts(db)
     energy = machine_report(db, start, end)
-    return {"version": __version__, "time": int(t), "month": label, "lang": _lang, "ui": UI[_lang],
+    return {"version": __version__, "time": int(t), "month": label, "lang": _lang, "ui": UI[_lang], "theme": _theme,
             "line": line, "line_text": render_line(line, " | "),
             "today_usd": round(today["total_cost_usd"], 2),
             "sources": [{"source": x["source"], "cost_usd": round(x["cost_usd"], 2),
@@ -3976,14 +4019,14 @@ def machine_compact(m, width):
     """精簡版：一台機器一列（終端機高度不夠放完整面板時用）。"""
     gpus = m.get("gpus") or []
     load = (m["gpu_util"] if m["gpu_util"] is not None else m["cpu_pct"]) or 0.0
-    led = rgb(heat(load), sym("\u25c9", "o"))
+    dot = rgb(heat(load), led())
     gu = m["gpu_util"]
     svc = ""
     if m.get("loaded"):
         svc = (rgb(GREEN, sym("\u25cf ", "* ")) if m["ai_active"] else dim(sym("\u25cb ", "o "))) + \
             ", ".join(x["name"] for x in m["loaded"])
     line = " %s %s %s %s %s %s %s %s" % (
-        led, bold(cell(m["machine"], 14)), dim("CPU"), gradbar(m["cpu_pct"] or 0, 8),
+        dot, bold(cell(m["machine"], 14)), dim("CPU"), gradbar(m["cpu_pct"] or 0, 8),
         _num(m["cpu_pct"], "%3.0f%%", "  -"), dim("GPU"),
         gradbar(gu or 0, 8) + _num(gu, "%4.0f%%", "   -") if gpus else dim(cell(T("no_gpu"), 15)),
         rgb(MAG, _num(m["power_w"], "%4.0fW", "     ")))
@@ -3994,16 +4037,16 @@ def machine_panel(m, width, energy=None, error=None):
     """一台機器的面板（版面照 slurmtop 的 node_panel）：標題列有負載燈號和摘要，
     內容是 CPU、記憶體、每張 GPU（長條、走勢、VRAM、溫度、功耗）、功耗走勢、推論服務。"""
     lines = []
-    led = "o" if _ascii else "◉"
+    dot = led()
     if error and not m:
-        title = "%s %s" % (bold(rgb(CYAN, error["machine"])), rgb(RED, led))
+        title = "%s %s" % (bold(rgb(CYAN, error["machine"])), rgb(RED, dot))
         return panel(title, "", ["  " + rgb(RED, error["message"].split(": ", 1)[-1])], width, 100)
     gpus = m.get("gpus") or []
     load = (m["gpu_util"] if m["gpu_util"] is not None else m["cpu_pct"]) or 0.0
     where = T("local") if m.get("host") == "local" else T("ssh")
     ai = " " + rgb(GREEN, "AI") if m["ai_active"] else ""
     stale = (" " + rgb(AMBER, T("ago") % fmt_dur(m["age"]))) if m["age"] > 300 else ""
-    left = "%s %s %s %s%s%s" % (dim(T("node")), bold(rgb(CYAN, m["machine"])), rgb(heat(load), led), dim(where), ai, stale)
+    left = "%s %s %s %s%s%s" % (dim(T("node")), bold(rgb(CYAN, m["machine"])), rgb(heat(load), dot), dim(where), ai, stale)
     bits = []
     if gpus:
         names = sorted({g.get("model") or g.get("vendor") or "GPU" for g in gpus})
@@ -4140,13 +4183,15 @@ def advice_panel(st, width):
     return panel(bold(T("advice")), "", [" %s %s" % (rgb(CYAN, arrow), x["text"]) for x in items], width, 0)
 
 
-def render_live(st, width=100, color=False, ascii_=False, height=None):
+def render_live(st, width=100, color=False, ascii_=False, height=None, theme_name=None):
     """整個畫面：上面一行總覽，下面是算力（每台機器、雲端）、AI 用量、警示。
     寬度夠（>= 150）就兩欄：左邊算力，右邊 AI 用量和警示；不夠就上下排。"""
-    set_style(color, ascii_)
+    set_style(color, ascii_, theme_name)
     width = max(60, width)
-    led = "o" if _ascii else "◉"
-    head = "%s %s  %s   %s" % (rgb(CYAN, led), bold("ComputAI"),
+    h0, h1 = ("", "") if _ascii else theme()["head"]
+    brand = (rgb(MAG, h0) + bold(rgb(CYAN, "COMPUTAI")) + rgb(MAG, h1) + rgb(GREY, " // NEON LEDGER")
+             if _theme == "cyber" and not _ascii else bold("ComputAI"))
+    head = "%s %s  %s   %s" % (rgb(CYAN, led()), brand,
                                dim(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st["time"]))), st["line_text"])
     two = width >= 150
     col = (width - 2) // 2 if two else width
@@ -4165,7 +4210,7 @@ def render_live(st, width=100, color=False, ascii_=False, height=None):
     if height and used > height and st["machines"]:
         # 放不下：機器改成一台一列的精簡版（照 slurmtop 的 dense 模式）
         rows = [machine_compact(m, col - 2) for m in st["machines"]]
-        rows += [" %s %s" % (rgb(RED, sym("\u25c9", "o")), e["message"]) for n, e in errors.items()
+        rows += [" %s %s" % (rgb(RED, led()), e["message"]) for n, e in errors.items()
                  if n not in {m["machine"] for m in st["machines"]}]
         left = panel(bold(T("machines")), dim(T("compact")), rows, col,
                      max([m["gpu_util"] or 0 for m in st["machines"]] or [0]))
@@ -5695,7 +5740,7 @@ def shlex_quote(s):
 HELP_GROUPS = (
     ("reports", ("sync", "summary", "month", "since", "until", "by", "analyze", "report", "html", "weekly", "send",
                  "recap", "csv", "totals", "who", "lab", "payback", "gpu_watts", "hours_per_day", "rent_per_hour")),
-    ("dashboards", ("live", "once", "interval", "web", "line", "statusline", "sep", "lang")),
+    ("dashboards", ("live", "once", "interval", "web", "line", "statusline", "sep", "lang", "theme")),
     ("machines and cloud", ("sample", "discover", "add", "wake", "cloud", "proxy", "listen", "upstream", "machine",
                             "sample_every", "no_usage_injection")),
     ("integrations", ("mcp",)),
@@ -5792,6 +5837,7 @@ def parse_args(argv=None):
     p.add_argument("--statusline", action="store_true",
                    help="Claude Code statusLine command: records Claude's limits from stdin, prints --line")
     p.add_argument("--sep", default="\uff5c", help="separator for --line (default: \uff5c)")
+    p.add_argument("--theme", choices=sorted(THEMES), help="dashboard look: cyber (default) or classic")
     p.add_argument("--lang", choices=sorted(UI), help="language of the live and web dashboards (default: [general] lang)")
     p.add_argument("--set", action="append", metavar="SECTION.KEY=VALUE", default=[],
                    help="change a setting in config.ini, keeping its comments (repeatable), "
@@ -5854,7 +5900,13 @@ ACTIONS = ("setup", "doctor", "set", "unset", "sync", "summary", "line", "status
            "report", "once", "discover", "csv", "mcp", "recap", "weekly", "wake", "totals", "lab")
 
 
+def config_theme(cp=None):
+    cp = cp or load_config()
+    return (cp.get("general", "theme", fallback="cyber") or "cyber").strip().lower()
+
+
 def run(args, db):
+    set_style(theme=args.theme or config_theme())
     if args.set or args.unset:
         changes = [parse_assignment(a) for a in args.set]
         for a in args.unset:
