@@ -25,6 +25,10 @@ and machine and prints the command that fixes each gap. `computai --set SECTION.
 `--unset SECTION.KEY` change single settings without touching your comments. `computai --discover --add`
 adds every reachable machine with power settings suggested from its hardware.
 
+The first time you open `computai` in a terminal with no plan set, it asks one question per subscription:
+the plan in Codex's logs, or for Claude a guess from the last 30 days of usage. Enter keeps it, `n` skips,
+or type another plan's name. It only asks once; `computai --setup` changes it later.
+
 ## Where things live
 
 | What | Default | Override |
@@ -446,5 +450,9 @@ Codex, an `[mcp_servers.computai]` entry with `command = "computai"` and `args =
   known_hosts has the key under another name: use the name or IP you normally ssh to (for Tailscale
   machines often the 100.x address), or run `ssh HOST` once by hand.
 - *"ignoring secrets.ini"*: `chmod 600 ~/.config/computai/secrets.ini`.
+- *Reporting a bug*: paste `computai --doctor --redact`. It replaces machine names, SSH hosts, IPs, project
+  names, paths under your home folder, emails and your user name with codes (`machine-1`, `ip-1`, `~/path-1`).
+- *New version*: `computai --doctor` and the end of interactive commands say when one is out (checked at
+  most once a day; `[general] update_check = no` turns it off). Update by running the installer again.
 - *Start over*: delete `ledger.sqlite`; logs are re-imported on the next run.
 - *Uninstall*: delete the `computai` file, `~/.config/computai` and `~/.local/share/computai`.

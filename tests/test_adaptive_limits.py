@@ -42,25 +42,30 @@ class AdaptiveLimits(unittest.TestCase):
         self.assertEqual(self.plan(T0, T0 - 60)["interval"], 600)
 
     def test_fast_burn_polls_more_often(self):
-        # 先慢後快：變快立刻採用（4 % / 分鐘）
-        self.samples([(-180, 40), (-120, 40.5), (-60, 44.5)])
-        p = self.plan(T0 - 60, T0 - 60)
+        # 先慢後快：變快立刻採用（每 5 分鐘 20 % = 每分鐘 4 %）
+        self.samples([(-900, 40), (-600, 40.5), (-300, 60.5)])
+        p = self.plan(T0 - 300, T0 - 300)
         self.assertEqual(p["why"], "burn")
-        self.assertAlmostEqual(p["interval"], 55.5 / (4 / 60.0) / 4)
-        self.assertEqual(p["args"]["eta"], round(55.5 * 15))
+        self.assertAlmostEqual(p["interval"], 39.5 / (4 / 60.0) / 4)
+        self.assertEqual(p["args"]["eta"], round(39.5 * 15))
         # 剩不多又燒很快：最短 1 分鐘
-        self.samples([(0, 90), (60, 94)])
-        p = self.plan(T0 + 60, T0 + 60)
-        self.assertEqual((p["interval"], p["at"], p["args"]["name"]), (60, T0 + 120, "5h"))
+        self.samples([(0, 80), (300, 98)])
+        p = self.plan(T0 + 300, T0 + 300)
+        self.assertEqual((p["interval"], p["at"], p["args"]["name"]), (60, T0 + 360, "5h"))
+
+    def test_one_step_seconds_apart_is_not_a_burst(self):
+        # Codex 的 log 幾秒寫一筆：整數百分比 16 秒內跳一格，不能當成每分鐘 4 %
+        self.samples([(-3600, 41), (-16, 42), (0, 43)])
+        p = self.plan(T0, T0)
+        self.assertEqual((p["interval"], p["why"]), (600, "calm"))
 
     def test_just_slowed_down_relaxes_gradually(self):
-        self.samples([(0, 40), (60, 44), (120, 48)])
-        fast = self.plan(T0 + 120, T0 + 120)["interval"]
-        self.assertAlmostEqual(fast, 52 / (4 / 60.0) / 4)
-        self.samples([(180, 48.5)])   # 這一分鐘只用了 0.5 %
-        slowed = self.plan(T0 + 180, T0 + 180)["interval"]
-        self.assertAlmostEqual(slowed, 51.5 / ((4 - 0.3 * 3.5) / 60.0) / 4)
-        self.assertTrue(fast < slowed < 600)   # 不會馬上跳回 10 分鐘
+        self.samples([(0, 40), (300, 60), (600, 80)])
+        fast = self.plan(T0 + 600, T0 + 600)["interval"]
+        self.assertAlmostEqual(fast, 20 / (20 / 300.0) / 4)
+        self.samples([(900, 82)])   # 這 5 分鐘只用了 2 %
+        slowed = self.plan(T0 + 900, T0 + 900)["interval"]
+        self.assertTrue(fast < slowed < 600, slowed)   # 慢慢放鬆，不會馬上跳回 10 分鐘
 
     def test_polls_again_30_seconds_after_a_reset(self):
         self.samples([(-3600, 70)], resets_at=T0 + 100)

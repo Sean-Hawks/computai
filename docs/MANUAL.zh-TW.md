@@ -23,6 +23,9 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 `computai --set 段落.鍵=值` 和 `--unset 段落.鍵` 改單一設定，不會動到你的註解。
 `computai --discover --add` 把連得上的機器都加進來，並依硬體填好功耗建議值。
 
+第一次在終端機打開 `computai`、又還沒設月費時，每個訂閱只問一句：Codex 用 log 裡記錄的方案，Claude 照近 30 天的用量猜。
+Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後用 `computai --setup` 改。
+
 ## 檔案放在哪裡
 
 | 東西 | 預設位置 | 改位置 |
@@ -404,5 +407,9 @@ git -C ~/Documents/你的個人頁repo push      # 或是在上面的指令加 -
   裡這台的 key 記在別的名字下：改用你平常 ssh 用的名字或 IP（Tailscale 的機器常常是 100.x 的位址），
   或先手動 `ssh 主機` 一次。
 - *「ignoring secrets.ini」*：`chmod 600 ~/.config/computai/secrets.ini`。
+- *回報問題*：貼上 `computai --doctor --redact` 的輸出。機器名、SSH 主機、IP、專案名、家目錄底下的路徑、email
+  和使用者名稱都會換成代號（`machine-1`、`ip-1`、`~/path-1`）。
+- *新版*：有新版時 `computai --doctor` 和互動指令結束時會說（一天最多查一次；`[general] update_check = no` 關掉）。
+  再跑一次安裝腳本就會更新。
 - *想重來*：刪掉 `ledger.sqlite`，下次執行會重新匯入 log。
 - *移除*：刪掉 `computai` 檔案、`~/.config/computai` 和 `~/.local/share/computai`。

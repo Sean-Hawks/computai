@@ -205,6 +205,8 @@ class DefaultAction(unittest.TestCase):
         sys.stdout = sys.stdin = tty
         self.addCleanup(lambda: setattr(sys, "stdout", real[0]) or setattr(sys, "stdin", real[1]))
         m.summary = lambda *a, **k: called.append("summary") or {"sources": []}
+        m.sync = lambda *a, **k: {}                 # 不讀這台電腦真的 log
+        m.ask_plans_once = lambda *a, **k: 0        # 第一次打開的方案問題另外測
         db = m.open_ledger(":memory:")
         try:
             m.run(m.parse_args([]), db)

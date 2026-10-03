@@ -1,0 +1,35 @@
+name: Bug report
+description: Something shows the wrong number, crashes, or doesn't detect what it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! `computai --doctor --redact` replaces machine names, hosts, IPs,
+        project names and paths under your home folder with codes, so it is safe to paste here.
+        Please don't paste prompts, logs or keys.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+      placeholder: "computai --summary --month"
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `computai --doctor --redact`
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and platform
+      placeholder: "computai --version; macOS 15 / Ubuntu 24.04 / Windows 11; Python 3.x"
+    validations:
+      required: true

@@ -134,6 +134,21 @@ class Doctor(unittest.TestCase):
         self.assertEqual(text.count("Claude Code\n"), 1)                      # 同一類只出現一次
         self.assertIn("thing(s) to set up", text)
 
+    def test_redact(self):
+        """--doctor --redact：機器名、主機、IP、專案名、家目錄底下的路徑、email 都換成代號。"""
+        self.db.execute("INSERT INTO usage (source, uid, ts, model, project) VALUES "
+                        "('claude', 'u1', 1, 'x', '/home/me/Documents/secret-app')")
+        r = self.m.Redactor(self.db)
+        home = os.path.expanduser("~")
+        out = r("ssh nowhere failed (10.0.0.7, fe80::1:2:3); gone and mac; secret-app; Documents; "
+                "%s/Documents/x/y, ~/.claude/projects; me@example.com" % home)
+        self.assertEqual(out, "ssh machine-1 failed (ip-1, ip-2); machine-2 and machine-3; project-1; Documents; "
+                              "~/path-1, ~/.claude/projects; email")
+        self.assertEqual(r("gone"), "machine-2")                     # 同一次輸出裡代號一樣
+        r = self.sb.run("--doctor", "--redact", "--no-sync", "--json", COMPUTAI_FIXTURES=helpers.fixture("machines"))
+        self.assertNotIn('"gone', r.stdout)
+        self.assertNotIn("nowhere", r.stdout)
+
     def test_next_limit_check(self):
         """--doctor 說每個來源下次什麼時候查額度、為什麼。"""
         t0 = 1790000000
@@ -198,7 +213,8 @@ class Wizard(unittest.TestCase):
         shutil.copytree(helpers.fixture("claude"), self.cc)
         os.environ.update(COMPUTAI_CONFIG_DIR=self.sb.config, COMPUTAI_DATA_DIR=self.sb.data,
                           COMPUTAI_FIXTURES=helpers.fixture("machines"), CLAUDE_CONFIG_DIR=self.cc,
-                          CODEX_HOME=os.path.join(self.sb.root, "none"), COMPUTAI_FAKE_NOW="1790000000")
+                          CODEX_HOME=os.path.join(self.sb.root, "none"), COMPUTAI_FAKE_NOW="1790000000",
+                          HOME=self.sb.root, USERPROFILE=self.sb.root)   # 找個人頁 repo 時不掃真的家目錄
         for k in ("RUNPOD_API_KEY",):
             os.environ.pop(k, None)
         self.m = helpers.load()

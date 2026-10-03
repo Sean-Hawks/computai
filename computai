@@ -75,6 +75,9 @@ theme = cyber
 limits = left
 # Play the short start-up animation of the live dashboard (cyber theme). --no-intro skips it once.
 intro = yes
+# Once a day, read the version line of computai on GitHub and say when a newer one is out.
+# Only that file is fetched; nothing about you or your usage is sent. no turns it off.
+update_check = yes
 local_currency = TWD
 
 [plans]
@@ -1303,6 +1306,7 @@ def codex_poll_minutes(cp=None):
 LIMIT_POLL_MIN = 60       # 自適應查詢最短 1 分鐘
 LIMIT_RESET_GRACE = 30    # 重置時間到了，過 30 秒再多查一次
 LIMIT_RELAX = 0.3         # 消耗變慢時新速度的權重
+LIMIT_MIN_SPAN = 300      # 每次觀察至少跨 5 分鐘：百分比是整數，幾秒內跳 1 % 不能當成真的速度
 
 
 def limits_refresh(cp=None):
@@ -1322,7 +1326,9 @@ def poll_interval(left, rate, base):
 def limit_burn(samples, t, base):
     """從同一個視窗的連續樣本 [(ts, 已用 %)] 算平滑過的消耗速度（%/秒）。
     變快立刻採用；變慢只用權重 0.3 慢慢放鬆。帳本只在數字變了才寫，所以兩筆樣本之間（和最後一筆到現在）
-    照當時的間隔應該查過、卻沒看到變化的每一次，都當成一次速度 0 的觀察。"""
+    照當時的間隔應該查過、卻沒看到變化的每一次，都當成一次速度 0 的觀察。
+    每次觀察的速度從至少 5 分鐘前的那筆樣本算到這一筆（樣本不夠久就當成跨了 5 分鐘），
+    Codex 的 log 幾秒就寫一筆，整數百分比剛好跳一格時才不會算出誇張的速度。"""
     rate = 0.0
     for i, (ts, used) in enumerate(samples):
         end = samples[i + 1][0] if i + 1 < len(samples) else t
@@ -1336,7 +1342,10 @@ def limit_burn(samples, t, base):
             rate *= 1 - LIMIT_RELAX
         if i + 1 < len(samples):
             nts, nused = samples[i + 1]
-            seen = max(0.0, (nused - used) / max(1, nts - ts))
+            k = i
+            while k > 0 and nts - samples[k][0] < LIMIT_MIN_SPAN:
+                k -= 1
+            seen = max(0.0, (nused - samples[k][1]) / max(LIMIT_MIN_SPAN, nts - samples[k][0]))
             rate = seen if seen >= rate else rate + LIMIT_RELAX * (seen - rate)
     return rate
 
@@ -1571,11 +1580,97 @@ def fmt_usd(v):
     return "$%.2f" % v
 
 
-def render_summary(s):
+UPDATE_URL = "https://raw.githubusercontent.com/Sean-Hawks/computai/main/computai"
+UPDATE_CMD = "curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh"
+
+
+def version_tuple(v):
+    """'0.1.0' -> (0, 1, 0)；'0.2.0b1' 這種預覽版排在 0.2.0 前面。"""
+    m = re.match(r"^\s*(\d+(?:\.\d+)*)(.*)$", v or "")
+    if not m:
+        return ()
+    return tuple(int(x) for x in m.group(1).split(".")) + ((0,) if m.group(2).strip() else (1,))
+
+
+def update_check_on(cp=None):
+    if os.environ.get("COMPUTAI_FIXTURES") or os.environ.get("COMPUTAI_NO_UPDATE_CHECK"):
+        return False
+    cp = cp or load_config()
+    return (cp.get("general", "update_check", fallback="yes") or "yes").strip().lower() not in ("no", "false", "0", "off")
+
+
+def fetch_latest_version(timeout=3):
+    """只讀 GitHub 上 computai 檔案的開頭（版本那一行），不帶任何使用者資料。讀不到回傳 None。"""
+    import urllib.request
+    req = urllib.request.Request(UPDATE_URL, headers={"Range": "bytes=0-2047", "User-Agent": "computai"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            head = r.read(4096).decode("utf-8", "replace")
+    except Exception:
+        return None
+    m = re.search(r'^__version__ = "([^"]+)"', head, re.M)
+    return m.group(1) if m else None
+
+
+def check_update(db, fetch=None, t=None):
+    """一天最多查一次有沒有新版；查過的結果放在帳本 meta。回傳比現在新的版本號，沒有就是 None。"""
+    if not update_check_on():
+        return None
+    t = now() if t is None else t
+    row = db.execute("SELECT value FROM meta WHERE key = 'update_checked'").fetchone()
+    if not row or t - _float(row["value"], 0) >= 86400:
+        latest = (fetch or fetch_latest_version)()
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('update_checked', ?)", (str(int(t)),))
+        if latest:
+            db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('update_latest', ?)", (latest,))
+        db.commit()
+    return newer_version(db)
+
+
+def newer_version(db):
+    """上次查到、比現在這份新的版本號（不連網）。"""
+    if not update_check_on():
+        return None
+    row = db.execute("SELECT value FROM meta WHERE key = 'update_latest'").fetchone()
+    if row and version_tuple(row["value"]) > version_tuple(__version__):
+        return row["value"]
+    return None
+
+
+def check_update_in_background():
+    """背景查一次（用自己的帳本連線），不擋住畫面；結果下次開啟時看得到。"""
+    def go():
+        try:
+            db = open_ledger()
+            try:
+                check_update(db)
+            finally:
+                db.close()
+        except Exception:
+            pass
+    if update_check_on():
+        threading.Thread(target=go, daemon=True).start()
+
+
+def ledger_empty(db):
+    """帳本裡一筆用量都沒有（通常是還沒用過 Claude Code、Codex，或 log 不在預設的位置）。"""
+    return db.execute("SELECT 1 FROM usage LIMIT 1").fetchone() is None
+
+
+def log_places():
+    """去哪裡找 log：給「找不到 log」的提示用，家目錄寫成 ~。"""
+    home = os.path.expanduser("~")
+    env = os.environ.get("CLAUDE_CONFIG_DIR")
+    claude = [p.strip() for p in env.split(",") if p.strip()] if env else [os.path.join(home, ".claude")]
+    paths = [os.path.join(c, "projects") for c in claude] + [os.path.join(codex_home(), "sessions")]
+    return ", ".join(("~" + p[len(home):]) if p.startswith(home) else p for p in paths)
+
+
+def render_summary(s, ledger_empty=False):
     lines = ["ComputAI  %s  (%s - %s)" % (s["range"]["label"], day_label(s["range"]["start"]),
                                          day_label(s["range"]["end"] - 1)), ""]
     if not s["sources"]:
-        lines.append("No usage recorded in this range. Run `computai --sync` first.")
+        lines.append(T("no_logs") % log_places() if ledger_empty else "No usage recorded in this range.")
         return "\n".join(lines)
     head = "%-26s %8s %8s %9s %9s %8s %10s" % ("", "requests", "input", "cache rd", "cache wr",
                                                 "output", "API equiv")
@@ -4374,6 +4469,7 @@ def dashboard_state(db):
     _reset_credits["codex"] = st["reset_credits"] = _int(row[0]) if row else 0
     st["verdict"] = verdict(st)
     st["local"] = local_overview(db, st["machines"], energy, t)
+    st["ledger_empty"] = not st["sources"] and ledger_empty(db)
     return st
 
 
@@ -4553,7 +4649,9 @@ UI = {
         "no_model": "no model loaded", "rate": "%d req/5m, %s tok/s", "rate_tok": "%s tok/s",
         "no_server": "no inference server found", "usage": "AI SUBSCRIPTIONS & SPEND", "api_equiv": "$ = value at API prices",
         "resets": "resets in %s", "d14": "last 14 days", "today_x": "today %s", "line_today": "today $%s", "tok_req": "%s tokens, %s requests", "tok_only": "%s tokens",
-        "no_usage": "no usage yet - run computai --sync", "today": "today", "month": "month",
+        "no_usage": "no usage this month yet",
+        "no_logs": "no Claude Code or Codex logs found yet (looked in %s); use either one and it shows up here",
+        "today": "today", "month": "month",
         "forecast": "forecast", "cloud": "CLOUD", "alerts": "ALERTS", "clear": "all clear",
         "compute": "COMPUTE", "machines_n": "%d machines", "machine_1": "1 machine", "machines": "MACHINES",
         "compact": "compact: enlarge the window for details", "no_gpu": "no GPU",
@@ -4571,7 +4669,7 @@ UI = {
         "w_prices": "prices from prices.ini", "w_tagline": "where your compute and AI money goes",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "Subscriptions", "machine": "Machines",
                     "machines": "Machines", "power": "Electricity", "prices": "Prices", "secrets": "Keys",
-                    "card": "Profile card"},
+                    "card": "Profile card", "update": "Update"},
         "dr_card_off": "no GitHub profile card yet", "dr_card_missing": "the card folder %s is gone",
         "dr_card_stale": "the card was last written %s ago", "dr_card_ok": "card in %s, updated %s ago (daily %s)",
         "dr_logs": "%s logs found (%d files)", "dr_nologs": "no %s logs (looked in %s)",
@@ -4579,6 +4677,7 @@ UI = {
         "dr_noplan": "%s plan not set%s, so value and forecast can't be worked out",
         "dr_sl_ok": "status line connected: Claude limit percentages are recorded",
         "dr_cl_cli": "Claude account limits are read from the claude CLI at least every %d minutes (no status line needed)",
+        "dr_update": "computai %s is out (you have %s)", "update_note": "computai %s is out (you have %s); update: %s",
         "dr_next": "%s limits: next check %s (%s)", "dr_now": "now", "dr_in": "in %s",
         "why_first": "not read yet", "why_fixed": "fixed: every %s", "why_idle": "not being used: every %s",
         "why_calm": "nothing close to running out: every %s",
@@ -4596,6 +4695,10 @@ UI = {
         "su_searching": "searching (SSH to each candidate, up to 15 s)...", "su_per_month": "%s/month",
         "su_intro": "ComputAI setup", "su_keys": "Enter accepts the value in [brackets], s skips a step, Ctrl-C quits without saving.",
         "su_lang": "Language / 語言 (en, zh)", "su_theme": "Look: cyber (dark, calm) or classic (slurmtop)", "su_plans": "Subscriptions", "su_detected": "the logs say %r",
+        "ask_plan": "%(src)s looks like %(plan)s (%(usd)s/month, %(why)s). Enter to keep, n to skip, or type one of %(names)s: ",
+        "ask_why_log": "from the logs", "ask_why_usage": "guessed from your usage",
+        "ask_plan_saved": "saved to %s; change it any time with computai --setup",
+        "ask_plan_skip": "not one of the listed plans; set it later with %s",
         "su_none": "I don't pay for this", "su_custom": "other (type name and price)", "su_current": "now: %s",
         "su_pick": "Choice", "su_plan_name": "Plan name", "su_plan_usd": "USD per month", "su_bad": "not understood, skipped",
         "su_sl": "Claude limit percentages",
@@ -4678,13 +4781,16 @@ UI = {
         "h_busy": "%d machine(s) generating", "h_power": "POWER NOW (W)", "h_online": "%d/%d NODES ONLINE", "hud_tag": "AI COMPUTE LEDGER",
         "q_title": "LIMITS", "q_wait": "resets in %s",
         "q_eta": "at this pace it runs out in %s (resets in %s)", "q_proj": "at this pace about %(pct)d%% by the reset in %(reset)s",
-        "q_unlinked": "limits not connected yet: install and log in to the claude CLI (read every 10 minutes), or set Claude Code's statusLine to `computai --statusline`",
+        "q_unlinked": "limits not connected yet: install and log in to the claude CLI and they are read automatically, or set Claude Code's statusLine to `computai --statusline`",
+        "q_unlinked_codex": "limits not connected yet: install and log in to the codex CLI and they are read automatically",
+        "q_none": "no limits yet: install and log in to the claude or codex CLI and they are read automatically",
         "q_foot": "\u2503 = time left in the window; a bar shorter than it is burning faster than time",
         "q_foot_used": "\u2503 = how much of the window has passed; a bar beyond it is burning faster than time",
         "v_ok": "ALL CLEAR", "v_warn": "WATCH", "v_fail": "ALERT", "v_more": "+%d more",
         "h_limits": "LIMITS", "hm_today": "TODAY", "hm_month": "THIS MONTH", "h_local": "LOCAL INFERENCE", "hm_power": "POWER",
         "h_nodes": "MACHINES", "h_attention": "NEEDS ATTENTION", "h_mix": "USAGE MIX", "h_fail": "CRITICAL", "h_warn": "WARNING",
-        "h_tip": "TIP", "h_more_tips": "+%d more tips in tab 5", "h_link": "install and log in to the claude CLI; computai reads it every 10 minutes",
+        "h_tip": "TIP", "h_more_tips": "+%d more tips in tab 5", "h_link_claude": "install and log in to the claude CLI; computai reads it on its own",
+        "h_link_codex": "install and log in to the codex CLI; computai reads it on its own",
         "h_api_value": "usage value at API prices", "h_worth": "worth", "h_per_mo": "/mo", "h_payback": "PAYBACK",
         "h_month_kwh": "%.2f kWh this month", "h_machines_n": "%d machines", "h_state": "STATE", "h_node": "MACHINE",
         "h_mem": "MEM", "h_model": "MODEL", "h_down": "DOWN", "hm_online": "%d/%d ONLINE", "h_open": "%d OPEN",
@@ -4748,7 +4854,9 @@ UI = {
         "no_model": "沒有載入模型", "rate": "5 分鐘 %d 個請求，%s tok/s", "rate_tok": "%s tok/s",
         "no_server": "沒有找到推論服務", "usage": "AI 訂閱與花費", "api_equiv": "金額 = 照 API 價格算的價值",
         "resets": "%s 後重置", "d14": "近 14 天", "today_x": "今天 %s", "line_today": "今天 $%s", "tok_req": "%s token、%s 個請求", "tok_only": "%s token",
-        "no_usage": "還沒有用量，先跑 computai --sync", "today": "今天", "month": "本月",
+        "no_usage": "這個月還沒有用量",
+        "no_logs": "還沒找到 Claude Code 或 Codex 的 log（看了 %s）；用過其中一個，這裡就會出現",
+        "today": "今天", "month": "本月",
         "forecast": "月底預估", "cloud": "雲端", "alerts": "警示", "clear": "一切正常",
         "compute": "算力", "machines_n": "%d 台機器", "machine_1": "1 台機器", "machines": "機器",
         "compact": "精簡模式：視窗放大可以看細節", "no_gpu": "無 GPU",
@@ -4766,7 +4874,7 @@ UI = {
         "w_prices": "價格取自 prices.ini", "w_tagline": "一眼看完你的算力和 AI 花費",
         "dr_area": {"claude": "Claude Code", "codex": "Codex", "plans": "訂閱", "machine": "機器",
                     "machines": "機器", "power": "電價", "prices": "價格", "secrets": "金鑰",
-                    "card": "個人頁卡片"},
+                    "card": "個人頁卡片", "update": "更新"},
         "dr_card_off": "還沒有 GitHub 個人頁卡片", "dr_card_missing": "卡片資料夾 %s 不見了",
         "dr_card_stale": "卡片上次更新是 %s 前", "dr_card_ok": "卡片在 %s，%s 前更新（每天 %s）",
         "dr_logs": "找到 %s 的 log（%d 個檔案）", "dr_nologs": "沒有 %s 的 log（找過 %s）",
@@ -4774,6 +4882,7 @@ UI = {
         "dr_noplan": "%s 還沒設月費%s，算不出值不值得和月底預估",
         "dr_sl_ok": "statusline 已接上：會記錄 Claude 的額度百分比",
         "dr_cl_cli": "Claude 帳號額度從 claude 程式讀，最久 %d 分鐘一次（不用設 statusline）",
+        "dr_update": "computai 有新版 %s（你的是 %s）", "update_note": "computai 有新版 %s（你的是 %s），更新：%s",
         "dr_next": "%s 額度：%s再查（%s）", "dr_now": "現在", "dr_in": "%s 後",
         "why_first": "還沒讀過", "why_fixed": "固定每 %s", "why_idle": "沒在消耗 → 每 %s",
         "why_calm": "沒有快用完的額度 → 每 %s",
@@ -4791,6 +4900,10 @@ UI = {
         "su_searching": "搜尋中（逐台試 SSH，最多 15 秒）…", "su_per_month": "每月 %s",
         "su_intro": "ComputAI 設定", "su_keys": "Enter 接受 [方括號] 裡的值，s 跳過這一步，Ctrl-C 離開且不存檔。",
         "su_lang": "Language / 語言 (en, zh)", "su_theme": "外觀：cyber（深色、安靜）或 classic（slurmtop 樣式）", "su_plans": "訂閱方案", "su_detected": "log 裡記錄的是 %r",
+        "ask_plan": "%(src)s 看起來是 %(plan)s（%(usd)s/月，%(why)s）。Enter 確認、n 跳過，或打 %(names)s 其中一個：",
+        "ask_why_log": "log 裡寫的", "ask_why_usage": "照用量猜的",
+        "ask_plan_saved": "已寫進 %s；之後可以用 computai --setup 改",
+        "ask_plan_skip": "不是列出來的方案；之後用 %s 設定",
         "su_none": "沒有付這個", "su_custom": "其他（自己輸入名稱和價格）", "su_current": "目前：%s",
         "su_pick": "選擇", "su_plan_name": "方案名稱", "su_plan_usd": "每月美元", "su_bad": "看不懂，先跳過",
         "su_sl": "Claude 額度百分比",
@@ -4872,13 +4985,16 @@ UI = {
         "h_busy": "%d 台正在推論", "h_power": "目前功耗 (W)", "h_online": "%d/%d 台在線", "hud_tag": "AI 算力總帳",
         "q_title": "額度", "q_wait": "%s 後重置",
         "q_eta": "照目前速度 %s 後用完（%s 後才重置）", "q_proj": "照目前速度，%(reset)s 後重置時約 %(pct)d%%",
-        "q_unlinked": "額度還沒接上：裝好並登入 claude 程式（每 10 分鐘自動讀一次），或把 Claude Code 的 statusLine 設成 computai --statusline",
+        "q_unlinked": "額度還沒接上：裝好並登入 claude 程式就會自動讀，或把 Claude Code 的 statusLine 設成 computai --statusline",
+        "q_unlinked_codex": "額度還沒接上：裝好並登入 codex 程式就會自動讀",
+        "q_none": "還沒有額度資料：裝好並登入 claude 或 codex 程式就會自動讀",
         "q_foot": "\u2503 標出這個週期還剩多少時間；長條比它短，代表用得比時間快",
         "q_foot_used": "\u2503 標出這個週期過了多久；長條超過它，代表用得比時間快",
         "v_ok": "一切正常", "v_warn": "注意", "v_fail": "警告", "v_more": "另外還有 %d 件",
         "h_limits": "額度", "hm_today": "今天", "hm_month": "本月", "h_local": "本地推論", "hm_power": "功耗",
         "h_nodes": "機器", "h_attention": "需要處理", "h_mix": "用量組成", "h_fail": "故障", "h_warn": "注意",
-        "h_tip": "建議", "h_more_tips": "還有 %d 條建議在分頁 5", "h_link": "裝好並登入 claude 程式，每 10 分鐘會自動讀一次",
+        "h_tip": "建議", "h_more_tips": "還有 %d 條建議在分頁 5", "h_link_claude": "裝好並登入 claude 程式，computai 會自己讀",
+        "h_link_codex": "裝好並登入 codex 程式，computai 會自己讀",
         "h_api_value": "照 API 價格算的用量價值", "h_worth": "用量價值", "h_per_mo": "/月", "h_payback": "回本",
         "h_month_kwh": "本月 %.2f 度", "h_machines_n": "%d 台機器", "h_state": "狀態", "h_node": "機器",
         "h_mem": "記憶體", "h_model": "模型", "h_down": "斷線", "hm_online": "%d/%d 在線", "h_open": "%d 件",
@@ -5105,6 +5221,11 @@ def machine_panel(m, width, energy=None, error=None):
     return panel(left, right, lines, width, load, foot=foot)
 
 
+def unlinked_hint(source):
+    """這個訂閱的額度還沒接上時，一句話說怎麼接。"""
+    return T("q_unlinked_codex") if source == "codex" else T("q_unlinked")
+
+
 def limit_label(name):
     """額度視窗的白話名稱：5h -> 5 小時額度、week -> 每週額度、week:Fable -> 每週額度（Fable）。"""
     if name.startswith("week:"):
@@ -5208,8 +5329,10 @@ def hero_panel(st, width, frame=0):
     for x in st["sources"]:
         if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
             name = T("src").get(x["source"], x["source"])
-            for i, ln in enumerate(wrap(T("q_unlinked"), max(20, width - vlen(name) - 6))):
+            for i, ln in enumerate(wrap(unlinked_hint(x["source"]), max(20, width - vlen(name) - 6))):
                 lines.append(" %s  %s" % (bold(name) if i == 0 else " " * vlen(name), dim(ln)))
+    if not limits and not any(x["source"] in SUBSCRIPTION_SOURCES for x in st["sources"]):   # 一個額度都沒有：說怎麼接
+        lines += [""] + [" " + dim(ln) for ln in wrap(T("q_none"), max(20, width - 6))]
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else ""
@@ -5248,7 +5371,7 @@ def quota_panel(st, width):
             lines.append(" " * (name_w + 2) + note)
     for x in st["sources"]:
         if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
-            lines.append(" %s %s" % (cell(T("src").get(x["source"], x["source"]), name_w), dim(T("q_unlinked"))))
+            lines.append(" %s %s" % (cell(T("src").get(x["source"], x["source"]), name_w), dim(unlinked_hint(x["source"]))))
     if not lines:
         return []
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
@@ -5338,7 +5461,7 @@ def usage_panel(st, width):
             lines.append(" %s %s %s %s" % (bold(cell(T("src").get(src, src), 14)), dim(limit_label(r["name"])),
                                           gradbar(r["used_percent"], bar_w), T("used_pct") % r["used_percent"]))
     if not lines:
-        lines.append(dim(" " + T("no_usage")))
+        lines.append(dim(" " + (T("no_logs") % log_places() if st.get("ledger_empty") else T("no_usage"))))
     f = st["forecast"]
     lines.append("")
     lines.append(" " + T("sum_value") % (bold(fmt_usd(st["total_cost_usd"])), bold(fmt_usd(st["today_usd"]))))
@@ -5487,6 +5610,8 @@ def ticker(st, width, frame=0):
         items.append(txt)
     items.append(T("hdr_today") % fmt_usd(st["today_usd"]))
     sep = sym("  \u25c6  ", "  *  ")
+    if vlen(sep.join(items)) <= width - 3:   # 放得下就不捲動，也不重複同一句
+        return rgb(CYAN, sym("\u25b6 ", "> ")) + sep.join(items)
     text = sep.join(items) + sep
     chars = list(text)
     k = frame % len(chars) if chars else 0
@@ -5739,7 +5864,7 @@ def render_limits_hud(st, width):
         if x["source"] in SUBSCRIPTION_SOURCES and x["source"] not in have:
             d = dial(0, 26, 10, GREY, GREY, "--", "", None)
             side = ["", tag(T("src").get(x["source"], x["source"]).upper(), GREY), "",
-                    rgb(AMBER, "NO SIGNAL"), ""] + [dim(ln) for ln in wrap(T("q_unlinked"), max(20, col - 40))]
+                    rgb(AMBER, "NO SIGNAL"), ""] + [dim(ln) for ln in wrap(unlinked_hint(x["source"]), max(20, col - 40))]
             cards.append(side_by_side_many([d, side], 3))
     if not cards:
         return hud_frame("LIMITS", [dim("-")], width)
@@ -5952,14 +6077,14 @@ def render_mission(st, width, height, frame):
         body += side_by_side_many([[pad(x, cw) for x in g] for g in grp], 3) if len(grp) > 1 else grp[0]
     for x in unl:
         body.append(("" if not body else "") and "")
-        body.append(dim(cell(T("src").get(x["source"], x["source"]), 14)) + dim(T("m_unlinked") + " \u2014 " + T("h_link")))
+        body.append(dim(cell(T("src").get(x["source"], x["source"]), 14)) + dim(T("m_unlinked") + " \u2014 " + T("h_link_" + x["source"])))
     body = [ln for k, ln in enumerate(body) if not (ln == "" and (k == 0 or body[k - 1] == ""))]
     full = sum(1 for r in limits if (r["used_percent"] or 0) >= LIMIT_FAIL)
     high = sum(1 for r in limits if LIMIT_WARN <= (r["used_percent"] or 0) < LIMIT_FAIL)
     early = sum(1 for r in limits if r.get("eta_full") and (r["used_percent"] or 0) < LIMIT_FAIL)
     state = rgb(RED, T("n_used_up") % full) if full else rgb(AMBER, T("n_high") % high) if high else \
         rgb(AMBER, T("h_early")) if early else rgb(GREEN, T("m_ok"))
-    out += mpanel(tag(T("h_limits")), body or [dim(T("q_unlinked"))], width, state, level="fail" if full else None)
+    out += mpanel(tag(T("h_limits")), body or [dim(T("q_none"))], width, state, level="fail" if full else None)
     # ── 四塊數字卡 ──
     n = 4 if width >= 100 else 2
     tw = (width - (n - 1)) // n
@@ -6505,7 +6630,7 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
 
 /* 兩個主題共用：總結列、面板的標題列／來源列、依用途的顏色 class */
 .verdict:empty, .quota:empty, #line:empty { display:none; }
-.quota .q { display:grid; grid-template-columns:minmax(120px,max-content) minmax(0,1fr) 5.5em; gap:2px 14px;
+.quota .q { display:grid; grid-template-columns:minmax(120px,max-content) minmax(0,1fr) max-content; gap:2px 14px;
   align-items:center; padding:8px 0; border-top:1px solid var(--line); }
 .quota .hd + .q { border-top:0; }
 .quota .lab { font-weight:700; }
@@ -6515,7 +6640,7 @@ footer { color:var(--dim); padding:8px 16px 16px; font-size:12px; }
 .quota .g > b { position:absolute; top:0; bottom:0; width:2px; background:#f5f6f7; }
 .quota .p { font-size:24px; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .quota .n { grid-column:2 / -1; font-size:12px; color:var(--dim); }
-@media (max-width: 520px) { .quota .q { grid-template-columns:minmax(0,1fr) 5em; }
+@media (max-width: 520px) { .quota .q { grid-template-columns:minmax(0,1fr) max-content; }
   .quota .lab { grid-column:1 / -1; } .quota .n { grid-column:1 / -1; } }
 .verdict { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 12px; padding:12px 14px;
   border:1px solid var(--line); border-left:4px solid var(--ok); border-radius:6px; background:var(--panel); }
@@ -6836,7 +6961,7 @@ function render(st) {
   $("#line").textContent = "";   // 額度和今天的用量已經在總結列、額度區和小卡片上
   if (st.verdict) verdictBand(st.verdict);
   $("#quota").replaceChildren(...quotaCard(st));
-  $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString();
+  $("#clock").textContent = new Date(st.time * 1000).toLocaleTimeString(st.lang === "zh" ? "zh-TW" : "en-US");
   const watts = st.machines.reduce((a, m) => a + (m.power_w || 0), 0);
   const f = st.forecast;
   const tiles = [tile(t.w_today, usd(st.today_usd)), tile(t.w_month, usd(st.total_cost_usd), t.w_at_api),
@@ -8910,6 +9035,68 @@ def claude_statusline():
     return sl.get("command") if isinstance(sl, dict) else None
 
 
+class Redactor:
+    """把一段文字裡會認出人的東西換成代號：機器名和 SSH 主機（machine-1…）、IP（ip-1…）、
+    專案名（project-1…）、email、家目錄（~）和使用者名稱（user）。同一個值在同一次輸出裡代號都一樣。"""
+
+    IP = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b"
+                    r"|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*::(?:[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{1,4})*)?\b")
+    EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+    PATH = re.compile(r"~/[^\s,;()'\"\u3000-\u303f\uff00-\uffef]+")
+    # 太常見、換掉反而看不懂的資料夾名稱（專案的上層資料夾常常就是這些）
+    COMMON = {"documents", "desktop", "downloads", "development", "dev", "projects", "project", "src", "code",
+              "work", "repos", "home", "users", "tmp", "claude", "codex", "ollama", "computai", "github"}
+
+    def __init__(self, db=None):
+        self.codes = {}
+        names = []
+        for m in machines():
+            names.append(("machine", m["name"]))
+            if m["host"] != "local":
+                host = m["host"].split("@")[-1]
+                names.append(("host", m["host"]))
+                names.append(("host", host))
+        names.append(("machine", local_hostname()))
+        if db is not None:
+            for (p,) in db.execute("SELECT DISTINCT project FROM usage WHERE project != ''"):
+                base = os.path.basename(p.rstrip("/\\"))
+                if base.lower() not in self.COMMON:
+                    names.append(("project", base))
+        self.words = []
+        for kind, w in names:
+            if w and len(w) >= 2 and w not in ("local", "this-computer"):
+                self.words.append((kind, w))
+        self.words.sort(key=lambda kw: -len(kw[1]))   # 長的先換，避免「m1」先吃掉「m1m」的一部分
+        self.home = os.path.expanduser("~")
+        try:
+            import getpass
+            self.user = getpass.getuser()
+        except Exception:
+            self.user = ""
+
+    def code(self, kind, value):
+        key = (kind, value)
+        if key not in self.codes:
+            self.codes[key] = "%s-%d" % (kind, 1 + sum(1 for k in self.codes if k[0] == kind))
+        return self.codes[key]
+
+    def __call__(self, text):
+        if not isinstance(text, str) or not text:
+            return text
+        if self.home and len(self.home) > 1:
+            text = text.replace(self.home, "~")
+        # 家目錄底下的路徑：設定類的點資料夾（~/.claude、~/.config）照留，其他整段換成代號
+        text = self.PATH.sub(lambda m: m.group(0) if m.group(0).startswith("~/.") else "~/" + self.code("path", m.group(0)), text)
+        text = self.EMAIL.sub("email", text)
+        text = self.IP.sub(lambda m: self.code("ip", m.group(0)), text)
+        for kind, w in self.words:
+            text = re.sub(r"(?<![\w-])%s(?![\w-])" % re.escape(w),
+                          lambda m, k=kind, w=w: self.code("machine" if k == "host" else k, w), text)
+        if self.user and len(self.user) >= 3:
+            text = re.sub(r"(?<![\w-])%s(?![\w-])" % re.escape(self.user), "user", text)
+        return text
+
+
 def doctor(db, sample=True):
     """檢查每個來源和每台機器，回傳 [{area, level: ok|tip|todo, text, fix}]。"""
     out = []
@@ -8957,6 +9144,10 @@ def doctor(db, sample=True):
             add("claude", "tip", T("dr_sl_other"), "docs/one-line.md")
         else:
             add("claude", "todo", T("dr_sl_none"), "computai --setup")
+    # 新版
+    newer = newer_version(db)
+    if newer:
+        add("update", "tip", T("dr_update") % (newer, __version__), UPDATE_CMD)
     # 帳號額度下次什麼時候查、為什麼（跟著消耗速度走）
     for src, name in (("claude", "Claude"), ("codex", "Codex")):
         row = db.execute("SELECT value FROM meta WHERE key = ?", (src + "_account_read",)).fetchone()
@@ -9071,10 +9262,14 @@ SECRET_KEYS = (("RUNPOD_API_KEY", "RunPod"), ("VAST_API_KEY", "Vast.ai"), ("LAMB
 def detect_profile_repo():
     """找本機的 GitHub 個人頁 repo（github.com/<帳號>/<帳號>）：只看幾個常見資料夾往下兩層，不連網路。
     有 assets/ 資料夾就回傳它，不然回傳 repo 本身。"""
+    skip = {"Library", "Applications", "Movies", "Music", "Pictures", "Public", "OrbStack", "AppData"}
+
     def subdirs(path):
+        # 掛載點（OrbStack、網路磁碟、雲端資料夾）列目錄可能卡很久，系統資料夾也不會放 repo，都跳過
         try:
             return [os.path.join(path, n) for n in sorted(os.listdir(path))
-                    if not n.startswith(".") and os.path.isdir(os.path.join(path, n))]
+                    if not n.startswith(".") and n not in skip and os.path.isdir(os.path.join(path, n))
+                    and not os.path.ismount(os.path.join(path, n))]
         except OSError:   # 沒權限、不存在
             return []
     home = os.path.expanduser("~")
@@ -9096,6 +9291,74 @@ def computai_command():
     here = os.path.abspath(sys.argv[0]) if sys.argv and sys.argv[0] else "computai"
     found = shutil.which("computai")
     return "computai" if found and os.path.realpath(found) == os.path.realpath(here) else here
+
+
+# Claude 的方案沒有寫在任何本機紀錄裡，只能照用量猜：近 30 天照 API 價格算的價值低於這個數字，就猜比較小的方案
+CLAUDE_PLAN_GUESS = ((150, "Pro"), (1500, "Max 5x"), (None, "Max 20x"))
+
+
+def guess_plan(db, src, t=None):
+    """還沒設月費時猜一個方案：Codex 看 log 裡的 plan_type，Claude 照近 30 天的用量價值猜。
+    回傳 ({"name", "usd"}, "log" 或 "usage")；這個來源沒有用量或對不到選項就是 (None, None)。"""
+    t = now() if t is None else t
+    opts = plan_options().get(src) or []
+    if not opts:
+        return None, None
+    norm = lambda x: (x or "").lower().replace(" ", "")
+    det = detected_plan(db, src)
+    if det:
+        hit = next((o for o in opts if norm(o["name"]) == norm(det)), None)
+        if hit:
+            return hit, "log"
+    s = summary(db, t - 30 * 86400, t + 1, plan_table={})
+    worth = sum(x["cost_usd"] for x in s["sources"] if x["source"] == src)
+    if not any(x["source"] == src for x in s["sources"]):
+        return None, None
+    if src == "claude":
+        name = next(n for top, n in CLAUDE_PLAN_GUESS if top is None or worth < top)
+        hit = next((o for o in opts if norm(o["name"]) == norm(name)), None)
+        if hit:
+            return hit, "usage"
+    return opts[0], "usage"
+
+
+def ask_plans_once(db, ask=None, out=None, t=None):
+    """第一次在終端機打開時，對還沒設月費、但有用量的訂閱各問一句（只問這一次，答案寫進 config.ini）。
+    Enter 接受猜的方案，n 跳過，也可以直接打選項的名字（例如 max 20x）。回傳寫了幾個。"""
+    if ask is None:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return 0
+        ask = input
+    out = out or print
+    if db.execute("SELECT 1 FROM meta WHERE key = 'plans_asked'").fetchone():
+        return 0
+    current, opts = plans(), plan_options()
+    today = time.strftime("%Y-%m-%d", time.localtime(now() if t is None else t))
+    changes = []
+    for src in SUBSCRIPTION_SOURCES:
+        if src in current:
+            continue
+        guess, why = guess_plan(db, src, t)
+        if not guess:
+            continue
+        label = PLAN_LABELS.get(src, src)
+        names = " / ".join(o["name"] for o in opts.get(src, []))
+        a = ask(T("ask_plan") % {"src": T("src").get(src, src), "plan": "%s %s" % (label, guess["name"]),
+                                 "usd": fmt_usd(guess["usd"]), "why": T("ask_why_" + why), "names": names}).strip()
+        if a.lower() in ("n", "no", "否", "0"):
+            continue
+        pick = guess if not a else next((o for o in opts.get(src, [])
+                                         if o["name"].lower().replace(" ", "") == a.lower().replace(" ", "")), None)
+        if pick is None:
+            out(T("ask_plan_skip") % "computai --setup")
+            continue
+        changes.append(("plans", src, "%s %s, %g, %s" % (label, pick["name"], pick["usd"], today)))
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('plans_asked', '1')")
+    db.commit()
+    if changes:
+        write_config(changes)
+        out(T("ask_plan_saved") % os.path.join(config_dir(), "config.ini"))
+    return len(changes)
 
 
 class Setup:
@@ -9682,6 +9945,8 @@ def parse_args(argv=None):
     p.add_argument("--unset", action="append", metavar="SECTION.KEY", default=[],
                    help="remove a setting from config.ini (repeatable)")
     p.add_argument("--json", action="store_true", help="machine-readable output")
+    p.add_argument("--redact", action="store_true",
+                   help="with --doctor: replace machine names, hosts, IPs, project names and your user name with codes")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     group_help(p)
     return p.parse_args(argv)
@@ -9718,10 +9983,26 @@ def main(argv=None):
         sys.stderr.write("computai: first run - settings are in %s. Run `computai --setup` to tailor them "
                          "(plans, machines, power), or `computai --doctor` to see what is detected.\n" % config_dir())
     db = open_ledger()
+    # 給人看的指令才查新版（背景、一天一次）；給程式讀的輸出（--json、statusline、MCP）不碰網路也不多印字
+    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp)
+    if human:
+        check_update_in_background()
     try:
-        return run(args, db)
+        code = run(args, db)
     finally:
         db.close()
+    if human and not args.doctor:
+        try:
+            db = open_ledger()
+            try:
+                newer = newer_version(db)
+            finally:
+                db.close()
+            if newer:
+                sys.stderr.write(T("update_note") % (newer, __version__, UPDATE_CMD) + "\n")
+        except Exception:
+            pass
+    return code
 
 
 def default_machine():
@@ -9775,6 +10056,12 @@ def run(args, db):
             print(render_live(st, cols, use_color(), ascii_=not can_draw_blocks()))
         return 0
     if args.live:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        try:
+            ask_plans_once(db)   # 第一次打開、還沒設月費：照 log 猜一個，問一句就好
+        except (KeyboardInterrupt, EOFError):
+            print()
         db.close()
         intro = not args.no_intro and (load_config().get("general", "intro", fallback="yes") or "yes").strip().lower() \
             not in ("no", "false", "0", "off")
@@ -9866,6 +10153,9 @@ def run(args, db):
             sync(db, quiet=True)
         set_style(use_color(), not can_draw_blocks())
         items = doctor(db, sample=not args.no_sync)
+        if args.redact:   # 貼到 issue 用：機器名、IP、專案名、使用者名稱換成代號
+            r = Redactor(db)
+            items = [{k: r(v) for k, v in x.items()} for x in items]
         emit(items, render_doctor(items), args.json)
         return 0
     if args.discover:
@@ -10015,7 +10305,7 @@ def run(args, db):
     start, end, label = pick_range(args)
     s = summary(db, start, end, label=label)
     s["limits"] = current_limits(db)
-    text = render_summary(s)
+    text = render_summary(s, ledger_empty=ledger_empty(db))
     if s["limits"]:
         text += "\n\n" + render_limits(s["limits"])
     s["machines"] = machine_report(db, start, end)
