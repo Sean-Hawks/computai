@@ -10,6 +10,7 @@ tokens, GPU hours, kWh and money, side by side.
     computai --web                   # dashboard for the browser and phone, plus /metrics
     computai --analyze               # cache waste, month-end forecast, plan advice
     computai --report --html r.html  # monthly report
+    computai recap                  # find local usage and open your monthly recap
     computai --proxy                 # count Ollama tokens (the only optional daemon)
 
 Python 3.8+, standard library only. Remote machines only need SSH and sh.
@@ -11200,6 +11201,38 @@ def creator_history(d):
                 sorted((p for p in periods if p["kind"] == "month"), key=lambda p: p["label"], reverse=True))
 
 
+def creator_selection(d, selected=None):
+    """頁面與 CLI 共用預設區間，避免顯示的月份與實際開啟的圖卡不同。"""
+    periods = d["periods"]
+    if selected is not None and selected not in {p["key"] for p in periods}:
+        raise ValueError("No observed history for %s" % selected)
+    return selected or next((p["key"] for p in periods if p["kind"] == "month" and p["tokens"]["total"] and not p["in_progress"]),
+                           next((p["key"] for p in periods if p["kind"] == "month" and p["tokens"]["total"]), "all"))
+
+
+def recap_progress(d, selected, lang=None):
+    """新人先看找到什麼與下一步；僅用彙總欄位，不觸發服務或診斷探測。"""
+    zh = (lang or _lang) == "zh"
+    def L(z, e):
+        return z if zh else e
+    p = next(p for p in d["periods"] if p["key"] == selected)
+    lines = [L("ComputAI · 我的 AI 月報", "ComputAI · My AI monthly recap")]
+    if p["tokens"]["total"]:
+        sources = ", ".join(untrusted(T("src").get(s["source"], s["source"])) for s in p["sources"])
+        lines.append(L("找到用量：", "Usage found: ") + sources)
+        label = L("累計歷史", "All observed history") if p["kind"] == "all" else p["label"]
+        lines.append(L("已選範圍：", "Selected period: ") + label +
+                     (L(" · 截至目前", " · so far") if p["in_progress"] else ""))
+        lines.append(L("已記錄 %s token · %d 個有用量日", "%s recorded tokens · %d active days") %
+                     (format(p["tokens"]["total"], ","), p["active_days"]))
+        lines.append(L("開啟後可直接按「下載 PNG」；月份、版型與名稱都能在頁面調整。", "Once open, click Download PNG. You can change the month, layout and name on the page."))
+    else:
+        lines.append(L("這個區間尚無可見用量，先開啟月報頁查看來源說明。", "No observed usage for this period. Open the recap page for source guidance."))
+        lines.append(L("請在使用 AI 工具的電腦執行；GUI 需要支援的本機紀錄，本地模型需要已開始記錄的用量。", "Run this on your AI computer. GUIs need supported local logs; local models need recorded usage."))
+        lines.append(L("未記錄的過去不能補算；沒有資料時不會產生假的月報。", "Unrecorded history cannot be recovered; missing data won't produce a fabricated recap."))
+    return "\n".join(lines)
+
+
 def render_creator_html(d, handle="", selected=None, lang=None):
     """本機製卡工具；頁面持有彙總，下載只包含當下選定的一張圖。"""
     import html
@@ -11208,12 +11241,8 @@ def render_creator_html(d, handle="", selected=None, lang=None):
         return z if zh else e
     d = creator_history(d)
     periods = d["periods"]
-    keys = {p["key"] for p in periods}
-    if selected is not None and selected not in keys:
-        raise ValueError("No observed history for %s" % selected)
     # 第一張採最近一個已結束、已有紀錄的月份；新使用者則用最新月份。
-    selected = selected or next((p["key"] for p in periods if p["kind"] == "month" and p["tokens"]["total"] and not p["in_progress"]),
-                               next((p["key"] for p in periods if p["kind"] == "month" and p["tokens"]["total"]), "all"))
+    selected = creator_selection(d, selected)
     templates, choices, captions = {}, [], []
     for p in periods:
         label = (L("累計歷史", "All observed history") if p["kind"] == "all" else
@@ -11322,13 +11351,13 @@ def creator_ledger():
     return db
 
 
-def open_creator(db, output=None, handle="", selected=None, lang=None, launch=True):
+def open_creator(db, output=None, handle="", selected=None, lang=None, launch=True, profile_data=None):
     """不啟動 server／watch。以 600 暫存檔原子寫入本機工具页。"""
     import tempfile
     path = os.path.abspath(os.path.expanduser(output or os.path.join(data_dir(), "creator.html")))
     folder = os.path.dirname(path)
     os.makedirs(folder, exist_ok=True)
-    page = render_creator_html(history_profile(db), handle, selected, lang)
+    page = render_creator_html(history_profile(db) if profile_data is None else profile_data, handle, selected, lang)
     fd, temp = tempfile.mkstemp(prefix=".computai-creator-", suffix=".tmp", dir=folder)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
@@ -13515,10 +13544,49 @@ def group_help(p):
             g._group_actions.append(a)
 
 
+def recap_command_args(argv):
+    """意圖命令有獨立的小 help；正規化成原本的本機製卡路徑。"""
+    p = argparse.ArgumentParser(prog="computai recap",
+        description="Make your AI monthly recap / 製作你的 AI 月報：自動找用量、選月份、開啟下載頁。",
+        epilog="Start: computai recap\nChoose a month: computai recap 2026-09",
+        formatter_class=argparse.RawDescriptionHelpFormatter, allow_abbrev=False)
+    p.add_argument("month", nargs="?", metavar="YYYY-MM", help="optional month / 選填月份；預設最近已結束且有紀錄的月份")
+    p.add_argument("--lang", choices=sorted(UI), help="en or zh / 介面語言")
+    p.add_argument("--no-open", action="store_true", help="save the page without opening a browser / 只儲存月報頁")
+    p.add_argument("--html", metavar="FILE", help="save the private page here / 指定私人月報頁檔案")
+    p.add_argument("--no-sync", action="store_true", help="use recorded usage without importing logs / 只用既有帳本")
+    recap = p.parse_args(argv)
+    if recap.month is not None:
+        if not re.fullmatch(r"\d{4}-\d{2}", recap.month):
+            p.error("use YYYY-MM, e.g. computai recap 2026-09 / 月份格式為 YYYY-MM")
+        try:
+            year, month = map(int, recap.month.split("-"))
+            datetime.date(year, month, 1)
+            # month_range needs the following year's boundary for December.
+            month_range(recap.month)
+        except (ValueError, OverflowError, OSError, SystemExit):
+            p.error("invalid month / 無效月份：" + recap.month)
+    result = ["--create"]
+    if recap.month:
+        result.extend(("--profile", recap.month))
+    for key in ("lang", "html"):
+        if getattr(recap, key) is not None:
+            result.extend(("--" + key, getattr(recap, key)))
+    for key in ("no_open", "no_sync"):
+        if getattr(recap, key):
+            result.append("--" + key.replace("_", "-"))
+    return result
+
+
 def parse_args(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    recap_entry = bool(argv and argv[0] == "recap")
+    if recap_entry:
+        argv = recap_command_args(argv[1:])
     p = argparse.ArgumentParser(
         prog="computai",
-        description="ComputAI - where your compute and AI money goes.")
+        description="ComputAI - where your compute and AI money goes.",
+        epilog="Make your first monthly recap: computai recap / 製作月報：computai recap")
     p.add_argument("--version", action="version", version="computai " + __version__)
     p.add_argument("--paths", action="store_true", help="print config and ledger locations")
     p.add_argument("--sync", action="store_true", help="import new usage into the ledger")
@@ -13677,6 +13745,7 @@ def parse_args(argv=None):
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     group_help(p)
     args = p.parse_args(argv)
+    args.recap_entry = recap_entry
     if args.local_requests is not None and not 1 <= args.local_requests <= 200:
         p.error("--local-requests must be between 1 and 200")
     if args.local_history is not None and not 1 <= args.local_history <= 200:
@@ -14060,10 +14129,20 @@ def run(args, db):
             sync(db, only=("claude", "codex", "gemini", "opencode", "cursor"), quiet=True)
         selected = None if args.profile is None else "all" if args.profile == "all" else ("month-" if len(args.profile) == 7 else "year-") + args.profile
         try:
-            path, opened = open_creator(db, args.html, args.who or "", selected, args.lang or _lang, not args.no_open)
+            extra = {}
+            if getattr(args, "recap_entry", False):
+                d = creator_history(history_profile(db))
+                selected = creator_selection(d, selected)
+                print(recap_progress(d, selected, args.lang or _lang))
+                extra["profile_data"] = d
+            path, opened = open_creator(db, args.html, args.who or "", selected, args.lang or _lang, not args.no_open, **extra)
         except ValueError as e:
+            if getattr(args, "recap_entry", False):
+                raise SystemExit("computai: " + ("這個月份沒有紀錄；執行 computai recap 查看可用月份。" if _lang == "zh" else
+                    "No records for this month. Run computai recap to see available periods."))
             raise SystemExit("computai: " + str(e))
-        print(("製卡頁：" if _lang == "zh" else "Card creator: ") + path)
+        label = ("月報頁：" if _lang == "zh" else "Recap page: ") if getattr(args, "recap_entry", False) else ("製卡頁：" if _lang == "zh" else "Card creator: ")
+        print(label + untrusted(path))
         if not opened and not args.no_open:
             print("請開啟上面的 HTML 檔案。" if _lang == "zh" else "Open the HTML file above in your browser.")
         return 0
