@@ -141,6 +141,15 @@ ComputAI 每天最多檢查一次更新，可用 `computai --set general.update_
 
 ## 圖卡與分享
 
+想做第一份社群月報？安裝這份 **beta.2 開發版**後，只要：
+
+```sh
+computai recap
+```
+
+自動找本機用量、選好月份並開啟下載頁，按「下載 PNG」即可分享。
+第一次安裝可在開發版資料夾執行 `sh install.sh --recap`，安裝後直接開月報；[首次使用流程](docs/MAKE-A-CARD.zh-TW.md)。
+
 把用量做成 README、作品集或社群貼文裡的圖卡，依版型與想呈現的資訊選擇設計。
 圖卡使用本機彙總資料，不含對話、專案路徑或機器名稱。
 
@@ -151,7 +160,7 @@ ComputAI 每天最多檢查一次更新，可用 `computai --set general.update_
 | **GitHub** | 統計方塊、活動圖與模型比例 | `dashboard` · 900×360 | `--card --card-style github` | beta.2 開發版 |
 | **Terminal** | 等寬字體的終端機橫幅 | `compact` · 720×230 | `--card --card-style terminal` | beta.2 開發版 |
 | **HUD** | Agent 活動、等級與徽章的完整個人頁 | `hud` · 900×390 | `--card --card-style netrunner` | beta.1 |
-| **Web／TUI 分享卡** | 社群貼文、月回顧或 README 圖片 | 方形、直式、橫式或 README | `--create` · 下載 PNG／SVG | beta.2 開發版 |
+| **Web／TUI 分享卡** | 社群貼文、月回顧或 README 圖片 | 方形、直式、橫式或 README | `recap` · 下載 PNG／SVG | beta.2 開發版 |
 
 月報會列出選定月份的來源日期、紀錄筆數和相鄰曆月比較，缺資料會提示而不冒充零用量。
 先支援留有本機用量 log 的 Codex GUI／T3、本地模型及混合使用者；純網頁聊天暫不涵蓋。
@@ -175,7 +184,7 @@ ComputAI 每天最多檢查一次更新，可用 `computai --set general.update_
 在這份開發版資料夾裡，有 Python 3.8+ 就能執行：
 
 ```sh
-python3 ./computai --create --lang zh                # 選範圍，下載 PNG／SVG
+python3 ./computai recap --lang zh                # 選範圍，下載 PNG／SVG
 python3 ./computai --card --card-style minimal --svg card.svg --lang zh
 python3 ./computai --card --card-style paper --svg card.svg --lang zh
 ```

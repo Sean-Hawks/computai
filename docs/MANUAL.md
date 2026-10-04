@@ -499,7 +499,9 @@ computai --profile 2026-09 --share-layout portrait --html month-share.html --no-
 computai --profile 2026 --share-layout wide --svg year-share.svg --no-sync
 ```
 
-Use `computai --create` for the local creator: select a period/layout/theme, then download PNG or SVG or copy a README snippet.
+Use `computai recap` to find local usage, select a month and open the download page. Click Download PNG to share.
+Use `computai recap 2026-09` for a month or `computai recap --help` for focused options; language follows settings or `--lang`.
+Legacy `--create` remains supported; `--recap YEAR` retains its existing annual-report meaning.
 The Web header and TUI `c` key open the same tool. `--no-open` writes it without launching a browser; `--no-sync` skips local imports.
 
 Square is 1080×1080, portrait 1080×1350 and wide 1200×630. The default uses the calm Web/TUI design, independent of saved legacy card settings.

@@ -443,7 +443,9 @@ API 等值按 `prices.ini` 的目前價格重算已定價部分，列出未定�
 
 ### 一頁式社群圖卡
 
-第一次製作建議用 `computai --create --lang zh`：選範圍、版型與深淺色，下載 PNG／SVG 或複製 README 語法。
+第一次製作執行 `computai recap`：自動找用量、選好月份並開啟月報頁，按「下載 PNG」即可分享。
+`computai recap 2026-09` 指定月份，`computai recap --help` 查看少量相關選項；語言沿用設定或加 `--lang zh`。
+原本 `--create` 仍可使用，`--recap YEAR` 的既有年報行為不變。
 Web 的「做我的圖卡」與 TUI 的 `c` 使用同一頁。[完整製卡流程](MAKE-A-CARD.zh-TW.md)。
 
 ```sh

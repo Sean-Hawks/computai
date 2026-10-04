@@ -1,6 +1,7 @@
-# 做你的第一張 ComputAI 圖卡
+# 做你的第一份 ComputAI 月報
 
-選範圍、選版型、下載。社群用 PNG，GitHub README 用 SVG；不用先設定 GitHub、方案或常駐服務。
+在使用 AI 工具的電腦執行 `computai recap`，打開後按「下載 PNG」，就能分享你的月報。
+程式會自動找支援的本機用量、選好月份和直式版型；不用先設定模型、方案、GitHub 或常駐服務。
 
 **目前是 beta.2 本機開發功能，已發佈的 beta.1 尚未包含。** 以下從這份開發版資料夾執行；朋友公開下載的入口要等下一版發佈。
 需要 Python 3.8+，並在使用 AI 工具的那台電腦上製作。
@@ -10,12 +11,35 @@
 ## 已經安裝這份開發版
 
 ```sh
-computai --create --lang zh
+computai recap
 ```
 
-瀏覽器會自動開啟製卡頁。預設選最近一個有紀錄、已結束的月份；也能選本月、年份或累計歷史。
+終端機會顯示找到的用量來源、預設月份和下一步，接著自動開啟月報頁。
+預設選最近一個有紀錄、已結束的月份；也能在頁面選本月、年份或累計歷史。
 選好後按「下載 PNG」，就能把圖片貼到 Threads 或其他社群。
 「複製貼文文字」附日期、精確數字和統計定義，下方的文字區也可以先修改。
+
+要指定月份，只需 `computai recap 2026-09`；需要繁中時加 `--lang zh`。
+`computai recap --help` 只列月報相關選項。
+
+## 有開發版資料夾，還沒安裝
+
+在下載並解壓的 **beta.2 開發版資料夾**開啟終端機。macOS／Linux 用一行完成安裝並打開月報，不需要重開終端機或調 PATH：
+
+```sh
+sh install.sh --recap
+```
+
+Windows：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Recap
+```
+
+只用 GUI 的人，可以在資料夾裡雙擊 macOS 的 `Make a card.command` 或 Windows 的 `Make a card.cmd`。
+這兩個入口使用相同的月報流程，不安裝背景服務；仍需要已有 Python 3.8+。尚未提供內建 Python 的桌面安裝包。
+
+也能直接跑 `python3 ./computai recap --lang zh`；Windows 用 `py -3 computai recap --lang zh`。
 
 ## 月報先確認什麼
 
@@ -28,7 +52,7 @@ computai --create --lang zh
 
 | 使用方式 | 第一版月報能用什麼 | 缺資料時 |
 |---|---|---|
-| Codex GUI／T3 Code | GUI 留下的支援 Codex session 用量；月份、模型、快取、輸出、活躍日 | 在同一台電腦執行 `computai --create`，再用 `--doctor` 檢查 log 路徑 |
+| Codex GUI／T3 Code | GUI 留下的支援 Codex session 用量；月份、模型、快取、輸出、活躍日 | 在同一台電腦執行 `computai recap`，再用 `--doctor` 檢查 log 路徑 |
 | 本地模型 | 帳本已記錄的 local token；與 GUI 用量一起比較 | 檢查 metrics／proxy 是否開始記錄；沒有紀錄的過去無法補算 |
 | 本地模型＋月費 AI 工具 | 已記錄的 local 與支援 GUI／CLI 用量來源，放在同一張月報 | 缺少的來源會提示；月費不會被當成歷史付款或 token 用量 |
 
@@ -38,25 +62,6 @@ computai --create --lang zh
 需要帶走資料時，展開「帶走這個區間的彙總資料」，下載 JSON。
 只包含選定區間的 token 分桶、活躍日、前五模型、來源日期與筆數，不含專案、機器、session、對話或帳單；
 不會帶出其他月份，也不會上傳。累計／年報同樣只匯出所選區間。
-
-## 有開發版資料夾，還沒安裝
-
-macOS／Linux 一次安裝並開啟製卡頁，不需要重開終端機或調 PATH：
-
-```sh
-sh install.sh --create
-```
-
-Windows：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1 -Create
-```
-
-只用 GUI 的人，可以在資料夾裡雙擊 macOS 的 `Make a card.command` 或 Windows 的 `Make a card.cmd`。
-這兩個入口直接製卡，不安裝背景服務；仍需要已有 Python 3.8+。尚未提供內建 Python 的桌面安裝包。
-
-也能直接跑 `python3 ./computai --create --lang zh`；Windows 用 `py -3 computai --create --lang zh`。
 
 ## README 卡片
 
@@ -70,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1 -Create
 ## 已經開著 Web 或 TUI
 
 Web 頂端按「做我的圖卡」；TUI 按 `c`。這兩個入口讀取現有帳本，不另外同步或執行模型。
-若要更新本機歷史，重新執行 `computai --create`。
+若要更新本機歷史，重新執行 `computai recap`。
 
 ## 沒有看到自己的用量
 
@@ -93,8 +98,10 @@ B＝十億，快取重複讀取計入處理量，reasoning 已含 output。token
 要指定檔案、月份或只讀帳本：
 
 ```sh
-computai --create --profile 2026-09 --html creator.html --no-sync --lang zh
-computai --create --no-open --lang zh    # 只寫檔，不開瀏覽器
+computai recap 2026-09 --html creator.html --no-sync --lang zh
+computai recap --no-open --lang zh    # 只寫檔，不開瀏覽器
 ```
+
+舊的 `--create`／`--profile` 指令仍可使用；`--recap YEAR` 仍是原有年報，與新的 `recap` 命令不同。
 
 PNG 由瀏覽器以原尺寸匯出；SVG 可以縮放。若瀏覽器不允許複製，頁面會選取文字讓你按 ⌘C／Ctrl+C。

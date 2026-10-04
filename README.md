@@ -143,6 +143,15 @@ This checkout includes beta.2 features that the released beta.1 does not yet pro
 
 ## Cards and sharing
 
+For your first monthly recap, install this **beta.2 development checkout** and run:
+
+```sh
+computai recap
+```
+
+It finds supported local usage, selects a month and opens the download page. Click Download PNG to share.
+From the checkout, `sh install.sh --recap` installs and opens it in one step. [First-use guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
+
 Create a usage card for your README, portfolio or social posts. Choose the design by its layout and the information you want to share.
 Cards use local aggregates and omit conversations, project paths and machine names.
 
@@ -153,7 +162,7 @@ Cards use local aggregates and omit conversations, project paths and machine nam
 | **GitHub** | Statistics, activity grid and model shares | `dashboard` · 900×360 | `--card --card-style github` | beta.2 development |
 | **Terminal** | A console-style banner with monospace text | `compact` · 720×230 | `--card --card-style terminal` | beta.2 development |
 | **HUD** | A detailed profile with agent activity, rank and badges | `hud` · 900×390 | `--card --card-style netrunner` | beta.1 |
-| **Web/TUI sharing card** | Social posts, monthly recaps or a README image | Square, portrait, wide or README | `--create` · PNG/SVG downloads | beta.2 development |
+| **Web/TUI sharing card** | Social posts, monthly recaps or a README image | Square, portrait, wide or README | `recap` · PNG/SVG downloads | beta.2 development |
 
 Monthly recaps show source date coverage, record counts and comparison with the adjacent calendar month;
 missing records remain unknown. Supported GUI logs and recorded local-model usage can share one recap;
@@ -177,7 +186,7 @@ web-only chat is outside this first version. The creator also exports aggregates
 With this development checkout and Python 3.8+, run:
 
 ```sh
-python3 ./computai --create                         # choose a period and download PNG/SVG
+python3 ./computai recap                         # choose a period and download PNG/SVG
 python3 ./computai --card --card-style minimal --svg card.svg
 python3 ./computai --card --card-style paper --svg card.svg
 ```
