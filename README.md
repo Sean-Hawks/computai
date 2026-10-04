@@ -1,333 +1,270 @@
 # ComputAI
 
-**Friends beta:** [v0.1.0-beta.1](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1) · [installation, limits and feedback](docs/RELEASE-v0.1.0-beta.md). The downloaded installer pins this tested version.
+**Where your compute and AI money goes.** A terminal dashboard and browser GUI for AI usage,
+subscription limits, local inference and compute costs. Track Claude, Codex, your homelab and
+cloud GPUs in one ledger: tokens, GPU hours, kWh and money.
 
-**Where your compute and AI money goes.** One ledger for your Claude and ChatGPT
-subscriptions, the local models on your homelab, the machines they run on and the cloud
-GPUs you rent: tokens, GPU hours, kWh and money, side by side.
+Single Python file · Standard library only · Python 3.8+ · macOS, Linux and Windows
 
-[繁體中文說明](README.zh-TW.md) · [Manual](docs/MANUAL.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Where ComputAI shows up](docs/SURFACES.md)
+[繁體中文](README.zh-TW.md) · [Quick start](#quick-start) · [Manual](docs/MANUAL.md) · [Release notes](docs/RELEASE-v0.1.0-beta.md)
 
-> **Want to share your AI usage on Threads or in a README?**
-> beta.2 development: `computai --create` → choose a period/layout → download PNG or SVG. No GitHub setup needed.
-> From this development checkout, `sh install.sh --create` installs and opens the creator in one step. Released beta.1 does not include it yet. [First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
+**Current release:** [v0.1.0-beta.1](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1).
+Features marked **beta.2 development** are available in this development checkout.
+You can also export [usage cards for social posts and GitHub READMEs](#cards-and-sharing).
 
-```
-$ computai --summary --month 2026-09
-ComputAI  2026-09  (2026-09-01 - 2026-09-30)
+## Dashboards
 
-                           requests    input  cache rd  cache wr   output  API equiv
-claude
-  claude-opus-5                 924     1.9k      123M      3.5M     718k    $115.39
-  claude-opus-5-5               533     1.1k      174M      4.5M     633k     $82.45
-  ...
-  plan: Claude Max 5x, $100.00 for this range -> usage worth 2.9x the fee
-codex
-  gpt-6-astra                  4.9k    25.4M      541M         0     2.9M    $938.96
-  ...
-```
+### Terminal UI
 
-![Live terminal dashboard: start-up check, then the HUD](docs/images/live.svg)
+Run `computai` for a live overview of limits, machines, spending and alerts.
+Use `1`–`6` or `Tab` to switch between overview, limits, machines, local models, spend and timeline; `q` quits.
 
-`computai --web` gives the same view in a browser (phone layout included); `computai --tailscale` opens it on your
-own tailnet over HTTPS while the server stays on 127.0.0.1:
+![ComputAI terminal dashboard](docs/images/live.svg)
 
-![Web dashboard](docs/images/web.png)
+### Browser GUI
 
-*(Screenshots use demo data. The default `cyber` theme follows [docs/DESIGN.md](docs/DESIGN.md): the top line says whether anything needs you, colours only mean something. Prefer the slurmtop look? `--theme classic` or `computai --set general.theme=classic`.)*
+Run `computai --web`, then open `http://127.0.0.1:8765/`.
+The browser shows the same ledger with usage charts, machine status and alerts, including a mobile layout.
 
-## What it does
+![ComputAI browser dashboard](docs/images/web.png)
 
-| | Source | What you get |
-|---|---|---|
-| **Subscriptions** | Claude Code and Codex session logs on this computer | tokens per model, cache and reasoning shown separately, cost at API prices versus your monthly fee, per-project breakdown, Codex and Claude limit windows with reset countdowns |
-| **More agents** | Gemini CLI chat recordings, OpenCode's database, Cursor's usage CSV export | tokens per model and project, cost at API prices, subagents |
-| **API** | Anthropic and OpenAI admin usage APIs (optional) | organisation usage per model and day |
-| **Local models** | Ollama, llama.cpp, vLLM, SGLang, LM Studio, OpenAI-compatible servers | which models are loaded, tokens (from `/metrics`, or from the optional `--proxy` for Ollama), "model loaded but idle" alerts |
-| **Machines** | SSH + `sh` (nothing to install), or this computer | CPU, GPU, power, kWh, electricity cost, AI share of the time, joules per token |
-| **Cloud GPUs** | RunPod, Vast.ai, Lambda (read-only API calls) | what is running, what it costs per hour, and **GPUs that sit idle while still billing** |
+Both screenshots use demo data. Use `--lang zh` for Traditional Chinese and `--theme classic` for the alternative dashboard theme.
+With Tailscale installed and signed in, `computai --tailscale` makes the browser GUI available over HTTPS on your own tailnet;
+the local server continues to listen on `127.0.0.1`.
 
-On top of the ledger: cache-efficiency analysis (which sessions keep re-writing the prompt
-cache and what that cost), a month-end forecast with an optional budget, a plan simulator,
-a GPU payback calculator and time-of-use electricity prices (Taipower two-tier presets).
+## Quick start
 
-Not sure whether to hand a task to Claude, Codex or a local model? `$(computai --pick) "tidy up this PR"` uses
-whichever limit is about to reset unused, avoids one that will run out early, and sends light tasks to a local model.
+### Install
 
-Using Claude or Codex on more than one computer? Point them at a shared folder (`[devices] folder`) or pull
-over SSH and the ledger counts all of them, usage numbers only ([how](docs/MULTI-DEVICE.md)).
-
-Also: `--discover` finds machines in `~/.ssh/config` and Tailscale; each machine shows how large a model
-still fits; smart plugs (Shelly, Tasmota, Home Assistant) give measured power; `--wake` sends Wake-on-LAN;
-`--mcp` lets agents ask about their own budget; `--weekly --send` posts a weekly summary to Discord or
-Telegram; `--wrapped` makes a Spotify-Wrapped-style story page and share card, `--card` a GitHub profile card (`--recap` is the older year card); `--csv` exports records; `--totals`/`--lab` combine a
-group's totals; `--lang zh` switches the dashboards to Traditional Chinese.
-
-## Features to try in local beta.2 development
-
-`computai --tokens` explains cache and output totals, also clarified on shareable cards.
-`computai --statusline` adds Claude's model, context and last request; `--statusline-view compact` keeps one line.
-`computai --proxy --tag test` records new request durations and HTTP outcomes; inspect them with `computai --local-requests`.
-Only requests through the updated proxy have this detail; no prompts or responses are stored.
-These are unreleased local development features; [usage and counting rules](docs/MANUAL.md#token-breakdown-and-local-request-tracing-beta2-development).
-
-## Install
-
-Python 3.8 or newer, standard library only. macOS, Linux and Windows.
+macOS / Linux — install the released beta to `~/.local/bin/computai`:
 
 ```sh
-sh install.sh                 # macOS / Linux: installs to ~/.local/bin/computai
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.1/install.sh | sh
 ```
+
+Windows — download and extract the ZIP from the [release page](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1), then run in that folder:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File install.ps1    # Windows
+powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
-Or just copy the single `computai` file anywhere on your `PATH`.
+Ensure the install directory is on `PATH`; on Windows, reopen your terminal after installation.
+To use this development checkout, run `sh install.sh` on macOS/Linux or the PowerShell command above on Windows.
+You can also run the single file directly with `python3 ./computai` (Windows: `py -3 computai`).
 
-## Make it yours (two minutes)
+### Launch
 
 ```sh
-computai --setup      # step by step: your plans, Claude limits, machines, power, electricity, keys
-computai --doctor     # what is detected, what is missing, and the exact command to fix each gap
-computai              # the dashboard
+computai                 # terminal dashboard
+computai --web           # browser GUI at http://127.0.0.1:8765/
 ```
 
-Claude Code and Codex usage needs no setup at all. `--setup` asks one thing at a time, shows the
-current or suggested value (Enter accepts it, `s` skips), detects your plan from the logs where it can,
-finds machines in `~/.ssh/config` and Tailscale, suggests power settings from the hardware it sees
-(laptop or desktop, Apple tier, measured GPU power), and only writes after you confirm, keeping a backup.
-
-Everything stays editable by hand in `~/.config/computai/config.ini`, or from scripts:
+Run either command in its own terminal. Claude Code and Codex usage is detected from supported local logs.
+The first run may ask you to confirm your subscription plans. Stop the browser server with `Ctrl-C`.
 
 ```sh
-computai --set 'plans.claude=Claude Max 5x, 100, 2026-10-03' --set machine.wsl.base_watts=60
-computai --unset plans.codex
-computai --discover --add             # add every reachable machine with suggested power
+computai --setup         # configure plans, machines, electricity and optional API keys
+computai --doctor        # inspect detected sources and missing configuration
 ```
 
-## Use
+Remote machines, cloud providers and API usage are optional. Set up the sources you use.
 
-```sh
-computai                          # live dashboard: tabs 1-5 (overview, limits, machines, local models, spend), q quits
-computai --summary --month        # this month; --since 2026-09-01, --by project|day|session
-computai --line                   # Claude 42%｜Codex 100% (1d0h)｜today $6.9
-computai --analyze                # forecast, plan check, cache waste, energy
-computai --web                    # http://127.0.0.1:8765/ (phone layout) and /metrics
-computai --report --month 2026-09 --html september.html
-computai --profile --html profile.html --who hawks  # beta.2: profile with monthly and annual reports
-computai --sample                 # read every machine in [machines] once
-computai --cloud                  # RunPod / Vast.ai / Lambda
-computai --proxy                  # count Ollama tokens on 127.0.0.1:11435 -> :11434
-computai --payback 1800 --gpu-watts 450
-computai --discover               # which of my machines can ComputAI read?
-computai --bench                  # tokens/s and electricity per 1M tokens for each local model
-computai --install-watch          # notify me when a limit runs low, runs out or resets (at login)
-computai --once --lang zh         # 中文、印一次
-computai --wrapped 2026-09        # Spotify-Wrapped-style recap of a month (or 2026 for a year)
-computai --wrapped --html story.html --svg card.svg   # story page + 1200x630 share card
-computai --card --svg card.svg    # small card for your GitHub profile README (--card-theme light)
-computai --card --publish ~/code/me/assets   # commit the card into your profile repo (no push without --push)
-```
+## What it tracks
 
-Every command takes `--json`. The first run writes `config.ini` and `prices.ini` to
-`~/.config/computai/` (see `computai --paths`); edit them to set your plans, machines,
-electricity price and API prices. Every price carries the date it was checked.
+| Source | Data | What you can see |
+|---|---|---|
+| **Claude Code / Codex** | Local session usage logs; official CLI quota queries | Tokens per model and project, cache and reasoning, subscription limits and reset countdowns |
+| **Gemini CLI / OpenCode / Cursor** | Local recordings, usage database or exported CSV | Tokens, model shares, project breakdowns and API-equivalent cost |
+| **Local models** | Ollama, llama.cpp, vLLM, SGLang, LM Studio and compatible servers | Loaded models, recorded tokens, inference speed and idle-model alerts |
+| **Machines** | This computer or SSH + POSIX `sh` | CPU, GPU, power, kWh and electricity cost; no remote agent required |
+| **Cloud GPUs** | RunPod, Vast.ai and Lambda read-only APIs | Running instances, hourly costs and idle resources that are still billing |
+| **API organisations** | Optional Anthropic and OpenAI admin APIs | Usage per model and day |
 
-Status bars: `computai --line` for tmux and SwiftBar, `computai --statusline` as Claude Code's
-status line. See [docs/one-line.md](docs/one-line.md). Claude's limit percentages come from the
-`claude` CLI on their own (no status line needed), so T3 Code and other machines count too.
+Cost analysis includes cache efficiency, month-end forecasts, budgets, subscription comparisons,
+GPU payback and time-of-use electricity pricing. API-equivalent values use your configured rates and are estimates, not bills.
+Local token coverage depends on service metrics or traffic through the optional token-counting proxy.
 
-## Personal history profile and reports (beta.2 development)
+## Common commands
 
-`computai --profile --html profile.html` writes a local page with selectable monthly and annual reports:
-exact token buckets, daily activity, top models, source shares and active days. Switch light/dark themes or print.
-Use `--profile 2026-09` or `--profile 2026` to choose the initial report, `--who NAME` for a display name,
-and `--json` for aggregate data. `--lang zh` renders Traditional Chinese.
-
-GUI users can use existing backend usage logs; no Claude Code status line is needed. Record sources do not
-identify T3 or Codex GUI, and unavailable history cannot be recovered. Source coverage and partial periods
-are explicit. B means billion, including repeated cache reads; reasoning is already within output.
-API-equivalent values use current configured rates for priced models and are not bills.
-
-Only dates, usage, sources and models enter the page: no conversation contents, project paths, machine
-addresses or sessions. It imports local logs only, with no API, SSH or model calls; `--no-sync` uses the ledger
-alone. The single HTML includes all observed periods and stays local; nothing is published automatically.
-The published beta.1 does not include this feature.
-
-Use `computai --create` for a preview, period/layout selection and PNG/SVG downloads, including a README banner.
-Monthly recaps show source date coverage, record counts and comparison with the adjacent calendar month;
-missing records remain unknown. Supported GUI logs and recorded local-model usage can share one recap;
-web-only chat is outside this first version. The creator also exports aggregates for just the selected period as JSON.
-The default follows the calm Web/TUI design. For scripted single-image exports:
-
-```sh
-computai --profile --share-layout square --html share.html --svg share.svg
-computai --profile 2026-09 --share-layout portrait --html month-share.html
-computai --profile 2026 --share-layout wide --svg year-share.svg
-```
-
-Sizes are square 1080×1080, portrait 1080×1350 and wide 1200×630. The share page can download an original-size
-PNG locally in your browser, or the SVG. Images show dates, cache share, output and activity days; portrait
-also shows usage trends. Share HTML/SVG contain only the selected period, with no billing or ability claims.
-`--svg` also enables this mode; a simultaneous HTML export becomes a single-card preview. Plain HTML remains
-the full history page. Explicit `--card-style amber` or another existing style selects a legacy HUD without changing saved settings.
-The creator HTML is a private tool containing aggregates for selectable periods; share its downloaded PNG/SVG files.
-
-## Your AI ops card for your GitHub profile
-
-A cyberpunk card for your profile README (`github.com/<you>/<you>`) that shows how AI agents work for you: how many tokens, for how many hours, how many at once, with which models. It is rendered on your own machine from your own Claude Code and Codex logs, and updated once a day. There is no web service and no upload.
-
-![ComputAI profile card](docs/images/card-netrunner.svg)
-
-### Quick start
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh
-computai --card --setup
-```
-
-`--card --setup` asks a few questions and does the rest:
-
-1. It finds your profile repo on disk. If it isn't cloned, it offers to clone it with `gh`. If it doesn't exist on GitHub yet, it offers to create it, and only does so when you say yes.
-2. You pick a style.
-3. It writes the first card and commits it.
-4. It adds the card to your README.
-5. It pushes, if you want.
-6. It offers to keep the card fresh every day in the background (`computai --install-watch`).
-
-Claude Code and Codex need no setup. If you have used them on this computer, the card already has data.
-
-### What the card shows
-
-| Part | What it means |
+| Task | Command |
 |---|---|
-| **Tokens** | Every token that went through your agents in the last 30 days (input, cache, output). |
-| **At API prices / plan value** | What those tokens would cost at API list prices (`prices.ini`), and how many times over your subscriptions paid for themselves. |
-| **Agent hours** | Time your agents were actually working: gaps under 5 minutes inside a session count, longer pauses don't. |
-| **Peak parallel** | The most agent sessions working at the same moment. |
-| **Longest run** | The longest stretch one session worked without a 5-minute pause. |
-| **Cache hit** | Share of input served from the prompt cache. Higher means cheaper, faster agents. |
-| **Activity // 13W** | One square per day for 13 weeks; the brightest squares are your busiest days. |
-| **Fleet** | Split between Claude Code, Codex and local models. |
-| **Rank** | A level from all-time tokens (the square root of millions, so it gets harder), with a title: INITIATE, PROMPT RUNNER, CONTEXT HACKER, CACHE WEAVER, TOKEN ALCHEMIST, NETRUNNER, GHOST IN THE SHELL, AI OVERLORD. |
-| **Prompts / subagents** | Requests sent, and sessions where agents spawned subagents. |
-| **Loadout** | Your top three models and their share. |
-| **Facts** | Work rhythm (night owl, early bird, nine to five, evening hacker), peak hour, current streak, money the cache saved. |
-| **Badges** | 100M / 1B / 10B CLUB (all-time tokens), STREAK xN (7+ days in a row), your rhythm, CACHE LORD ($1,000+ saved by the cache), HOMELAB (local models used), POLYGLOT (3+ models with 5%+ share), MAXED OUT (a limit hit 100%). |
-| **Pulse** | The line under the stats is your daily usage over 30 days. |
+| Monthly usage | `computai --summary --month` |
+| Usage by project | `computai --summary --month --by project` |
+| Agent activity timeline | `computai --timeline` |
+| Forecast and cost analysis | `computai --analyze` |
+| Save an HTML report | `computai --report --month 2026-09 --html september.html` |
+| Discover machines | `computai --discover` |
+| Count local inference tokens | `computai --proxy` |
+| Benchmark local models | `computai --bench` |
+| Limit notifications at login | `computai --install-watch` |
+| Status bars | `computai --line` |
 
-### Styles
+Use `computai --help` for all options and the [manual](docs/MANUAL.md) for source setup and counting rules.
+The browser also exposes `/metrics` for Prometheus.
 
-Beta.2 development adds four styles with different default layouts; the published beta.1 does not include them.
+For usage across computers, see [multi-device setup](docs/MULTI-DEVICE.md).
+For tmux, SwiftBar and Claude Code, see [status line integration](docs/one-line.md).
+Agent routing (`--pick`), MCP (`--mcp`), weekly summaries and team totals are covered in the manual.
 
-| Style | Appearance and default layout |
-|---|---|
-| `minimal` | Quiet monochrome banner (`compact`) |
-| `paper` | Warm paper, serif typography, vertical summary (`portrait`) |
-| `github` | Statistic panels, activity grid and model shares (`dashboard`) |
-| `terminal` | Plain monospace console, square frame (`compact`) |
+## Configuration
 
-![Four new card styles using demo data](docs/images/card-styles-preview.png)
+The first run creates `config.ini` and `prices.ini`. Run `computai --paths` to locate your settings and SQLite ledger.
+On macOS/Linux, settings default to `~/.config/computai/`; Windows uses the application data directories.
+Plans, API prices and electricity tariffs stay editable, with dates for checked prices.
 
 ```sh
-computai --card --html styles.html                     # compare all ten styles, light/dark and layouts locally
-computai --card --card-style minimal --svg card.svg
-computai --card --card-style paper --card-theme light --svg card.svg
-computai --card --card-style github --card-layout compact --svg card.svg
-computai --set card.style=paper --set card.layout=portrait  # also used by daily updates
+computai --set general.lang=zh
+computai --set general.theme=classic
 ```
 
-`--card-layout` accepts `auto` (follow the style), `hud` (900×390), `compact` (720×230),
-`dashboard` (900×360) or `portrait` (420×610). Style selects colours and fonts; layout selects dimensions and content.
-CLI options override `[card]` settings. Compact banners show tokens, API equivalent, active days, usage mix and top model;
-the dashboard and portrait also show activity grids and hours. New styles are static by default.
-The original six styles retain their HUD layout and decorative animation:
-
-| `arasaka` | `militech` |
-|---|---|
-| ![arasaka](docs/images/card-arasaka.svg) | ![militech](docs/images/card-militech.svg) |
-| `synthwave` | `matrix` |
-| ![synthwave](docs/images/card-synthwave.svg) | ![matrix](docs/images/card-matrix.svg) |
-| `amber` | light mode |
-| ![amber](docs/images/card-amber.svg) | ![netrunner light](docs/images/card-netrunner-light.svg) |
-
-```sh
-computai --set card.style=arasaka                 # netrunner (default), arasaka, militech, amber, matrix, synthwave
-computai --set 'card.colors=#ff6b6b, #ffd93d'     # your own accent pair
-computai --set card.handle=NEO                    # the name after SYS. (default: your GitHub account)
-computai --set card.lang=zh                       # card language (en, zh)
-computai --set card.credit=no                     # drop the small GEN BY COMPUTAI
-```
-
-Every style has a light version (`computai-card-light.svg`). The README snippet shows it to visitors who use light mode.
-
-### Keeping it fresh, by hand or in scripts
-
-Once a day `computai`, `computai --web` or the background watcher rewrites both SVGs and commits them. If `push = yes`, it also rebases onto anything a bot pushed meanwhile and pushes. The settings live in `config.ini`:
-
-```ini
-[card]
-repo = ~/Documents/you/assets   ; folder inside your profile repo
-period = 30d                    ; 30d, month, year or all
-push = yes
-style = netrunner
-```
-
-```sh
-computai --card --svg card.svg                       # just write a card (--card-theme light, --period year)
-computai --card --publish ~/Documents/you/assets     # write both cards and commit them (no push)
-computai --card --publish ~/Documents/you/assets --push
-```
-
-The snippet `--card --setup` adds to your README:
-
-```html
-<a href="https://github.com/Sean-Hawks/computai">
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="assets/computai-card-light.svg" />
-    <img src="assets/computai-card.svg" alt="AI ops: tokens, agent hours, parallel agents, activity, rank and models" width="100%" />
-  </picture>
-</a>
-```
-
-### What is on the card, and what is not
-
-- **On the card**: totals, model names, your GitHub handle, the time of the last update.
-- **Never on the card**: project names, folder paths, session ids, machine names, prompts or responses.
-- **What runs**: only `git` against your own profile repo. Nothing is sent anywhere else.
-- **The SVG itself**: no scripts or external resources. Its animations (glitch, scan, cursor) are decoration only. The card is complete without them, and they stop for visitors who prefer reduced motion.
-
-### Troubleshooting
-
-- **The card says NO SIGNAL**: no Claude Code or Codex usage was found on this computer. `computai --doctor` shows where it looked.
-- **The card stopped updating**: run `computai --install-watch` again. On macOS the log is `~/.local/share/computai/watch.log`.
-- **The push fails**: git needs to be able to push to your profile repo (`gh auth login`, or an SSH key). Fix that, then run `computai --card --publish <folder> --push` once.
-- **The font looks different on GitHub**: the card asks for JetBrains Mono and falls back to the visitor's monospace font.
+Use `--setup` for guided configuration or `--set` / `--unset` in scripts.
+See the [configuration reference](docs/MANUAL.md#configuration) for machines, secrets, tariffs and integrations.
 
 ## Privacy and security
 
-- Claude limits for your whole account come from asking the official `claude` CLI (`claude -p /usage`, a local command that calls no model): every 10 minutes when calm, down to every minute while a limit burns fast, and 30 seconds after a reset. The CLI uses its own login; ComputAI only receives percentages and reset times and ignores the rest of the report (`[claude] poll_minutes = 0` turns it off).
-- Codex limits for your whole account (every machine and person on it) come from asking the official `codex` CLI (`codex app-server`, `account/rateLimits/read`), on the same burn-rate schedule. The CLI uses its own login; ComputAI only receives percentages and reset times (`[codex] poll_minutes = 0` turns it off).
-- Reads only usage fields from your logs. Prompts and responses are never read into the
-  ledger, stored or sent anywhere. `~/.codex/auth.json` and Claude's OAuth tokens are never read.
-- API keys come from environment variables or a `chmod 600` `secrets.ini`, and never appear in
-  logs, `--json`, `/metrics` or error messages.
-- `--web` and `--proxy` listen on `127.0.0.1` unless you say otherwise; the web server rejects
-  requests for other host names (DNS rebinding).
-- Cloud and admin APIs are only ever called with read-only "list" requests.
-- Once a day, interactive commands read the first 2 KB of `computai` on GitHub to see if a newer version is out.
-  Nothing about you or your usage is sent; `[general] update_check = no` (or `COMPUTAI_NO_UPDATE_CHECK=1`) turns it off.
+- Imports usage fields only. Conversation contents are not retained in the ledger, reports or cards.
+- Does not read `~/.codex/auth.json` or Claude OAuth tokens. Quota queries use the official CLIs and their own login.
+- API keys come from environment variables or a permissions-restricted `secrets.ini` (`600` on POSIX); they are excluded from logs, JSON, metrics and errors.
+- The browser server and proxy listen on `127.0.0.1` by default. Cloud and admin API integrations use read-only queries.
+- Usage and reports remain local unless you explicitly configure sharing, remote access or publishing. Dashboard views and full exports can include project and machine names; share cards omit them.
 
-## Tests
+ComputAI checks for updates at most once a day. Disable this with `computai --set general.update_check=no`.
+Source coverage and platform limitations are documented in the [beta release notes](docs/RELEASE-v0.1.0-beta.md#已知限制).
+
+## Development features
+
+This checkout includes beta.2 features that the released beta.1 does not yet provide:
+
+| Feature | Entry point |
+|---|---|
+| Token breakdown and local request history | [Usage and tracing](docs/MANUAL.md#token-breakdown-and-local-request-tracing-beta2-development) |
+| Personal history with monthly and annual reports | [Profile reports](docs/MANUAL.md#personal-history-profile-beta2-development) |
+| Browser card creator and four new profile styles | [Cards below](#cards-and-sharing) |
+
+## Cards and sharing
+
+Export an SVG for your GitHub README with `computai --card --svg card.svg`.
+The beta.2 creator (`computai --create`) lets you select a period and download PNG or SVG for social posts or READMEs.
+Both use local usage aggregates. [First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
+
+Monthly recaps show source date coverage, record counts and comparison with the adjacent calendar month;
+missing records remain unknown. Supported GUI logs and recorded local-model usage can share one recap;
+web-only chat is outside this first version. The creator also exports aggregates for just the selected period as JSON.
+
+<details>
+<summary>Card gallery: all ten styles, layouts and export commands</summary>
+
+### Choose your card style
+
+Turn your AI usage into a card for Threads, a monthly recap or your GitHub README.
+Start with the Web/TUI look, or choose one of ten profile styles below. All previews use demo data.
+
+| Web/TUI sharing card | Profile cards: minimal, paper, github, terminal |
+|---|---|
+| <img src="docs/images/share-preview.png" width="270" alt="Web/TUI sharing card: white usage totals and a daily activity chart on black"> | <img src="docs/images/card-styles-preview.png" width="660" alt="Four profile styles: minimal monochrome banner, paper portrait, GitHub dashboard and terminal banner"> |
+| Black and white, clear totals and activity trends. Square, portrait, wide or README formats; download PNG or SVG with `--create`. | Quiet banners, a warm paper summary or an activity dashboard. Export SVG with `--card`. |
+
+Prefer neon? These six styles use a HUD with cut corners, activity grids and decorative animation:
+
+| `netrunner` · cyan / pink / yellow | `arasaka` · red / black |
+|---|---|
+| ![Netrunner profile card](docs/images/card-netrunner.svg) | ![Arasaka profile card](docs/images/card-arasaka.svg) |
+| **`militech` · yellow / orange** | **`amber` · violet / gold** |
+| ![Militech profile card](docs/images/card-militech.svg) | ![Amber profile card](docs/images/card-amber.svg) |
+| **`matrix` · terminal green** | **`synthwave` · magenta / cyan** |
+| ![Matrix profile card](docs/images/card-matrix.svg) | ![Synthwave profile card](docs/images/card-synthwave.svg) |
+
+#### Pick the look that fits your page
+
+| Profile style (`--card-style`) | Look and use | Default layout | Available in |
+|---|---|---|---|
+| `minimal` | Monochrome, whitespace; a compact README banner | `compact` | beta.2 development |
+| `paper` | Warm paper and serif type; a vertical summary | `portrait` | beta.2 development |
+| `github` | Statistic panels, activity grid and model shares | `dashboard` | beta.2 development |
+| `terminal` | Monospace console with a straight frame | `compact` | beta.2 development |
+| `netrunner` | Cyan, pink and yellow; the default cyberpunk HUD | `hud` | beta.1 |
+| `arasaka` | Red accents; a stark red and black HUD | `hud` | beta.1 |
+| `militech` | Yellow and orange; a high-contrast HUD | `hud` | beta.1 |
+| `amber` | Violet and gold; a warmer neon palette | `hud` | beta.1 |
+| `matrix` | Green; a terminal-inspired HUD | `hud` | beta.1 |
+| `synthwave` | Magenta and cyan; retro neon | `hud` | beta.1 |
+
+Every profile style has dark and light versions, with English or Traditional Chinese labels.
+The Web/TUI sharing card, four new styles, layout overrides and local gallery need this beta.2 development checkout;
+the released beta.1 has the six neon styles. The creator uses the Web/TUI look; choose profile styles through `--card`.
+
+#### Make your first card
+
+With Python 3.8+ in this development folder, open the creator without installing:
 
 ```sh
-tests/run.sh                    # unit tests on python3 and, if present, Python 3.8
-python3 tests/e2e_ollama.py     # end-to-end: real Ollama behind the proxy (needs ollama + qwen3:0.6b)
+python3 ./computai --create                 # Windows: py -3 computai --create
 ```
 
-## Credits
+Choose social or GitHub README, a period and a layout, then download PNG or SVG.
+No GitHub setup is needed. [First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
 
-Machine sampling, GPU detection, the web server's security headers and the Prometheus
-output are ported from [slurmtop](https://github.com/Sean-Hawks/slurmtop) (MIT, same author,
-commit 84cd35d). MIT licence.
+For the profile styles, run these from the same folder, then open `styles.html` or `card.svg`:
+
+```sh
+python3 ./computai --card --html styles.html   # compare all ten styles, dark/light and layouts
+python3 ./computai --card --card-style minimal --svg card.svg
+python3 ./computai --card --card-style paper --card-theme light --svg card.svg
+python3 ./computai --card --card-style amber --svg card.svg
+```
+
+Add a downloaded SVG to your README:
+
+```markdown
+![My AI usage](card.svg)
+```
+
+These commands write local files. Share the downloaded image; the creator HTML contains your selectable history.
+Once installed, use `computai` in place of `python3 ./computai`.
+
+#### Adjust the layout and save your favourite
+
+Style chooses colours and fonts; `--card-layout` chooses dimensions and content:
+`auto` follows the style, `hud` is 900×390, `compact` 720×230, `dashboard` 900×360 and `portrait` 420×610.
+Compact banners show tokens, API equivalent, active days, usage mix and top model;
+dashboard and portrait also show activity grids and hours. The four new styles are static in their default layouts.
+
+```sh
+computai --card --card-style github --card-layout compact --svg card.svg
+computai --set card.style=paper --set card.layout=portrait  # daily updates use these too
+computai --set 'card.colors=#ff6b6b, #ffd93d'               # custom accent pair
+computai --set card.handle=NEO                             # display name
+computai --set card.lang=zh                                # en or zh
+computai --set card.credit=no                              # hide the small credit
+```
+
+CLI options override saved `[card]` settings. For both light/dark SVGs and daily updates,
+follow the [GitHub profile setup](#github-profile-updates).
+
+</details>
+
+### GitHub profile updates
+
+```sh
+computai --card --setup
+```
+
+The optional wizard configures your profile repository, writes the light/dark SVG pair and adds the README snippet.
+Repository creation, pushing and background updates are choices in the setup.
+For manual exports, use `--card --svg`; `--card --publish PATH` writes and commits the pair, and `--push` enables pushing.
+See [profile setup](docs/MANUAL.md#github-profile-card-kept-fresh) and the [card reference](docs/MANUAL.md#profile-card).
+
+## Development and feedback
+
+```sh
+tests/run.sh                      # unit tests; Python 3.8 also runs when available
+python3 tests/e2e_ollama.py        # optional Ollama end-to-end test; requires qwen3:0.6b
+```
+
+Report problems through [GitHub issues](https://github.com/Sean-Hawks/computai/issues), including your version,
+operating system, reproduction steps and `computai --doctor --redact` output.
+
+## License and credits
+
+[MIT](LICENSE). Machine sampling, GPU detection, web security headers and Prometheus output derive from
+[slurmtop](https://github.com/Sean-Hawks/slurmtop), by the same author, at commit `84cd35d`.

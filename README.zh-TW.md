@@ -11,6 +11,97 @@
 > beta.2 開發版：`computai --create --lang zh` → 選範圍／版型 → 下載 PNG／SVG。[做第一張圖卡](docs/MAKE-A-CARD.zh-TW.md)。
 > 尚未安裝這份開發版，在資料夾裡執行 `sh install.sh --create`；已釋出的 beta.1 尚未包含製卡頁。
 
+[挑選卡片風格](#選一張適合你的圖卡) · [做第一張圖卡](#做第一張圖卡) · [GitHub 每日更新](#github-個人頁的-ai-作戰卡)
+
+## 選一張適合你的圖卡
+
+把自己的 AI 用量做成 Threads 貼文、每月回顧，或 GitHub README 裡的一張卡片。
+可以從 Web／TUI 風格開始，也能挑下方 10 種個人頁風格。所有預覽都使用示範資料。
+
+| Web／TUI 分享卡 | 個人頁卡片：minimal、paper、github、terminal |
+|---|---|
+| <img src="docs/images/share-preview.png" width="270" alt="Web／TUI 分享卡：黑底白色用量數字與每日活動圖"> | <img src="docs/images/card-styles-preview.png" width="660" alt="四種個人頁風格：灰階橫幅、紙張直式、GitHub 統計面板與終端機橫幅"> |
+| 黑白、清楚的總量與活動趨勢。方形、直式、橫式或 README 版型，用 `--create` 下載 PNG／SVG。 | 簡潔橫幅、暖色紙張摘要或活動面板，用 `--card` 匯出 SVG。 |
+
+喜歡霓虹？這六種風格採用切角 HUD、活動格與裝飾動畫：
+
+| `netrunner` · 青／粉紅／黃 | `arasaka` · 紅／黑 |
+|---|---|
+| ![Netrunner 個人頁卡片](docs/images/card-netrunner.svg) | ![Arasaka 個人頁卡片](docs/images/card-arasaka.svg) |
+| **`militech` · 黃／橙** | **`amber` · 紫／金** |
+| ![Militech 個人頁卡片](docs/images/card-militech.svg) | ![Amber 個人頁卡片](docs/images/card-amber.svg) |
+| **`matrix` · 終端機綠** | **`synthwave` · 洋紅／青** |
+| ![Matrix 個人頁卡片](docs/images/card-matrix.svg) | ![Synthwave 個人頁卡片](docs/images/card-synthwave.svg) |
+
+### 挑選適合你頁面的風格
+
+| 個人頁風格（`--card-style`） | 視覺與用途 | 預設版型 | 可用版本 |
+|---|---|---|---|
+| `minimal` | 灰階、留白；適合簡潔的 README 橫幅 | `compact` | beta.2 開發版 |
+| `paper` | 暖色紙張、襯線字體；直式摘要 | `portrait` | beta.2 開發版 |
+| `github` | 統計方塊、活動圖、模型比例 | `dashboard` | beta.2 開發版 |
+| `terminal` | 等寬字、平直邊框；終端機橫幅 | `compact` | beta.2 開發版 |
+| `netrunner` | 青、粉紅與黃；預設 cyberpunk HUD | `hud` | beta.1 |
+| `arasaka` | 紅色強調；鮮明的紅黑 HUD | `hud` | beta.1 |
+| `militech` | 黃與橙；高對比 HUD | `hud` | beta.1 |
+| `amber` | 紫與金；暖調霓虹 | `hud` | beta.1 |
+| `matrix` | 綠色；終端機感的 HUD | `hud` | beta.1 |
+| `synthwave` | 洋紅與青；復古霓虹 | `hud` | beta.1 |
+
+每種個人頁風格都有深／淺色版，標籤可選英文或繁中。
+Web／TUI 分享卡、四種新風格、版型選項與本機比較頁需要這份 beta.2 開發版；已釋出的 beta.1 有六種霓虹風格。
+製卡頁使用 Web／TUI 風格；個人頁風格透過 `--card` 選擇。
+
+### 做第一張圖卡
+
+在這份開發版資料夾裡，有 Python 3.8+ 就能直接開製卡頁：
+
+```sh
+python3 ./computai --create --lang zh       # Windows：py -3 computai --create --lang zh
+```
+
+選社群或 GitHub README、範圍與版型，再下載 PNG／SVG。不需要先設定 GitHub。
+[完整的第一張圖卡教學](docs/MAKE-A-CARD.zh-TW.md)。
+
+想用個人頁風格，在同一個資料夾執行以下指令，再打開 `styles.html` 或 `card.svg`：
+
+```sh
+python3 ./computai --card --html styles.html --lang zh  # 比較 10 種風格、深淺色與版型
+python3 ./computai --card --card-style minimal --svg card.svg --lang zh
+python3 ./computai --card --card-style paper --card-theme light --svg card.svg --lang zh
+python3 ./computai --card --card-style amber --svg card.svg --lang zh
+```
+
+把下載的 SVG 放在 README 同一層，貼上：
+
+```markdown
+![我的 AI 用量](card.svg)
+```
+
+這些指令只產生本機檔案。請分享下載的圖片；製卡頁 HTML 內含可選歷史區間。
+安裝後，可以把 `python3 ./computai` 換成 `computai`。
+
+### 調整版型、保存喜歡的風格
+
+風格決定配色與字體，`--card-layout` 決定尺寸和資訊安排：
+`auto` 跟隨風格，`hud` 為 900×390、`compact` 為 720×230、`dashboard` 為 900×360、`portrait` 為 420×610。
+橫幅顯示 token、API 等值、活躍天數、來源比例和常用模型；統計面板與直式另有活動圖及活動時數。
+四種新風格的預設版型都是靜態。
+
+```sh
+computai --card --card-style github --card-layout compact --svg card.svg
+computai --set card.style=paper --set card.layout=portrait  # 每日更新也沿用
+computai --set 'card.colors=#ff6b6b, #ffd93d'               # 自訂兩個強調色
+computai --set card.handle=NEO                             # 顯示名稱
+computai --set card.lang=zh                                # en 或 zh
+computai --set card.credit=no                              # 隱藏小字署名
+```
+
+CLI 選項優先於保存的 `[card]` 設定。想產生深／淺色配對、每天更新，接著看
+[GitHub 個人頁設定](#github-個人頁的-ai-作戰卡)。
+
+## 即時查看用量
+
 ![終端機 live 畫面：開機檢查，接著是 HUD](docs/images/live.svg)
 
 `computai --web` 在瀏覽器看同樣的內容（也有手機排版），加上 `--lang zh` 就是中文介面：
@@ -160,11 +251,9 @@ computai --profile 2026 --share-layout wide --svg year-share.svg --lang zh
 
 ## GitHub 個人頁的 AI 作戰卡
 
-一張放在個人頁 README（`github.com/<帳號>/<帳號>`）的 cyberpunk 卡片，展示 AI agent 怎麼替你工作：用了多少 token、工作了幾小時、同時跑幾個、用哪些模型。
+一張放在個人頁 README（`github.com/<帳號>/<帳號>`）的卡片，展示 AI agent 怎麼替你工作：用了多少 token、工作了幾小時、同時跑幾個、用哪些模型。
 
-卡片在你自己的電腦上，用你自己的 Claude Code 和 Codex log 產生，每天更新一次。不經過任何網路服務，也不上傳任何東西。
-
-![ComputAI 個人頁卡片](docs/images/card-netrunner.svg)
+卡片在你自己的電腦上，從自己的用量紀錄產生，可每天更新一次。[先挑喜歡的風格](#選一張適合你的圖卡)，再用以下設定把它加進個人頁、持續更新。
 
 ### 快速開始
 
@@ -214,50 +303,6 @@ Claude Code 和 Codex 不用任何設定，只要在這台電腦上用過，卡�
 - **HOMELAB**：用過本地模型。
 - **POLYGLOT**：3 個以上的模型各佔 5% 以上。
 - **MAXED OUT**：有額度用到 100%。
-
-### 主題
-
-beta.2 開發版新增四種風格，可搭配不同版型；已發佈的 beta.1 尚未包含。
-
-| 風格 | 視覺與預設版型 |
-|---|---|
-| `minimal` | 灰階、留白、簡潔橫幅（`compact`） |
-| `paper` | 暖色紙張、襯線字體、直式摘要（`portrait`） |
-| `github` | 統計方塊、活動圖、模型比例（`dashboard`） |
-| `terminal` | 等寬字、平直邊框、靜態橫幅（`compact`） |
-
-![四種新卡片風格的示範資料預覽](docs/images/card-styles-preview.png)
-
-```sh
-computai --card --html styles.html --lang zh            # 本機比較 10 種風格的深／淺色與各版型
-computai --card --card-style minimal --svg card.svg
-computai --card --card-style paper --card-theme light --svg card.svg
-computai --card --card-style github --card-layout compact --svg card.svg
-computai --set card.style=paper --set card.layout=portrait  # 每日更新也沿用
-```
-
-`--card-layout` 可選 `auto`（跟隨風格）、`hud`（900×390）、`compact`（720×230）、`dashboard`（900×360）、`portrait`（420×610）。
-風格決定配色與字體，版型決定尺寸和資訊安排；CLI 選項優先於 `[card]` 設定。
-橫幅只顯示 token、API 等值、活躍天數、來源比例和常用模型；統計面板與直式另含活動圖及活動時數。
-新風格預設靜態；原本六種風格保留 HUD 與裝飾動畫：
-
-| `arasaka` | `militech` |
-|---|---|
-| ![arasaka](docs/images/card-arasaka.svg) | ![militech](docs/images/card-militech.svg) |
-| `synthwave` | `matrix` |
-| ![synthwave](docs/images/card-synthwave.svg) | ![matrix](docs/images/card-matrix.svg) |
-| `amber` | 淺色模式 |
-| ![amber](docs/images/card-amber.svg) | ![netrunner light](docs/images/card-netrunner-light.svg) |
-
-```sh
-computai --set card.style=arasaka                 # netrunner（預設）、arasaka、militech、amber、matrix、synthwave
-computai --set 'card.colors=#ff6b6b, #ffd93d'     # 自訂兩個強調色
-computai --set card.handle=NEO                    # SYS. 後面的名字（預設是你的 GitHub 帳號）
-computai --set card.lang=zh                       # 卡片語言（en、zh）
-computai --set card.credit=no                     # 拿掉右下角的 GEN BY COMPUTAI
-```
-
-每個主題都有淺色版（`computai-card-light.svg`）。README 的程式碼片段會讓用淺色模式的訪客看到淺色版。
 
 ### 自動更新、手動產生、寫進腳本
 
