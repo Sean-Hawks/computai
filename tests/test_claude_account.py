@@ -9,12 +9,12 @@ from tests import helpers
 # 假的 claude：照真的 `claude -p /usage --output-format stream-json` 的形狀輸出，
 # 文字報告裡放一段不該被存下來的內容。
 FAKE = r"""#!/usr/bin/env python3
-import json, sys
+import json, os, sys
 assert sys.argv[1:3] == ["-p", "/usage"], sys.argv
 print(json.dumps({"type": "system", "subtype": "init", "cwd": "/tmp"}))
 print(json.dumps({"type": "assistant", "local_command_source": "SECRET-REPORT top skills /private-thing",
                   "usage_report": {"session": {"total_cost_usd": 0}, "rate_limits": {"limits": [
-    {"kind": "session", "group": "session", "percent": 12, "resets_at": "2026-10-03T20:30:00.220018+00:00"},
+    {"kind": "session", "group": "session", "percent": 70 if os.environ.get("CLAUDE_CONFIG_DIR", "").endswith("-nycu") else 12, "resets_at": "2026-10-03T20:30:00.220018+00:00"},
     {"kind": "weekly_all", "group": "weekly", "percent": 26, "resets_at": "2026-10-09T10:00:00+00:00"},
     {"kind": "weekly_scoped", "percent": 0, "resets_at": "2026-10-09T10:00:00+00:00",
      "scope": {"model": {"display_name": "Fable"}}},
@@ -54,6 +54,18 @@ class ClaudeAccount(unittest.TestCase):
         self.assertEqual(self.m.claude_account_poll(db, t=1790000600), 0)       # 沒變就不寫
         self.assertNotIn("SECRET-REPORT", "\n".join(db.iterdump()))             # 文字報告不留
         self.assertEqual(self.m.limit_label("week:Opus"), "weekly limit (Opus)")
+
+    @unittest.skipIf(os.name == "nt", "fake claude is a POSIX script")
+    def test_polls_every_listed_account(self):
+        homes = [os.path.join(self.tmp, d) for d in (".claude", ".claude-nycu")]
+        for h in homes:
+            os.mkdir(h)
+        os.environ["CLAUDE_CONFIG_DIR"] = ",".join(homes)
+        db = self.m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        self.m.claude_account_poll(db, t=1790000000)
+        got = {(r["account"], r["used_percent"]) for r in self.m.current_limits(db, t=1790000000) if r["name"] == "5h"}
+        self.assertEqual(got, {("", 12.0), ("nycu", 70.0)})
 
     def test_no_claude_cli(self):
         os.environ["PATH"] = "/nonexistent"

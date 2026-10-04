@@ -1026,15 +1026,26 @@ def _int(v):
 
 # ---- Claude Code：~/.claude/projects/<專案>/<session>.jsonl
 
-def claude_roots():
-    """CLAUDE_CONFIG_DIR 可以用逗號列好幾個；沒設就看 ~/.claude 和 ~/.config/claude。"""
+def claude_homes():
+    """CLAUDE_CONFIG_DIR 可以用逗號列好幾個（好幾個帳號各一個資料夾）；沒設就看 ~/.claude 和 ~/.config/claude。"""
     env = os.environ.get("CLAUDE_CONFIG_DIR")
     if env:
-        bases = [p.strip() for p in env.split(",") if p.strip()]
-    else:
-        home = os.path.expanduser("~")
-        bases = [os.path.join(home, ".claude"), os.path.join(home, ".config", "claude")]
-    return [os.path.join(b, "projects") for b in bases if os.path.isdir(os.path.join(b, "projects"))]
+        return [p.strip() for p in env.split(",") if p.strip()]
+    home = os.path.expanduser("~")
+    return [os.path.join(home, ".claude"), os.path.join(home, ".config", "claude")]
+
+
+def claude_roots():
+    return [os.path.join(b, "projects") for b in claude_homes() if os.path.isdir(os.path.join(b, "projects"))]
+
+
+def account_name(source, home):
+    """設定資料夾是哪個帳號：~/.claude、~/.config/claude、~/.codex 是預設帳號（''），
+    ~/.claude-nycu 是 nycu，其他資料夾用資料夾名字。只看路徑，不讀登入資料。"""
+    base = os.path.basename(os.path.normpath(home)).lstrip(".")
+    if base == source:
+        return ""
+    return base[len(source) + 1:] if base.startswith(source + "-") else base
 
 
 def parse_claude_file(path, cursor=None):
@@ -1194,16 +1205,16 @@ def sync_codex(db):
         for sub in ("sessions", "archived_sessions"):
             root = os.path.join(home, sub)
             if os.path.isdir(root):
-                paths.extend(sorted(walk_files(root)))
+                paths.extend((p, account_name("codex", home)) for p in sorted(walk_files(root)))
     added = 0
-    for path in paths:
+    for path, account in paths:
         sig = file_changed(db, path)
         if sig is None:
             continue
         cursor = file_cursor(db, path)
         rows, limits = parse_codex_file(path, cursor)
         added += add_usage(db, rows)
-        add_limits(db, limits)
+        add_limits(db, [dict(r, account=account) for r in limits])
         mark_file(db, path, sig, cursor)
     return added
 
@@ -2085,18 +2096,19 @@ def window_label(minutes):
     return "%dm" % minutes
 
 
-def codex_account_limits(timeout=25, t=None):
+def codex_account_limits(timeout=25, t=None, home=None):
     """問官方的 codex 程式整個帳號的額度（codex app-server 的 account/rateLimits/read）。
     同一個 ChatGPT 帳號在別台電腦、別人用掉的額度也算得到。登入憑證由 codex 自己處理，ComputAI 不碰；
     只取每個視窗的使用率、視窗長度、重置時間，以及還有幾次提早重置可以用，帳號 ID 之類的不留。
+    home 是要問的帳號資料夾（CODEX_HOME），None 是 codex 自己的預設。
     回傳 (額度列, 可用的重置次數)；找不到 codex 或沒回應回傳 ([], None)。"""
     exe = shutil.which("codex")
     if not exe or os.environ.get("COMPUTAI_FIXTURES"):
         return [], None
     t = now() if t is None else t
     try:
-        # codex 只認得一個 CODEX_HOME：列了好幾個時，問第一個帳號
-        env = dict(os.environ, CODEX_HOME=codex_home()) if os.environ.get("CODEX_HOME") else None
+        # codex 只認得一個 CODEX_HOME：每個帳號分開問
+        env = dict(os.environ, CODEX_HOME=home) if home else None
         p = subprocess.Popen([exe, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                              stderr=subprocess.DEVNULL, universal_newlines=True, env=env)
     except OSError:
@@ -2136,19 +2148,26 @@ def codex_account_limits(timeout=25, t=None):
         if not isinstance(w, dict) or w.get("usedPercent") is None:
             continue
         mins = w.get("windowDurationMins")
-        rows.append({"source": "codex", "name": window_label(mins), "ts": int(t), "used_percent": float(w["usedPercent"]),
+        rows.append({"source": "codex", "account": account_name("codex", home) if home else "",
+                     "name": window_label(mins), "ts": int(t), "used_percent": float(w["usedPercent"]),
                      "window_minutes": mins, "resets_at": w.get("resetsAt"), "plan": str(snap.get("planType") or "")})
     credits = (res.get("rateLimitResetCredits") or {}).get("availableCount")
     return rows, (int(credits) if isinstance(credits, int) else None)
 
 
 def codex_account_poll(db, t=None):
-    """讀帳號額度寫進帳本（有變才寫），重置次數放在 meta。回傳寫了幾筆。"""
-    rows, credits = codex_account_limits(t=t)
-    n = add_limits(db, rows, only_changes=True) if rows else 0
-    if credits is not None:
-        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('codex_reset_credits', ?)", (str(credits),))
-    if rows or credits is not None:
+    """讀每個帳號的額度寫進帳本（有變才寫），重置次數放在 meta（codex_reset_credits[:帳號]）。回傳寫了幾筆。"""
+    n, got = 0, False
+    homes = codex_homes() if os.environ.get("CODEX_HOME") else [None]
+    for home in homes:
+        rows, credits = codex_account_limits(t=t, home=home)
+        n += add_limits(db, rows, only_changes=True) if rows else 0
+        if credits is not None:
+            account = account_name("codex", home) if home else ""
+            db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                       ("codex_reset_credits" + (":" + account if account else ""), str(credits)))
+        got = got or bool(rows) or credits is not None
+    if got:
         db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('codex_account_read', ?)", (str(int(now() if t is None else t)),))
         db.commit()
     return n
@@ -2157,11 +2176,12 @@ def codex_account_poll(db, t=None):
 CLAUDE_KINDS = {"session": ("5h", 300), "weekly_all": ("week", 10080), "weekly_scoped": ("week", 10080)}
 
 
-def claude_account_limits(timeout=60, t=None):
+def claude_account_limits(timeout=60, t=None, home=None):
     """問官方的 claude 程式整個帳號的額度：`claude -p /usage` 是本機指令，不會呼叫模型、不花額度，
     它的 stream-json 輸出裡有 usage_report.rate_limits（伺服器端的數字，別台電腦、claude.ai 用的都算）。
     登入由 claude 自己處理，ComputAI 不碰 OAuth token；只取每個視窗的使用率和重置時間，
-    同一份輸出裡的文字報告（skill、session 統計）一律不看。找不到 claude 或沒回應回傳 []。"""
+    同一份輸出裡的文字報告（skill、session 統計）一律不看。home 是要問的帳號資料夾（CLAUDE_CONFIG_DIR），
+    None 是 claude 自己的預設。找不到 claude 或沒回應回傳 []。"""
     exe = shutil.which("claude")
     if not exe or os.environ.get("COMPUTAI_FIXTURES"):
         return []
@@ -2170,7 +2190,8 @@ def claude_account_limits(timeout=60, t=None):
            "--strict-mcp-config"]
     try:
         out = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                             universal_newlines=True, timeout=timeout, cwd=tempfile.gettempdir()).stdout
+                             universal_newlines=True, timeout=timeout, cwd=tempfile.gettempdir(),
+                             env=dict(os.environ, CLAUDE_CONFIG_DIR=home) if home else None).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     rows = []
@@ -2191,17 +2212,22 @@ def claude_account_limits(timeout=60, t=None):
                     continue
                 name = "week:" + model
             reset = iso_ts(w.get("resets_at"))
-            rows.append({"source": "claude", "name": name, "ts": int(t), "used_percent": float(w["percent"]),
+            rows.append({"source": "claude", "account": account_name("claude", home) if home else "",
+                         "name": name, "ts": int(t), "used_percent": float(w["percent"]),
                          "window_minutes": mins, "resets_at": int(reset) if reset else None, "plan": ""})
         break
     return rows
 
 
 def claude_account_poll(db, t=None):
-    """讀 Claude 帳號額度寫進帳本（有變才寫）。回傳寫了幾筆。"""
-    rows = claude_account_limits(t=t)
-    n = add_limits(db, rows, only_changes=True) if rows else 0
-    if rows:
+    """讀每個 Claude 帳號的額度寫進帳本（有變才寫）。回傳寫了幾筆。"""
+    n, got = 0, False
+    homes = [h for h in claude_homes() if os.path.isdir(h)] if os.environ.get("CLAUDE_CONFIG_DIR") else [None]
+    for home in homes:
+        rows = claude_account_limits(t=t, home=home)
+        n += add_limits(db, rows, only_changes=True) if rows else 0
+        got = got or bool(rows)
+    if got:
         db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('claude_account_read', ?)", (str(int(now() if t is None else t)),))
         db.commit()
     return n
@@ -2335,10 +2361,9 @@ def current_limits(db, t=None):
     rows = [dict(r) for r in db.execute(q)]
     newest = {}
     for r in rows:
-        k = (r["source"], r["account"])
-        newest[k] = max(newest.get(k, 0), r["ts"])
+        newest[r["source"]] = max(newest.get(r["source"], 0), r["ts"])
     for r in rows:
-        if newest[(r["source"], r["account"])] - r["ts"] > 8 * 86400:  # 這個視窗已經很久沒出現，大概是方案換了
+        if newest[r["source"]] - r["ts"] > 8 * 86400:  # 這個視窗（或帳號）已經很久沒出現，大概是方案換了或不用了
             continue
         r["stale"] = bool(r["resets_at"] and r["resets_at"] <= t)
         if r["stale"]:
@@ -4845,8 +4870,10 @@ def line_parts(db):
 def claude_statusline_limits(payload, ts):
     """Claude Code 的 statusline 會把 JSON 從 stdin 傳進來；Pro/Max 帳號裡有
     rate_limits.five_hour／seven_day 的 used_percentage 和 resets_at（epoch 秒）。
-    此函式只取額度欄位；不讀路徑或對話內容。"""
+    此函式只取額度欄位；不讀路徑或對話內容。帳號看 Claude Code 傳下來的 CLAUDE_CONFIG_DIR（只會有一個）。"""
     out = []
+    home = os.environ.get("CLAUDE_CONFIG_DIR", "")
+    account = account_name("claude", home) if home and "," not in home else ""
     rl = payload.get("rate_limits") if isinstance(payload, dict) else None
     if not isinstance(rl, dict):
         return out
@@ -4860,7 +4887,7 @@ def claude_statusline_limits(payload, ts):
             continue
         if not math.isfinite(used) or not 0 <= used <= 100:
             continue
-        out.append({"source": "claude", "name": window_label(minutes), "ts": int(ts),
+        out.append({"source": "claude", "account": account, "name": window_label(minutes), "ts": int(ts),
                     "used_percent": used, "window_minutes": minutes,
                     "resets_at": _int(w.get("resets_at")) or None, "plan": ""})
     return out

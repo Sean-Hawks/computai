@@ -41,6 +41,12 @@ class Ledger(unittest.TestCase):
         got = {(r["account"], r["used_percent"]) for r in self.m.current_limits(self.db, t=2)}
         self.assertEqual(got, {("", 10.0), ("nycu", 80.0)})
 
+    def test_account_name_comes_from_the_config_folder(self):
+        n = self.m.account_name
+        self.assertEqual([n("claude", "/u/.claude"), n("claude", "/u/.config/claude"), n("codex", "/u/.codex/"),
+                          n("claude", "/u/.claude-nycu"), n("codex", "/u/.codex-cs14"), n("codex", "/w/work")],
+                         ["", "", "", "nycu", "cs14", "work"])
+
     def test_old_limits_table_moves_to_default_account(self):
         import sqlite3
         import tempfile
