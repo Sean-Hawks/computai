@@ -42,8 +42,8 @@ or type another plan's name. It only asks once; `computai --setup` changes it la
 |---|---|---|
 | Settings (`config.ini`, `prices.ini`, `secrets.ini`) | `~/.config/computai/` (Windows: `%APPDATA%\computai`) | `COMPUTAI_CONFIG_DIR`, `XDG_CONFIG_HOME` |
 | Ledger (`ledger.sqlite`) | `~/.local/share/computai/` (Windows: `%LOCALAPPDATA%\computai`) | `COMPUTAI_DATA_DIR`, `XDG_DATA_HOME` |
-| Claude Code logs | `~/.claude/projects/` and `~/.config/claude/projects/` | `CLAUDE_CONFIG_DIR` (comma-separated list allowed) |
-| Codex logs | `~/.codex/sessions/`, `~/.codex/archived_sessions/` | `CODEX_HOME` (comma-separated list allowed; account limits come from the first) |
+| Claude Code logs | `~/.claude/projects/` and `~/.config/claude/projects/` | `CLAUDE_CONFIG_DIR` (comma-separated list allowed; each folder is one account and its limits are shown separately) |
+| Codex logs | `~/.codex/sessions/`, `~/.codex/archived_sessions/` | `CODEX_HOME` (comma-separated list allowed; each folder is one account and its limits are shown separately) |
 
 `computai --paths` prints the first two. The first run creates `config.ini` and `prices.ini`
 from templates; after that ComputAI only reads them, so your edits stay. Deleting the ledger

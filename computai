@@ -1107,7 +1107,7 @@ def codex_homes():
 
 
 def codex_home():
-    """設定檔、hook 和查額度用的那一個：列了好幾個時取第一個。"""
+    """設定檔和 hook 用的那一個：列了好幾個時取第一個（額度每個帳號分開問，見 codex_account_poll）。"""
     return codex_homes()[0]
 
 
