@@ -192,6 +192,21 @@ class Card(unittest.TestCase):
         r = sb.run("--card", "--no-sync")                                 # 不指定檔案就印到標準輸出
         self.assertTrue(r.stdout.startswith("<svg"))
 
+    def test_cli_layout_overrides_persistent_settings(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        r = sb.run("--set", "card.style=paper", "--set", "card.layout=portrait")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = sb.run("--card", "--no-sync")
+        self.assertEqual(ET.fromstring(r.stdout).get("height"), "610")
+        r = sb.run("--card", "--card-style", "minimal", "--card-layout", "compact", "--no-sync")
+        root = ET.fromstring(r.stdout)
+        self.assertEqual(root.get("height"), "230")
+        self.assertIn("#18181b", r.stdout)
+        r = sb.run("--card", "--card-layout", "auto", "--no-sync")
+        self.assertEqual(ET.fromstring(r.stdout).get("height"), "610")
+        self.assertNotEqual(sb.run("--card", "--card-layout", "bad", "--no-sync").returncode, 0)
+
 
 def git_env(root):
     """測試用的 git 環境：不讀使用者自己的設定（簽章、hook 等），身分固定。"""
@@ -241,6 +256,15 @@ class Publish(unittest.TestCase):
         self.assertEqual(self.git("rev-list", "--count", "HEAD", cwd=self.repo).stdout.strip(), "2")
         self.assertEqual(self.git("branch", "-a", cwd=self.remote).stdout.strip(), "")     # 遠端什麼都沒有
         self.assertEqual(self.git("status", "--porcelain", cwd=self.repo).stdout.strip(), "")
+
+    def test_published_pair_uses_selected_style_and_layout(self):
+        r = self.publish("--card-style", "paper", "--card-layout", "compact")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for name in ("computai-card.svg", "computai-card-light.svg"):
+            with open(os.path.join(self.repo, name), encoding="utf-8") as f:
+                root = ET.fromstring(f.read())
+            self.assertEqual((root.get("width"), root.get("height")), ("720", "230"))
+        self.assertEqual(self.git("branch", "-a", cwd=self.remote).stdout.strip(), "")
 
     def test_second_run_without_changes_makes_no_commit(self):
         self.publish()

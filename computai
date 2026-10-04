@@ -208,8 +208,11 @@ push = no
 # The name on the card's title bar (SYS.<handle> // AI USAGE); empty uses the repo's GitHub account.
 handle =
 # Look: netrunner (cyan, magenta, yellow), arasaka (red), militech (yellow), amber, matrix, synthwave.
-# colors = #from, #to sets your own neon pair.
+# Also: minimal (monochrome), paper (warm serif), github (statistics), terminal (plain console).
+# colors = #from, #to sets your own accent pair.
 style = netrunner
+# Layout: auto follows the style; hud, compact, dashboard or portrait overrides it.
+layout = auto
 colors =
 # Card language (en, zh); empty follows [general] lang.
 lang =
@@ -6294,7 +6297,7 @@ UI = {
         "su_card": "GitHub profile card", "su_card_q": "Keep an AI usage card in your GitHub profile README?",
         "su_card_help": "Clone your profile repo (github.com/<you>/<you>) first. The card only has totals and model names; it is rewritten and committed once a day.",
         "su_card_repo": "Folder in that repo for the card", "su_card_norepo": "That folder does not exist; skipped.",
-        "su_card_style": "Style (netrunner, arasaka, militech, amber, matrix, synthwave)", "su_card_push": "Push it automatically?",
+        "su_card_style": "Style (netrunner, arasaka, militech, amber, matrix, synthwave, minimal, paper, github, terminal)", "su_card_push": "Push it automatically?",
         "su_card_snippet": "Put this in your profile README.md:",
         "su_secrets": "Keys (optional)", "su_secrets_q": "Add keys for cloud GPUs, admin APIs or weekly messages?",
         "su_secrets_help": "Typing is hidden. Enter skips. Saved to secrets.ini with chmod 600.", "su_set": "set",
@@ -6550,7 +6553,7 @@ UI = {
         "su_card": "GitHub 個人頁卡片", "su_card_q": "要在 GitHub 個人頁 README 放一張 AI 用量卡片嗎？",
         "su_card_help": "先把個人頁 repo（github.com/<帳號>/<帳號>）clone 下來。卡片只有總數和模型名稱，每天重寫並 commit 一次。",
         "su_card_repo": "卡片要放在那個 repo 的哪個資料夾", "su_card_norepo": "找不到那個資料夾，先跳過。",
-        "su_card_style": "主題（netrunner、arasaka、militech、amber、matrix、synthwave）", "su_card_push": "要自動推上去嗎？",
+        "su_card_style": "主題（netrunner、arasaka、militech、amber、matrix、synthwave、minimal、paper、github、terminal）", "su_card_push": "要自動推上去嗎？",
         "su_card_snippet": "把這段貼進個人頁的 README.md：",
         "su_secrets": "金鑰（可略過）", "su_secrets_q": "要輸入雲端 GPU、admin API 或週報的金鑰嗎？",
         "su_secrets_help": "輸入時不會顯示，Enter 跳過。存在權限 600 的 secrets.ini。", "su_set": "已設定",
@@ -9298,12 +9301,17 @@ def send_report(text):
 # ---- 通知：有事時主動告訴你（狀態改變才送一次）
 
 _card_style_flag = None
+_card_layout_flag = None
 
 
 def args_style(cs):
     """--card-style 優先，其次 [card] style。"""
     flag = CARD_STYLE_ALIASES.get(_card_style_flag, _card_style_flag)
     return flag if flag in CARD_STYLES else cs["style"]
+
+
+def args_card_layout(cs):
+    return _card_layout_flag if _card_layout_flag in CARD_LAYOUTS else cs.get("layout", "auto")
 
 
 def card_colors(spec):
@@ -9336,6 +9344,7 @@ def card_settings(cp=None):
             "style": CARD_STYLE_ALIASES.get(g("style", "netrunner").lower(), g("style", "netrunner").lower())
             if CARD_STYLE_ALIASES.get(g("style", "netrunner").lower(), g("style", "netrunner").lower()) in CARD_STYLES
             else "netrunner",
+            "layout": g("layout", "auto").lower() if g("layout", "auto").lower() in CARD_LAYOUTS else "auto",
             "colors": card_colors(g("colors")),
             "lang": g("lang").lower()[:2] if g("lang").lower()[:2] in UI else None,
             "credit": g("credit", "yes").lower() not in ("no", "false", "0", "off"),
@@ -10538,8 +10547,8 @@ def card_palette(style="netrunner", mode="dark", colors=None):
     mode = mode if mode in CARD_BASE else "dark"
     base = dict(CARD_BASE[mode])
     if style == "paper":
-        base.update({"bg": "#241f19", "panel": "#302920", "frame": "#5c5040", "text": "#f5ead8", "gray": "#c1b39f"}
-                    if mode == "dark" else {"bg": "#faf6ed", "panel": "#f2ebdd", "frame": "#d4c6b2", "text": "#342a20", "gray": "#756650"})
+        base.update({"bg": "#241f19", "panel": "#302920", "frame": "#5c5040", "text": "#f5ead8", "gray": "#c1b39f", "empty": "#302920", "track": "#44392b"}
+                    if mode == "dark" else {"bg": "#faf6ed", "panel": "#f2ebdd", "frame": "#d4c6b2", "text": "#342a20", "gray": "#756650", "empty": "#f2ebdd", "track": "#eee2cd"})
     elif style == "github":
         base.update({"bg": "#0d1117", "panel": "#161b22", "frame": "#30363d", "text": "#e6edf3", "gray": "#8b949e"}
                     if mode == "dark" else {"bg": "#ffffff", "panel": "#f6f8fa", "frame": "#d0d7de", "text": "#1f2328", "gray": "#59636e"})
@@ -10898,9 +10907,10 @@ def render_card_flat(c, theme, handle, t, lang, style, colors, credit, layout):
             metric(x + 14, 90, label, value, 170)
         text(pad, 196, labels["heat"], 12, p["gray"])
         heat(pad, 214, 14, 10)
-        text(pad, 326, tx["less"] + "  ·  " + tx["more"], 10, p["gray"])
+        text(pad, 326, tx["less"], 10, p["gray"], room=25)
         for i in range(5):
-            rect(pad + 100 + i * 14, 317, 10, 10, p["heat"][i], 2)
+            rect(pad + 32 + i * 14, 317, 10, 10, p["heat"][i], 2)
+        text(pad + 108, 326, tx["more"], 10, p["gray"], room=35)
         text(340, 196, labels["mix"], 12, p["gray"])
         mix(340, 219, 240, vertical=True)
         text(630, 196, labels["models"], 12, p["gray"])
@@ -10923,6 +10933,12 @@ def render_card_flat(c, theme, handle, t, lang, style, colors, credit, layout):
         text(W - pad, H - 15, "ComputAI", 10, p["gray"], anchor="end", room=85)
     o.append("</svg>\n")
     return "".join(o)
+
+
+def configured_card_svg(c, theme, cs=None):
+    cs = card_settings() if cs is None else cs
+    return render_card_svg(c, theme, cs["handle"], lang=cs["lang"], style=args_style(cs), colors=cs["colors"],
+                           credit=cs["credit"], layout=args_card_layout(cs))
 
 
 PROJECT_URL = "https://github.com/Sean-Hawks/computai"
@@ -10976,11 +10992,12 @@ def publish_card(db, period, path, push=False, prices=None, plan_table=None):
     if git("rev-parse", "--is-inside-work-tree").stdout.strip() != "true":
         raise SystemExit("computai: %s is not a git repository" % root)
     c = card_data(db, period, prices, plan_table)
+    cs = card_settings()
     names = [CARD_FILES["dark"], CARD_FILES["light"]]
     lines = []
     for theme, name in (("dark", names[0]), ("light", names[1])):
         with open(os.path.join(root, name), "w", encoding="utf-8") as f:
-            f.write(render_card_svg(c, theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"], credit=card_settings()["credit"]))
+            f.write(configured_card_svg(c, theme, cs))
         lines.append("wrote %s" % os.path.join(root, name))
     r = git("add", "--", *names)
     if r.returncode:
@@ -12355,7 +12372,9 @@ def parse_args(argv=None):
     p.add_argument("--push", action="store_true", help="with --card --publish: also run `git push` in that repo")
     p.add_argument("--card-theme", choices=sorted(CARD_THEMES), default="dark", help="with --card --svg: dark (default) or light")
     p.add_argument("--card-style", choices=sorted(set(CARD_STYLES) | set(CARD_STYLE_ALIASES)),
-                   help="with --card: netrunner (default), arasaka, militech, amber, matrix or synthwave")
+                   help="with --card: choose a visual style (default: netrunner)")
+    p.add_argument("--card-layout", choices=CARD_LAYOUTS,
+                   help="with --card: auto follows the style, or choose hud, compact, dashboard or portrait")
     p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
     p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
     p.add_argument("--lab", metavar="DIR", help="combine everyone's --totals files in a shared folder into one table")
@@ -12402,9 +12421,10 @@ def emit(obj, text, as_json):
 
 
 def main(argv=None):
-    global _card_style_flag
+    global _card_style_flag, _card_layout_flag
     args = parse_args(argv)
     _card_style_flag = args.card_style
+    _card_layout_flag = args.card_layout
     if args.paths:
         print("config: " + config_dir())
         print("ledger: " + data_dir())
@@ -12751,12 +12771,12 @@ def run(args, db):
                 return 0
         if args.svg:
             with open(args.svg, "w", encoding="utf-8") as f:
-                f.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"], credit=card_settings()["credit"]))
+                f.write(configured_card_svg(c, args.card_theme))
             print("computai: wrote %s" % args.svg)
         elif args.json:
             emit(c, "", True)
         else:
-            sys.stdout.write(render_card_svg(c, args.card_theme, card_settings()["handle"], lang=card_settings()["lang"], style=args_style(card_settings()), colors=card_settings()["colors"], credit=card_settings()["credit"]))
+            sys.stdout.write(configured_card_svg(c, args.card_theme))
         return 0
     if args.recap is not None:
         if not args.no_sync:
