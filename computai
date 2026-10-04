@@ -10627,6 +10627,65 @@ def render_wrapped_svg(w):
     return "".join(t)
 
 
+# ---- 個人歷史 profile：獨立於 agent GUI，只讀用量，累計／月報／年報共用資料
+
+
+def history_profile(db, t=None, prices=None):
+    """以實際可見紀錄建範圍；日期完整不代表帳號全部用量都已匯入。"""
+    t = now() if t is None else t
+    end_now = int(t) + 1
+    prices = load_prices() if prices is None else prices
+    cols = "input + cache_read + cache_write_5m + cache_write_1h + output"
+    where = "source != 'cloud' AND ts >= 0 AND ts < ? AND (%s) > 0" % cols
+    sources = [dict(r) for r in db.execute(
+        "SELECT source, MIN(ts) AS first, MAX(ts) AS last, COUNT(*) AS records FROM usage WHERE %s "
+        "GROUP BY source ORDER BY source" % where, (end_now,))]
+    first = min((r["first"] for r in sources), default=None)
+    last = max((r["last"] for r in sources), default=None)
+    months = [r[0] for r in db.execute("SELECT DISTINCT strftime('%%Y-%%m', ts, 'unixepoch', 'localtime') "
+                                     "FROM usage WHERE %s ORDER BY 1 DESC" % where, (end_now,))]
+    periods = []
+    def period(key, label, start, end, kind):
+        observed_end = min(end, end_now)
+        d = token_insights(db, start, observed_end, rankings=False)
+        daily = [dict(r) for r in db.execute(
+            "SELECT date(ts, 'unixepoch', 'localtime') AS day, SUM(%s) AS tokens FROM usage "
+            "WHERE source != 'cloud' AND ts >= ? AND ts < ? GROUP BY day HAVING SUM(%s) > 0 ORDER BY day" %
+            (cols, cols), (start, observed_end))]
+        s = summary(db, start, observed_end, prices=prices, plan_table={})
+        models, mix, value, unpriced = {}, [], 0.0, set()
+        for src in s["sources"]:
+            if src["source"] == "cloud":
+                continue
+            tokens = sum(src["totals"][c] for c in TOKEN_COLS if c != "reasoning")
+            if tokens:
+                mix.append({"source": src["source"], "tokens": tokens})
+            for m in src["models"]:
+                n = sum(m[c] for c in TOKEN_COLS if c != "reasoning")
+                if n:
+                    models[m["model"]] = models.get(m["model"], 0) + n
+                price = price_for(m["model"], prices)
+                estimate = row_cost(dict(m, cost_usd=None), price)
+                if n and estimate is None:
+                    unpriced.add(m["model"])
+                value += estimate or 0.0
+        periods.append({"key": key, "label": label, "kind": kind, "start": start, "end": observed_end,
+            "period_end": end, "in_progress": kind != "all" and end > end_now,
+            "history_starts_late": kind != "all" and first is not None and first > start,
+            "tokens": d, "active_days": len(daily), "longest_streak": longest_streak([r["day"] for r in daily]),
+            "daily": daily, "sources": sorted(mix, key=lambda r: (-r["tokens"], r["source"])),
+            "models": [{"model": name, "tokens": n} for name, n in sorted(models.items(), key=lambda kv: (-kv[1], kv[0]))[:5]],
+            "api_equivalent_usd": round(value, 2), "unpriced_models": sorted(unpriced)})
+    period("all", "all", 0, end_now, "all")
+    for year in sorted({int(m[:4]) for m in months}, reverse=True):
+        period("year-%d" % year, str(year), local_ts(year, 1, 1), local_ts(year + 1, 1, 1), "year")
+    for month in months:
+        start, end, label = month_range(month)
+        period("month-" + month, label, start, end, "month")
+    return {"generated_at": int(t), "timezone": time.strftime("%Z", time.localtime(t)),
+            "coverage": {"first": first, "last": last, "sources": sources}, "periods": periods}
+
+
 # ---- GitHub 個人頁卡片（--card）
 #
 # 495x195 的小 SVG，像 github-readme-stats 的卡片，貼在個人 README 裡。純 SVG、行內樣式、
