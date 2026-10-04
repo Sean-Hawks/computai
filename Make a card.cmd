@@ -3,19 +3,19 @@ rem Windows: double-click from the extracted ComputAI folder.
 cd /d "%~dp0"
 py -3 -c "import sys; sys.exit(sys.version_info < (3, 8))" >nul 2>nul
 if not errorlevel 1 (
-    py -3 "%~dp0computai" --create --lang zh
+    py -3 "%~dp0computai" recap --lang zh
     if errorlevel 1 pause
     exit /b
 )
 python -c "import sys; sys.exit(sys.version_info < (3, 8))" >nul 2>nul
 if not errorlevel 1 (
-    python "%~dp0computai" --create --lang zh
+    python "%~dp0computai" recap --lang zh
     if errorlevel 1 pause
     exit /b
 )
 python3 -c "import sys; sys.exit(sys.version_info < (3, 8))" >nul 2>nul
 if not errorlevel 1 (
-    python3 "%~dp0computai" --create --lang zh
+    python3 "%~dp0computai" recap --lang zh
     if errorlevel 1 pause
     exit /b
 )

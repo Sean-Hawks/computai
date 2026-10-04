@@ -10,16 +10,18 @@
 set -eu
 
 CREATE=0
+RECAP=0
 NO_OPEN=0
 for option in "$@"; do
     case "$option" in
         --create) CREATE=1 ;;
+        --recap) CREATE=1; RECAP=1 ;;
         --no-open) NO_OPEN=1 ;;
-        *) echo "usage: sh install.sh [--create [--no-open]]" >&2; exit 2 ;;
+        *) echo "usage: sh install.sh [--recap | --create] [--no-open]" >&2; exit 2 ;;
     esac
 done
 if [ "$NO_OPEN" = 1 ] && [ "$CREATE" != 1 ]; then
-    echo "--no-open requires --create" >&2
+    echo "--no-open requires --recap or --create" >&2
     exit 2
 fi
 
@@ -28,6 +30,11 @@ BIN="$PREFIX/bin"
 REF="${COMPUTAI_REF:-v0.1.0-beta.1}"
 URL="${COMPUTAI_URL:-https://raw.githubusercontent.com/Sean-Hawks/computai/$REF/computai}"
 HERE=$(cd "$(dirname "$0")" && pwd)
+if [ "$CREATE" = 1 ] && [ ! -f "$HERE/computai" ] && [ "$REF" = "v0.1.0-beta.1" ]; then
+    echo "Monthly recaps need the beta.2 development folder; released beta.1 does not include the creator yet." >&2
+    echo "Run this installer with --recap from that folder. Nothing has been installed." >&2
+    exit 2
+fi
 
 PY=""
 for p in python3 python; do
@@ -61,11 +68,13 @@ trap - EXIT
 
 echo "installed $BIN/computai ($("$BIN/computai" --version))"
 if [ "$CREATE" = 1 ]; then
+    creator_entry=--create
+    if [ "$RECAP" = 1 ]; then creator_entry=recap; fi
     # 用絕對路徑開頁面，新安裝者不需要重開 terminal 或調整 PATH。
     if [ "$NO_OPEN" = 1 ]; then
-        exec "$PY" "$BIN/computai" --create --no-open
+        exec "$PY" "$BIN/computai" "$creator_entry" --no-open
     fi
-    exec "$PY" "$BIN/computai" --create
+    exec "$PY" "$BIN/computai" "$creator_entry"
 fi
 case ":$PATH:" in
     *":$BIN:"*) ;;

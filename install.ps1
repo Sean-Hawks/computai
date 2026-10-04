@@ -5,12 +5,17 @@
 # Installs computai.py and a computai.cmd wrapper into %LOCALAPPDATA%\computai\bin and
 # adds that folder to your user PATH. Run from a checkout to install that copy; otherwise
 # the script is downloaded from $env:COMPUTAI_URL.
-param([switch]$Create, [switch]$NoOpen)
+param([switch]$Create, [switch]$Recap, [switch]$NoOpen)
 $ErrorActionPreference = "Stop"
-if ($NoOpen -and -not $Create) { Write-Error "-NoOpen requires -Create"; exit 2 }
+if ($NoOpen -and -not ($Create -or $Recap)) { Write-Error "-NoOpen requires -Recap or -Create"; exit 2 }
 $Bin = Join-Path $env:LOCALAPPDATA "computai\bin"
 $Ref = if ($env:COMPUTAI_REF) { $env:COMPUTAI_REF } else { "v0.1.0-beta.1" }
 $Url = if ($env:COMPUTAI_URL) { $env:COMPUTAI_URL } else { "https://raw.githubusercontent.com/Sean-Hawks/computai/$Ref/computai" }
+$Local = Join-Path $PSScriptRoot "computai"
+if (($Create -or $Recap) -and -not (Test-Path $Local) -and $Ref -eq "v0.1.0-beta.1") {
+    Write-Error "Monthly recaps need the beta.2 development folder; released beta.1 does not include the creator yet. Nothing has been installed."
+    exit 2
+}
 
 $Py = $null
 foreach ($cand in @(@("py", "-3"), @("python"), @("python3"))) {
@@ -24,7 +29,6 @@ if (-not $Py) { Write-Error "computai needs Python 3.8 or newer (install it from
 
 New-Item -ItemType Directory -Force -Path $Bin | Out-Null
 $Target = Join-Path $Bin "computai.py"
-$Local = Join-Path $PSScriptRoot "computai"
 if (Test-Path $Local) { Copy-Item $Local $Target -Force }
 else { Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Target }
 
@@ -38,8 +42,9 @@ if (-not ($userPath -split ";" | Where-Object { $_ -eq $Bin })) {
 }
 Write-Host "installed $Target"
 & $Py[0] @($Py | Select-Object -Skip 1) $Target --version
-if ($Create) {
+if ($Create -or $Recap) {
     $CreatorArgs = @("--create")
+    if ($Recap) { $CreatorArgs = @("recap") }
     if ($NoOpen) { $CreatorArgs += "--no-open" }
     & $Py[0] @($Py | Select-Object -Skip 1) $Target @CreatorArgs
     exit $LASTEXITCODE

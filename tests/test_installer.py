@@ -71,6 +71,35 @@ class Installer(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
         self.assertFalse(os.path.exists(os.path.join(sb.root, 'bin')))
 
+    def test_install_and_recap_opens_same_monthly_route_without_path_refresh(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        prefix = os.path.join(sb.root, 'monthly install')
+        result = subprocess.run(['sh', 'install.sh', '--recap', '--no-open'], cwd=helpers.ROOT,
+                                env=sb.env(PREFIX=prefix, COMPUTAI_URL='http://127.0.0.1:1/must-not-fetch'),
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Recap page:', result.stdout)
+        self.assertIn('No observed usage', result.stdout)
+        self.assertNotIn('next:', result.stdout)
+        self.assertTrue(os.path.isfile(os.path.join(sb.data, 'creator.html')))
+
+    def test_released_beta_installer_explains_missing_creator_before_installing(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        installer = os.path.join(sb.root, 'install.sh')
+        shutil.copyfile(os.path.join(helpers.ROOT, 'install.sh'), installer)
+        prefix = os.path.join(sb.root, 'never installed')
+        env = sb.env(PREFIX=prefix)
+        env.pop('COMPUTAI_REF', None)
+        env.pop('COMPUTAI_URL', None)
+        for entry in ('--recap', '--create'):
+            result = subprocess.run(['sh', installer, entry], env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('beta.1 does not include', result.stderr)
+            self.assertFalse(os.path.exists(prefix))
+            self.assertFalse(os.path.exists(sb.data))
+
     def test_mac_launcher_uses_its_own_folder_and_skips_installation(self):
         from unittest import mock
         sb = helpers.Sandbox()
@@ -92,4 +121,4 @@ class Installer(unittest.TestCase):
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         with open(log) as f:
-            self.assertEqual(f.read().splitlines(), [folder, './computai', '--create', '--lang', 'zh'])
+            self.assertEqual(f.read().splitlines(), [folder, './computai', 'recap', '--lang', 'zh'])

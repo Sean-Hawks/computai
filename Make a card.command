@@ -3,7 +3,7 @@
 cd "$(dirname "$0")" || exit 1
 for creator_python in python3 python; do
     if command -v "$creator_python" >/dev/null 2>&1 && "$creator_python" -c 'import sys; sys.exit(sys.version_info < (3, 8))' 2>/dev/null; then
-        "$creator_python" ./computai --create --lang zh
+        "$creator_python" ./computai recap --lang zh
         creator_status=$?
         if [ "$creator_status" -ne 0 ]; then
             printf '\n無法開啟製卡頁。按 Enter 關閉。\n'
