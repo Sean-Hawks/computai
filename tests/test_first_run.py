@@ -53,6 +53,12 @@ class FirstRun(unittest.TestCase):
         self.assertEqual(m.ask_plans_once(db, ask=lambda q: self.fail("asked twice")), 0)
 
 
+    def test_beta_versions_sort_in_release_order(self):
+        m = helpers.load()
+        versions = ["0.1.0-alpha.1", "0.1.0-beta.1", "0.1.0-beta.2-dev", "0.1.0-beta.2",
+                    "0.1.0-beta.10", "0.1.0-rc.1", "0.1.0", "0.1.1-beta.1"]
+        self.assertEqual(sorted(reversed(versions), key=m.version_tuple), versions)
+
     def test_update_check_once_a_day(self):
         old = dict(os.environ)
         self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old)))

@@ -15,7 +15,7 @@ tokens, GPU hours, kWh and money, side by side.
 Python 3.8+, standard library only. Remote machines only need SSH and sh.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.0-beta.1"
 
 import argparse
 import datetime
@@ -2376,11 +2376,20 @@ UPDATE_CMD = "curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/m
 
 
 def version_tuple(v):
-    """'0.1.0' -> (0, 1, 0)；'0.2.0b1' 這種預覽版排在 0.2.0 前面。"""
-    m = re.match(r"^\s*(\d+(?:\.\d+)*)(.*)$", v or "")
+    """預覽版依 alpha、beta、rc 和序號排序；同版的正式版排在最後。"""
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+){0,2})(.*)", v or "")
     if not m:
         return ()
-    return tuple(int(x) for x in m.group(1).split(".")) + ((0,) if m.group(2).strip() else (1,))
+    base = tuple(int(x) for x in m.group(1).split("."))
+    base += (0,) * (3 - len(base))
+    suffix = m.group(2).strip().lower()
+    if not suffix:
+        return base + (4, 0, 1)
+    pre = re.fullmatch(r"[-.]?(alpha|beta|rc|a|b)[.-]?(\d*)(-dev)?", suffix)
+    if not pre:
+        return base + (0, 0, 0)
+    stage = {"a": 1, "alpha": 1, "b": 2, "beta": 2, "rc": 3}[pre.group(1)]
+    return base + (stage, int(pre.group(2) or 0), 0 if pre.group(3) else 1)
 
 
 def update_check_on(cp=None):
