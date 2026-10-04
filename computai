@@ -10936,7 +10936,7 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
         text(x, y, label, 24 if not small else 16, meta, room=room)
         text(x, y + (60 if not small else 38), val, size, weight="700", room=room)
     def sources(x, y, w, compact=False):
-        text(x, y, L("用量來源", "Usage sources"), 22 if compact else 28, room=w)
+        text(x, y, L("用量來源", "Usage sources"), (18 if small else 24) if compact else 28, room=w)
         rows = [(s["source"], s["tokens"]) for s in r["sources"][:2]]
         rest = sum(s["tokens"] for s in r["sources"][2:])
         if rest:
@@ -10944,9 +10944,9 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
         if not rows:
             text(x, y + 40, L("尚無可見用量", "No observed usage"), 20 if compact else 26, meta, room=w)
         for i, (name, n) in enumerate(rows):
-            yy = y + (38 if compact else 56) + i * (28 if compact else 60)
+            yy = y + (38 if compact else 56) + i * ((28 if small else 32) if compact else 52)
             share = "<1%" if 0 < n < total / 100.0 else "%.1f%%" % (100.0 * n / total) if total else "—"
-            size = 16 if compact else 24
+            size = (16 if small else 20) if compact else 24
             text(x, yy, name, size, room=w * .4)
             text(x + w, yy, share, size, weight="700", anchor="end", room=110)
             barx = x + w * .42
@@ -10962,10 +10962,12 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
             vals = [(str(i + 1), counts.get((start + datetime.timedelta(days=i)).isoformat(), 0)) for i in range((end - start).days + 1)]
             label = L("每日處理量", "Daily tokens")
         else:
-            vals = [(p["label"], p["tokens"]["total"]) for p in reversed(d["periods"]) if p["kind"] == "month" and
+            vals = [(p["label"] + ("*" if p["in_progress"] else ""), p["tokens"]["total"]) for p in reversed(d["periods"]) if p["kind"] == "month" and
                     (r["kind"] == "all" or p["label"][:4] == r["label"])][-12:]
             label = L("每月處理量 · 最近 12 個有紀錄月份", "Monthly tokens · last 12 recorded months")
-        text(x, y, label, 24, room=w)
+        text(x, y, label, 24, room=w - 240 if any(label.endswith("*") for label, _ in vals) else w)
+        if any(label.endswith("*") for label, _ in vals):
+            text(x + w, y, L("* 截至目前", "* So far"), 20, warn, anchor="end", room=220)
         peak = max((n for _, n in vals), default=0) or 1
         width = w / max(1, len(vals))
         for i, (label, n) in enumerate(vals):
@@ -10973,7 +10975,7 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
             o.append('<rect x="%g" y="%g" width="%g" height="%g" rx="2" fill="%s"><title>%s: %s tokens</title></rect>' %
                      (x + i * width + 2, y + 34 + h - height, max(1, width - 4), height, fg, e(label), format(n, ",")))
             if len(vals) <= 8 or i in (0, len(vals) - 1):
-                text(x + i * width, y + h + 65, label if r["kind"] == "month" else label[2:], 20, meta, room=width)
+                text(x + i * width, y + h + 65, label if r["kind"] == "month" else label[2:], 20 if len(vals) <= 8 else 18, warn if label.endswith("*") else meta, room=width)
         rule(x, y + 34 + h, w)
     if small:
         rect(1, 1, W - 2, H - 2)
@@ -10990,7 +10992,7 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
         text(535, 225, L("有用量天數", "Active days") + "  " + str(r["active_days"]), 18, room=335)
         rule(26, 296, W - 52)
         text(26, 322, span, 16, meta, room=420)
-        text(535, 322, L("含重複快取；推理已含於輸出", "Cache included; reasoning within output"), 14, meta, room=335)
+        text(535, 322, L("B＝十億；快取計入，推理含於輸出", "B=billion; reasoning within output"), 14, meta, room=335)
     elif wide:
         text(48, 59, "COMPUTAI", 24, weight="700", room=230)
         text(340, 59, handle or "", 24, room=480, ident="creator-name")
@@ -11004,7 +11006,7 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
         text(80, 442, span, 22, room=446)
         rect(582, 90, 570, 240)
         metric(614, 139, "%.1f%%" % pct if pct is not None else "—", L("快取讀取 / 總數", "Cache read / total"), 238, 44)
-        metric(888, 139, short(b["output"]), L("產生的輸出 token", "Output tokens"), 232, 44)
+        metric(888, 139, short(b["output"]), L("輸出 token", "Output tokens"), 232, 44)
         text(614, 285, L("有用量天數", "Active days") + "  " + str(r["active_days"]), 24, room=238)
         text(888, 285, L("最長連續", "Longest streak") + "  " + str(r["longest_streak"]), 24, room=232)
         rect(582, 354, 570, 156)
@@ -11031,7 +11033,6 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
         if portrait:
             rect(48, 790, 984, 234)
             sources(80, 841, 430)
-            rule(540, 822, 1)
             text(588, 841, L("處理量最高模型", "Top model by tokens"), 26, meta, room=410)
             text(588, 903, r["models"][0]["model"] if r["models"] else "—", 28, weight="700", room=410)
             rect(48, 1048, 984, 170)

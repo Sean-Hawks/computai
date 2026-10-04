@@ -42,3 +42,13 @@ class MissionShare(unittest.TestCase):
         self.assertIn('#f5f5f5', svg)
         with self.assertRaises(ValueError):
             self.m.render_mission_share_svg(self.data, layout='bad')
+
+    def test_monthly_trend_marks_incomplete_month_without_claiming_full_history(self):
+        self.m.add_usage(self.db, [dict(source='local', uid='oct', ts=self.m.calendar_ts(2026, 10, 1), output=1000)])
+        data = self.m.history_profile(self.db, self.m.calendar_ts(2026, 10, 4, 12), PRICES)
+        svg = self.m.render_mission_share_svg(data, 'all', layout='portrait', lang='zh')
+        content = ' '.join(ET.fromstring(svg).itertext())
+        self.assertIn('2026-10*: 1,000 tokens', content)
+        self.assertIn('* 截至目前', content)
+        wide = self.m.render_mission_share_svg(data, 'year-2026', layout='wide', lang='zh')
+        self.assertIn('輸出 token', ' '.join(ET.fromstring(wide).itertext()))
