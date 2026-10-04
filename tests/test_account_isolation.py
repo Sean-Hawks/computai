@@ -1,4 +1,5 @@
 import os
+import shutil
 import unittest
 from unittest import mock
 
@@ -54,3 +55,26 @@ class AccountIsolation(unittest.TestCase):
                                    for account, pct in (("work", 80), ("personal", 20))])
         os.environ["CODEX_HOME"] = "/fake/.codex-work,/fake/.codex-personal"
         self.assertEqual(self.m.line_parts(self.db)["limits"][0]["used_percent"], 80)
+
+    def test_multiple_codex_homes_keep_usage_and_limits_without_double_counting(self):
+        first, second = [os.path.join(self.sb.root, name) for name in (".codex", ".codex-work")]
+        shutil.copytree(helpers.fixture("codex"), first)
+        shutil.copytree(helpers.fixture("codex-second"), second)
+        os.environ["CODEX_HOME"] = ",".join((first, second, first))
+        self.assertEqual(self.m.sync_codex(self.db), 5)
+        self.db.commit()
+        self.assertEqual(tuple(self.db.execute("SELECT COUNT(*), SUM(output) FROM usage").fetchone()), (5, 1071))
+        got = {r["account"]: r["used_percent"] for r in self.m.current_limits(self.db, t=1788990000)
+               if r["name"] == "5h"}
+        self.assertEqual(got, {"": 43.5, "work": 90})
+        self.assertEqual(self.m.sync_codex(self.db), 0)
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM usage").fetchone()[0], 5)
+
+    def test_auth_overrides_are_removed_only_from_the_scoped_cli_environment(self):
+        for name in self.m.CLAUDE_AUTH_ENV:
+            os.environ[name] = "SYNTHETIC_SECRET"
+        env = self.m.claude_home_env("/fake/.claude-work")
+        self.assertEqual(env["CLAUDE_CONFIG_DIR"], "/fake/.claude-work")
+        for name in self.m.CLAUDE_AUTH_ENV:
+            self.assertNotIn(name, env)
+            self.assertEqual(os.environ[name], "SYNTHETIC_SECRET")

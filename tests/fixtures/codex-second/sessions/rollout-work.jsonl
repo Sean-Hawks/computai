@@ -1,0 +1,4 @@
+{"timestamp":"2026-09-10T00:00:00Z","type":"session_meta","payload":{"id":"synthetic-work","cwd":"/fake/work","originator":"codex_cli_rs"}}
+{"timestamp":"2026-09-10T00:00:01Z","type":"turn_context","payload":{"model":"gpt-5.5"}}
+{"timestamp":"2026-09-10T00:02:00Z","type":"token_usage_record","payload":{"response_id":"synthetic-work-response","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":21,"total_tokens":121}}}
+{"timestamp":"2026-09-10T00:02:00Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":21,"total_tokens":121},"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":21,"total_tokens":121}},"rate_limits":{"primary":{"used_percent":90,"window_minutes":300,"resets_at":1789700000},"plan_type":"pro"}}}
