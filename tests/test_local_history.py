@@ -71,7 +71,7 @@ class LocalHistory(unittest.TestCase):
             self.m.set_lang(lang)
             for color in (False, True):
                 self.m.set_style(color, False)
-                for width in (60, 80, 100, 145):
+                for width in (40, 60, 80, 100, 145):
                     for height in (None, 12, 20):
                         with self.subTest(lang=lang, color=color, width=width, height=height):
                             lines = self.m.render_local_history(history, width, height)
@@ -81,6 +81,22 @@ class LocalHistory(unittest.TestCase):
                             text = "\n".join(lines)
                             self.assertNotIn("\x1b[2J", text)
                             self.assertNotIn("\x07", text)
+
+    def test_dashboard_and_local_tab_include_history(self):
+        state = self.m.dashboard_state(self.db)
+        self.assertEqual(len(state["local_history"]["rows"]), 3)
+        for width in (60, 100, 145):
+            for height in (30, 40, 47):
+                with self.subTest(width=width, height=height):
+                    text = self.m.render_live(state, width, height=height, theme_name="cyber", view="local")
+                    self.assertTrue(all(self.m.vlen(ln) <= width for ln in text.splitlines()))
+                    self.assertLessEqual(len(text.splitlines()), height)
+                    self.assertTrue("Recent local inference" in text or "computai --local-history" in text)
+        self.assertIn("function localHistoryCard", self.m.WEB_JS)
+        self.assertNotIn("innerHTML", self.m.WEB_JS)
+        self.m.set_style(False, True)
+        history_text = "\n".join(self.m.render_local_history(state["local_history"], 60))
+        self.assertTrue(all(ord(c) < 128 for c in history_text))
 
     def test_empty_history_explains_capture(self):
         history = self.m.local_history(self.db, machine="absent")

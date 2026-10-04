@@ -5521,9 +5521,10 @@ def render_local_history(history, width=100, height=None):
     """清楚區分請求與差值，不臆測內容、耗時或未知的請求數。"""
     width = max(40, width)
     rows = clean_strings(history["rows"])
-    lines = [" " + bold(T("lh_title")), " " + dim(T("lh_range") % (
+    range_text = (T("lh_range") % (
         time.strftime("%Y-%m-%d", time.localtime(history["start"])),
-        time.strftime("%Y-%m-%d", time.localtime(max(history["start"], history["end"] - 1))))), ""]
+        time.strftime("%Y-%m-%d", time.localtime(max(history["start"], history["end"] - 1))))).replace("·", sym("·", "|"))
+    lines = [" " + bold(T("lh_title"))] + [" " + dim(ln) for ln in wrap(range_text, width - 2)] + [""]
     if not rows:
         lines += [" " + ln for ln in wrap(T("lh_none"), width - 2)]
         return lines[:height] if height else lines
@@ -5548,8 +5549,8 @@ def render_local_history(history, width=100, height=None):
             block = [table_row(stamp, r["model"], r["machine"], kind, fmt_tok(r["input"]), fmt_tok(r["output"]), req)]
         else:
             title = stamp + "  " + r["model"] + " @" + r["machine"]
-            meta = "%s · %s %s · %s %s · %s %s" % (kind, T("lh_input"), fmt_tok(r["input"]),
-                                                     T("lh_output"), fmt_tok(r["output"]), T("lh_requests"), req)
+            meta = ("%s · %s %s · %s %s · %s %s" % (kind, T("lh_input"), fmt_tok(r["input"]),
+                                                     T("lh_output"), fmt_tok(r["output"]), T("lh_requests"), req)).replace("·", sym("·", "|"))
             block = [" " + ln for ln in wrap(title, width - 2)] + ["   " + dim(ln) for ln in wrap(meta, width - 4)]
         if height and len(lines) + len(block) + len(foot) + 2 > height:
             break
@@ -5910,6 +5911,7 @@ def dashboard_state(db):
     st["ledger_empty"] = not st["sources"] and ledger_empty(db)
     st["devices"] = devices_report(db, start, end, t)
     st["timeline"] = timeline_data(db, t=t)
+    st["local_history"] = local_history(db, limit=8)
     st["local_cost"] = local_cost_report(db, start, end, t=t)
     ts_ = team_settings()
     st["team"] = team_board(ts_["repo"], ts_["handle"]) if ts_["repo"] else []
@@ -7976,11 +7978,17 @@ def render_hud(st, width, height, frame, view):
             for pnl in panels:
                 body += pnl
     elif view == "local":
-        body += local_gauges(st, width) if not _ascii else []
+        history = st.get("local_history")
+        body += local_gauges(st, width) if not _ascii and (not history or not history["rows"] or (height or 50) >= 45) else []
         body += local_panel(st, width) or panel(ptitle(3, T("l_title")), "", [dim(" " + T("b_none"))], width)
         for ln in local_cost_lines(st.get("local_cost") or {"month": {"local_tokens": 0}, "light": {"requests": 0}}):
             body += ["  " + x for x in wrap(ln, width - 4)]   # 真實成本和分流建議（computai --local-cost 看細節）
-        body += [dim("  " + T("local_tip"))]
+        body += [dim("  " + ln) for ln in wrap(T("local_tip"), width - 4)]
+        room = (height or 60) - len(head) - len(body) - 5
+        if history and room >= 8:
+            body += panel(bold(T("lh_title")), "", render_local_history(history, width - 4, room)[1:], width, 0)
+        elif history and history["rows"]:
+            body += [" " + dim(clip("computai --local-history", width - 2))]
     elif view == "spend":
         body += usage_panel(st, width) + alerts_panel(st, width) + advice_panel(st, width)
         if st.get("team"):   # 小隊排行榜（只讀本機的 clone，不連網）
@@ -8592,6 +8600,25 @@ function usageCard(st) {
   return card;
 }
 
+function localHistoryCard(st) {
+  const history = st.local_history;
+  if (!history || !history.rows.length) return null;
+  const card = el("div", {class: "card"}, hd(t.lh_title));
+  const head = el("tr");
+  for (const h of [t.lh_time, t.lc_model, t.b_machine, t.lh_via, t.lh_input, t.lh_output, t.lh_requests]) head.append(el("th", {}, h));
+  const body = el("tbody");
+  for (const r of history.rows) {
+    body.append(el("tr", {},
+      el("td", {}, new Date(r.ts * 1000).toLocaleTimeString(st.lang === "zh" ? "zh-TW" : "en-GB", {hour12: false})),
+      el("td", {}, r.model), el("td", {}, r.machine),
+      el("td", {}, r.kind === "proxy" ? t.lh_proxy : t.lh_counter),
+      el("td", {class: "num"}, tok(r.input)), el("td", {class: "num"}, tok(r.output)),
+      el("td", {class: "num"}, r.requests === null ? "-" : r.requests)));
+  }
+  card.append(el("div", {class: "tablewrap"}, el("table", {}, el("thead", {}, head), body)), ft(t.lh_note));
+  return card;
+}
+
 function localCard(st) {   // 本地模型：每個模型一列，狀態、現在多快、今天、本月、照 API 價格值多少
   const lo = st.local || {};
   if (!(lo.rows || []).length) return null;
@@ -8750,7 +8777,8 @@ function render(st) {
   const cc = cloudCard(st);
   $("#cloud").replaceChildren(...(cc ? [cc] : []));
   const lc = localCard(st);
-  $("#usage").replaceChildren(...(lc ? [lc] : []), usageCard(st));
+  const lh = localHistoryCard(st);
+  $("#usage").replaceChildren(...(lc ? [lc] : []), ...(lh ? [lh] : []), usageCard(st));
   $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
   document.title = `${st.line_text} · ComputAI`;
 }
