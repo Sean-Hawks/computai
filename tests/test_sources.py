@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import unittest
+from unittest import mock
 
 from tests import helpers
 
@@ -69,6 +70,39 @@ class OpenCode(unittest.TestCase):
         dump = "\n".join(self.db.iterdump())
         for secret in ("FAKE", "fake-slug"):
             self.assertNotIn(secret, dump)
+
+    def test_live_wal_is_read_only_without_copying_conversation(self):
+        path = os.path.join(os.environ["OPENCODE_DATA_DIR"], "opencode.db")
+        writer = sqlite3.connect(path)
+        self.addCleanup(writer.close)
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("UPDATE message SET data = replace(data, '\"input\":120', '\"input\":321') WHERE id = 'msg_a1'")
+        writer.commit()
+        self.assertTrue(os.path.exists(path + "-wal"))
+        connect = sqlite3.connect
+        reads = []
+
+        def read_only_connect(*args, **kwargs):
+            con = connect(*args, **kwargs)
+            with self.assertRaises(sqlite3.OperationalError):
+                con.execute("DELETE FROM message")
+            con.rollback()
+            def authorize(action, table, column, database, trigger):
+                if action == sqlite3.SQLITE_READ:
+                    reads.append(table)
+                    return sqlite3.SQLITE_DENY if table == "part" else sqlite3.SQLITE_OK
+                return sqlite3.SQLITE_OK
+            con.set_authorizer(authorize)
+            return con
+
+        with mock.patch.object(self.m.shutil, "copyfile", side_effect=AssertionError("must not copy conversations")), \
+                mock.patch.object(self.m.tempfile, "mkdtemp", side_effect=AssertionError("must not create database copies")), \
+                mock.patch.object(sqlite3, "connect", side_effect=read_only_connect):
+            rows = self.m.read_opencode_db(path)
+        self.assertEqual(next(r["input"] for r in rows if r["uid"] == "msg_a1"), 321)
+        self.assertNotIn("part", reads)
+        self.assertNotIn("FAKE", str(rows))
+        self.assertEqual(writer.execute("SELECT COUNT(*) FROM message").fetchone()[0], 4)
 
 
 class Cursor(unittest.TestCase):

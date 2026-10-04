@@ -1248,15 +1248,13 @@ def opencode_row(d, msg_id, session, subagent):
 
 
 def read_opencode_db(path):
-    """先把資料庫（和 -wal）複製到暫存資料夾再讀：OpenCode 開著也不會鎖到它，也不會動到原檔。"""
+    """唯讀查詢原資料庫（含 WAL）：只取用量中繼資料，不複製含對話內容的資料庫。"""
     import sqlite3
-    tmp = tempfile.mkdtemp(prefix="computai-opencode-")
+    from pathlib import Path
     try:
-        for suffix in ("", "-wal", "-shm"):
-            if os.path.exists(path + suffix):
-                shutil.copyfile(path + suffix, os.path.join(tmp, "o.db" + suffix))
-        con = sqlite3.connect(os.path.join(tmp, "o.db"))
+        con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
         try:
+            con.execute("BEGIN")
             parents = {r[0]: r[1] for r in con.execute("SELECT id, parent_id FROM session")}
             rows = []
             for mid, sid, data in con.execute("SELECT id, session_id, data FROM message"):
@@ -1276,8 +1274,6 @@ def read_opencode_db(path):
     except sqlite3.Error as e:
         warn("cannot read %s: %s" % (path, e))
         return []
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def parse_opencode_json(path, cursor=None):

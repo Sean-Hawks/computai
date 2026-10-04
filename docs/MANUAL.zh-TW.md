@@ -67,7 +67,8 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
   `input` 含快取、`output` 不含 thinking，ComputAI 會扣掉、加回（用真實紀錄核對過：total = input + output + thoughts + tool）。
   subagent（`kind: subagent`）算在主 session 底下。
 - **OpenCode**：`~/.local/share/opencode/opencode*.db`（和舊版的 `storage/message/*.json`）。只讀 assistant 訊息的中繼資料，
-  而且是讀暫存複本（讀完立刻刪），OpenCode 開著也不會被鎖住。OpenCode 的 input、output、reasoning、快取互不重疊，
+  使用唯讀連線，也會讀到 WAL 中已提交的更新；不複製含對話內容的資料庫、不查詢 `part` 表。
+  OpenCode 的 input、output、reasoning、快取互不重疊，
   子 session 算 subagent；OpenCode 有算出花費時就用它的。
 - **Cursor** 在你的電腦上沒有 log。到 cursor.com/dashboard（Usage → Export CSV）匯出，然後 `computai --import-cursor 檔案`，
   或設 `[cursor] exports = ~/Downloads/usage-events*.csv` 讓每次同步自動匯入。欄位照標題名稱找；格式來自第三方的解析程式，

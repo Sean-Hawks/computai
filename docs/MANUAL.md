@@ -80,7 +80,8 @@ Read the same way, usage fields only:
   its id; `input` includes cached tokens and `output` excludes thinking, so ComputAI subtracts and adds them (checked on
   real recordings: total = input + output + thoughts + tool). Subagents (`kind: subagent`) count under their session.
 - **OpenCode**: `~/.local/share/opencode/opencode*.db` (and the older `storage/message/*.json`). Only assistant message
-  metadata is read, from a temporary copy that is deleted right away, so a running OpenCode is never locked. Input,
+  metadata is read through a read-only connection, including committed WAL updates. The database containing conversations
+  is never copied, and the `part` table is never queried. Input,
   output, reasoning and cache are separate in OpenCode, and child sessions count as subagents. OpenCode's own cost is
   used when it has one.
 - **Cursor** keeps no log on your computer. Export your usage from cursor.com/dashboard (Usage, Export CSV) and run
