@@ -101,6 +101,18 @@ class FakeUpstream(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         FakeUpstream.seen.append((self.path, json.loads(self.rfile.read(n) or b"{}"),
                                   self.headers.get("Authorization"), self.headers.get("Accept-Encoding")))
+        if self.path in ("/api/generate?mode=no-usage", "/api/generate?mode=truncated"):
+            body = read("ollama-no-usage.json")
+            truncated = self.path.endswith("truncated")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body) + (100 if truncated else 0)))
+            self.end_headers()
+            self.wfile.write(body)
+            self.wfile.flush()
+            if truncated:
+                self.close_connection = True
+            return
         if self.path == "/api/chat":
             self.send_response(200)
             self.send_header("Content-Type", "application/x-ndjson")
@@ -250,6 +262,20 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual(r["usage_recorded"], 0)
         self.assertNotIn("PRIVATE", json.dumps(r))
         self.assertEqual(self.holder["totals"], {})
+
+    def test_unreported_usage_and_incomplete_body(self):
+        import http.client
+        status, body = self.post("/api/generate?mode=no-usage", {"model": "demo"})
+        self.assertEqual((status, body), (200, read("ollama-no-usage.json")))
+        r = self.wait_traces(1)[0]
+        self.assertEqual(r["result"], "usage_missing")
+        self.assertIsNone(r["output"])
+        with self.assertRaises(http.client.IncompleteRead):
+            self.post("/api/generate?mode=truncated", {"model": "demo"})
+        r = self.wait_traces(2)[1]
+        self.assertEqual((r["http_status"], r["result"]), (200, "upstream_error"))
+        self.assertEqual(self.holder["totals"], {})
+        self.assertNotIn("FAKE_RESPONSE_CONTENT", json.dumps(self.wait_traces(2)))
 
     def test_tagged_trace_without_double_counting_sampled_usage(self):
         handler, holder = self.m.make_proxy("http://127.0.0.1:%d" % self.up.server_port, "box",

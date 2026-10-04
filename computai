@@ -5685,6 +5685,56 @@ def local_history(db, start=None, end=None, limit=20, machine=None, model=None):
     return {"start": int(start), "end": int(end), "rows": rows}
 
 
+def local_requests(db, start=None, end=None, limit=20, machine=None, model=None, tag=None):
+    """獨立請求 metadata，不與 usage／取樣差值加總；舊版未留記錄就不臆測。"""
+    if not 1 <= limit <= 200:
+        raise ValueError("local request limit must be between 1 and 200")
+    if start is None:
+        day = datetime.date(*time.localtime(now())[:3])
+        tomorrow = day + datetime.timedelta(days=1)
+        start = local_ts(day.year, day.month, day.day)
+        end = local_ts(tomorrow.year, tomorrow.month, tomorrow.day) if end is None else end
+    end = now() + 1 if end is None else end
+    where, params = ["ts >= ?", "ts < ?"], [start, end]
+    for field, value in (("machine", machine), ("model", normalize_model(model) if model is not None else None), ("tag", tag)):
+        if value is not None:
+            where.append(field + " = ?")
+            params.append(value)
+    q = ("SELECT ts, machine, model, endpoint, tag, http_status, result, elapsed_s, input, output, usage_recorded "
+         "FROM proxy_requests WHERE %s ORDER BY ts DESC, rowid DESC LIMIT ?" % " AND ".join(where))
+    rows = [dict(r) for r in db.execute(q, params + [limit])]
+    for r in rows:
+        r["output_tok_s"] = round(r["output"] / r["elapsed_s"], 2) if r["result"] == "ok" and r["output"] is not None and r["elapsed_s"] > 0 else None
+    return {"start": int(start), "end": int(end), "rows": rows}
+
+
+def render_local_requests(history, width=100, height=None):
+    width = max(40, width)
+    lines = [" " + T("rq_title"), ""]
+    rows = clean_strings(history["rows"])
+    if not rows:
+        return lines + [" " + x for x in wrap(T("rq_none"), width - 2)]
+    foot = [" " + x for x in wrap(T("rq_note"), width - 2)]
+    shown = 0
+    for r in rows:
+        stamp = time.strftime("%m-%d %H:%M:%S", time.localtime(r["ts"]))
+        title = "%s  %s @%s%s" % (stamp, r["model"], r["machine"], " [" + r["tag"] + "]" if r["tag"] else "")
+        rate = "%.1f tok/s" % r["output_tok_s"] if r["output_tok_s"] is not None else "? tok/s"
+        desc = "%s %s · %s · %.3fs · %s · %s/%s %s" % ("HTTP", r["http_status"] or "?",
+            T("rq_results").get(r["result"], r["result"]), r["elapsed_s"], rate,
+            fmt_tok(r["input"]) if r["input"] is not None else "?", fmt_tok(r["output"]) if r["output"] is not None else "?",
+            T("rq_io"))
+        block = [" " + x for x in wrap(title, width - 2)] + ["   " + x for x in wrap(desc, width - 4)]
+        if height and len(lines) + len(block) + len(foot) + 2 > height:
+            break
+        lines += block
+        shown += 1
+    if shown < len(rows):
+        lines += [" " + clip("+%d · computai --local-requests" % (len(rows) - shown), width - 2)]
+    lines += [""] + foot
+    return lines[:height] if height else lines
+
+
 def render_local_history(history, width=100, height=None):
     """清楚區分請求與差值，不臆測內容、耗時或未知的請求數。"""
     width = max(40, width)
@@ -6080,6 +6130,7 @@ def dashboard_state(db):
     st["devices"] = devices_report(db, start, end, t)
     st["timeline"] = timeline_data(db, t=t)
     st["token_insights"] = token_insights(db, start, end)
+    st["local_requests"] = local_requests(db, limit=8)
     st["local_history"] = local_history(db, limit=8)
     st["local_cost"] = local_cost_report(db, start, end, t=t)
     ts_ = team_settings()
@@ -6497,6 +6548,10 @@ UI = {
         "tl_sum_day": "Accumulated · Claude/Codex %.1fh · local inference %.1fh", "tl_top": "Peak API-equivalent hour: %s (%s)",
         "lh_title": "Recent local inference", "lh_range": "%s to %s · newest first",
         "lh_time": "TIME", "lh_via": "SOURCE", "lh_input": "INPUT", "lh_output": "OUTPUT", "lh_requests": "REQ",
+        "rq_title": "Recent proxy requests", "rq_none": "No requests recorded in this range. Run the updated proxy and send requests through it.",
+        "rq_note": "New proxy requests only; output tok/s = output / total elapsed time (includes queue, input processing and transfer). Request metadata is not added to token totals. HTTP outcome does not inspect generated content.",
+        "rq_io": "in/out", "rq_results": {"ok": "OK", "http_error": "HTTP error", "upstream_error": "upstream failed", "client_disconnect": "client disconnected", "usage_missing": "usage unavailable"},
+        "rq_elapsed": "Elapsed", "rq_result": "Outcome", "rq_tag": "Label", "rq_speed": "Output / elapsed",
         "ti_title": "Token breakdown", "ti_note": "B = billion. Repeated cache reads count again; reasoning is already in output.",
         "ti_buckets": token_labels(False), "ti_cache": "Cache reads / total",
         "lh_proxy": "proxy", "lh_counter": "counter", "lh_more": "+%d rows · computai --local-history",
@@ -6755,6 +6810,10 @@ UI = {
         "tl_sum_day": "當日累計 · Claude/Codex %.1f 小時 · 本地推論 %.1f 小時", "tl_top": "API 等值最高時段：%s（%s）",
         "lh_title": "最近本地推論紀錄", "lh_range": "%s 至 %s · 最新在上",
         "lh_time": "時間", "lh_via": "來源", "lh_input": "輸入", "lh_output": "輸出", "lh_requests": "請求數",
+        "rq_title": "最近 proxy 請求", "rq_none": "此區間沒有請求紀錄。啟動新版 proxy，讓新請求經過它才會記錄。",
+        "rq_note": "只含新版 proxy 請求；輸出 tok/s = 輸出 / 全程耗時，含排隊、輸入處理與傳輸。請求資訊不再加進 token 總帳。結果只依 HTTP／傳輸判斷，不檢查生成內容。",
+        "rq_io": "輸入/輸出", "rq_results": {"ok": "成功", "http_error": "HTTP 錯誤", "upstream_error": "上游失敗", "client_disconnect": "用戶端斷線", "usage_missing": "未回報用量"},
+        "rq_elapsed": "耗時", "rq_result": "結果", "rq_tag": "標籤", "rq_speed": "輸出 / 全程耗時",
         "ti_title": "Token 用量細項", "ti_note": "B = 十億。快取可重複讀取；推理已含於輸出，總數不是不同文字的數量。",
         "ti_buckets": token_labels(True), "ti_cache": "快取讀取占總數",
         "lh_proxy": "proxy", "lh_counter": "取樣差值", "lh_more": "另 %d 筆 · computai --local-history",
@@ -8166,11 +8225,18 @@ def render_hud(st, width, height, frame, view):
             body += ["  " + x for x in wrap(ln, width - 4)]   # 真實成本和分流建議（computai --local-cost 看細節）
         body += [dim("  " + ln) for ln in wrap(T("local_tip"), width - 4)]
         room = (height or 60) - len(head) - len(body) - 5
-        if history and room >= 8:
+        requests = st.get("local_requests")
+        if requests and requests["rows"] and room >= 8:
+            body += panel(bold(T("rq_title")), "", render_local_requests(requests, width - 4, room)[1:], width, 0)
+        elif requests and requests["rows"]:
+            body += [" " + dim(clip("computai --local-requests", width - 2))]
+        elif history and room >= 8:
             body += panel(bold(T("lh_title")), "", render_local_history(history, width - 4, room)[1:], width, 0)
         elif history and history["rows"]:
             body += [" " + dim(clip("computai --local-history", width - 2))]
     elif view == "spend":
+        if st.get("token_insights"):
+            body += [" " + clip(T("ti_title") + ": " + fmt_tok(st["token_insights"]["total"]) + " · computai --tokens", width - 2)]
         body += usage_panel(st, width) + alerts_panel(st, width) + advice_panel(st, width)
         if st.get("team"):   # 小隊排行榜（只讀本機的 clone，不連網）
             body += panel(ptitle(5, T("tm_title")), "", [" " + clip(ln, width - 6) for ln in render_team(st["team"]).splitlines()[1:]], width, 0)
@@ -8798,6 +8864,25 @@ function tokenInsightCard(st) {
   return card;
 }
 
+function localRequestsCard(st) {
+  const history = st.local_requests;
+  if (!history || !history.rows.length) return null;
+  const card = el("div", {class: "card"}, hd(t.rq_title));
+  const head = el("tr");
+  for (const h of [t.lh_time, t.lc_model, t.b_machine, t.rq_tag, t.rq_result, t.rq_elapsed, t.rq_speed, t.rq_io]) head.append(el("th", {}, h));
+  const body = el("tbody");
+  for (const r of history.rows) {
+    const outcome = `HTTP ${r.http_status || "?"} · ${(t.rq_results || {})[r.result] || r.result}`;
+    body.append(el("tr", {}, el("td", {}, new Date(r.ts * 1000).toLocaleTimeString(st.lang === "zh" ? "zh-TW" : "en-GB", {hour12: false})),
+      el("td", {}, r.model), el("td", {}, r.machine), el("td", {}, r.tag || "-"),
+      el("td", {}, outcome), el("td", {class: "num"}, r.elapsed_s.toFixed(3) + "s"),
+      el("td", {class: "num"}, r.output_tok_s === null ? "?" : r.output_tok_s.toFixed(1) + " tok/s"),
+      el("td", {class: "num"}, `${r.input === null ? "?" : tok(r.input)} / ${r.output === null ? "?" : tok(r.output)}`)));
+  }
+  card.append(el("div", {class: "tablewrap"}, el("table", {}, el("thead", {}, head), body)), ft(t.rq_note));
+  return card;
+}
+
 function localHistoryCard(st) {
   const history = st.local_history;
   if (!history || !history.rows.length) return null;
@@ -8977,7 +9062,8 @@ function render(st) {
   const lc = localCard(st);
   const lh = localHistoryCard(st);
   const ti = tokenInsightCard(st);
-  $("#usage").replaceChildren(...(lc ? [lc] : []), ...(lh ? [lh] : []), ...(ti ? [ti] : []), usageCard(st));
+  const rq = localRequestsCard(st);
+  $("#usage").replaceChildren(...(rq ? [rq] : []), ...(lc ? [lc] : []), ...(lh ? [lh] : []), ...(ti ? [ti] : []), usageCard(st));
   $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
   document.title = `${st.line_text} · ComputAI`;
 }
@@ -10874,7 +10960,7 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netr
     o.append('<g class="on">' + text(W - 34, 38, on, 11, p["green"], anchor="end", spacing=1.5) + '</g>')
     o.append(text(W - 34 - 8.2 * vlen(on) - 10, 38, "%s · %s ·" % (period, tx["sync"] % sync), 11, p["gray"],
                   anchor="end", spacing=1.5))
-    o.append('<path d="M34 52H%d" stroke="%s"/>' % (W - 34, p["frame"]))
+    o.append('<path d="M34 %dH%d" stroke="%s"/>' % (62 if c.get("token_details") else 52, W - 34, p["frame"]))
     if not c["tokens"]:
         o.append(text(W / 2, 210, tx["none"], 18, p["gray"], anchor="middle", spacing=4))
         o.append("</svg>\n")
@@ -12589,6 +12675,8 @@ def parse_args(argv=None):
     p.add_argument("--team", nargs="?", const="show", choices=["show", "publish", "leave"],
                    help="leaderboard with friends, totals only: show (default), publish (shows the JSON first), leave")
     p.add_argument("--yes", action="store_true", help="with --team publish/leave: don't ask")
+    p.add_argument("--local-requests", nargs="?", const=20, type=int, metavar="N",
+                   help="recent proxy request timings and outcomes (default today, 20 rows, max 200)")
     p.add_argument("--local-history", nargs="?", const=20, type=int, metavar="N",
                    help="read the latest N local usage rows from the ledger (default 20, max 200); defaults to today")
     p.add_argument("--model", metavar="NAME", help="with --local-history: filter by exact model name")
@@ -12670,6 +12758,8 @@ def parse_args(argv=None):
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     group_help(p)
     args = p.parse_args(argv)
+    if args.local_requests is not None and not 1 <= args.local_requests <= 200:
+        p.error("--local-requests must be between 1 and 200")
     if args.local_history is not None and not 1 <= args.local_history <= 200:
         p.error("--local-history must be between 1 and 200")
     return args
@@ -12708,7 +12798,7 @@ def main(argv=None):
                          "(plans, machines, power), or `computai --doctor` to see what is detected.\n" % config_dir())
     db = open_ledger()
     # 給人看的指令才查新版（背景、一天一次）；給程式讀的輸出（--json、statusline、MCP）不碰網路也不多印字
-    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp or args.local_history is not None)
+    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp or args.local_history is not None or args.local_requests is not None)
     if human:
         check_update_in_background()
     try:
@@ -12740,7 +12830,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("tokens", "local_history", "import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("tokens", "local_requests", "local_history", "import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -12835,6 +12925,14 @@ def run(args, db):
             start, end = local_ts(first.year, first.month, first.day), local_ts(tomorrow.year, tomorrow.month, tomorrow.day)
         d = token_insights(db, start, end)
         emit(d, render_token_insights(d), args.json)
+        return 0
+    if args.local_requests is not None:
+        start, end = pick_range(args)[:2] if args.month is not None or args.since or args.until else (None, None)
+        history = local_requests(db, start, end, args.local_requests, args.machine, args.model, args.tag)
+        if args.json:
+            emit(history, "", True)
+        else:
+            print("\n".join(render_local_requests(history, shutil.get_terminal_size((100, 40)).columns)))
         return 0
     if args.local_history is not None:  # 只讀已入帳的用量，不同步或取樣
         start, end = pick_range(args)[:2] if args.month or args.since or args.until else (None, None)
