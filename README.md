@@ -6,10 +6,10 @@ cloud GPUs in one ledger: tokens, GPU hours, kWh and money.
 
 Single Python file · Standard library only · Python 3.8+ · macOS, Linux and Windows
 
-[繁體中文](README.zh-TW.md) · [Quick start](#quick-start) · [Manual](docs/MANUAL.md) · [Release notes](docs/RELEASE-v0.1.0-beta.md)
+[繁體中文](README.zh-TW.md) · [Quick start](#quick-start) · [Manual](docs/MANUAL.md) · [Release notes](docs/RELEASE-v0.1.0-beta.2.md)
 
-**Current release:** [v0.1.0-beta.1](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1).
-Features marked **beta.2 development** are available on the [development branch](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery), not in the released beta.1 or `main`.
+**Current release:** [v0.1.0-beta.2](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.2).
+Features marked **unreleased development** are available on the [development branch](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery), not in the released beta.2 or `main`.
 You can also export [usage cards for social posts and GitHub READMEs](#cards-and-sharing).
 
 ## Dashboards
@@ -39,10 +39,10 @@ the local server continues to listen on `127.0.0.1`.
 macOS / Linux — install the released beta to `~/.local/bin/computai`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.1/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.2/install.sh | sh
 ```
 
-Windows — download and extract the ZIP from the [release page](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1), then run in that folder:
+Windows — download and extract the ZIP from the [release page](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.2), then run in that folder:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
@@ -129,11 +129,11 @@ See the [configuration reference](docs/MANUAL.md#configuration) for machines, se
 - Usage and reports remain local unless you explicitly configure sharing, remote access or publishing. Dashboard views and full exports can include project and machine names; share cards omit them.
 
 ComputAI checks for updates at most once a day. Disable this with `computai --set general.update_check=no`.
-Source coverage and platform limitations are documented in the [beta release notes](docs/RELEASE-v0.1.0-beta.md#已知限制).
+Source coverage and platform limitations are documented in the [beta release notes](docs/RELEASE-v0.1.0-beta.2.md#驗證與限制).
 
 ## Development features
 
-The [development branch](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery) includes beta.2 features that the released beta.1 and `main` do not yet provide:
+The [development branch](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery) includes unreleased features that the released beta.2 and `main` do not yet provide:
 
 | Feature | Entry point |
 |---|---|
@@ -148,12 +148,12 @@ Cards use local aggregates and omit conversations, project paths and machine nam
 
 | Design | Best for | Default format | Command | Available in |
 |---|---|---|---|---|
-| **Minimal** | A concise README banner with key totals | `compact` · 720×230 | `--card --card-style minimal` | beta.2 development |
-| **Paper** | A vertical summary with serif typography | `portrait` · 420×610 | `--card --card-style paper` | beta.2 development |
-| **GitHub** | Statistics, activity grid and model shares | `dashboard` · 900×360 | `--card --card-style github` | beta.2 development |
-| **Terminal** | A console-style banner with monospace text | `compact` · 720×230 | `--card --card-style terminal` | beta.2 development |
+| **Minimal** | A concise README banner with key totals | `compact` · 720×230 | `--card --card-style minimal` | unreleased development |
+| **Paper** | A vertical summary with serif typography | `portrait` · 420×610 | `--card --card-style paper` | unreleased development |
+| **GitHub** | Statistics, activity grid and model shares | `dashboard` · 900×360 | `--card --card-style github` | unreleased development |
+| **Terminal** | A console-style banner with monospace text | `compact` · 720×230 | `--card --card-style terminal` | unreleased development |
 | **HUD** | A detailed profile with agent activity, rank and badges | `hud` · 900×390 | `--card --card-style netrunner` | beta.1 |
-| **Web/TUI sharing card** | Social posts, monthly recaps or a README image | Square, portrait, wide or README | `--create` · PNG/SVG downloads | beta.2 development |
+| **Web/TUI sharing card** | Social posts, monthly recaps or a README image | Square, portrait, wide or README | `--create` · PNG/SVG downloads | unreleased development |
 
 <details>
 <summary>Preview the six designs (demo data)</summary>
@@ -170,7 +170,7 @@ Cards use local aggregates and omit conversations, project paths and machine nam
 
 ### Export a card
 
-From the [beta.2 development checkout](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery) with Python 3.8+, run:
+From the [unreleased development checkout](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery) with Python 3.8+, run:
 
 ```sh
 python3 ./computai --create                         # choose a period and download PNG/SVG
@@ -191,7 +191,7 @@ Share the downloaded image; the creator HTML contains selectable history.
 
 ### Layout options
 
-In beta.2 development, `--card-layout` accepts `auto` (follow the style), `compact`, `portrait`, `dashboard` or `hud`.
+In unreleased development, `--card-layout` accepts `auto` (follow the style), `compact`, `portrait`, `dashboard` or `hud`.
 Compact banners show key totals; dashboard and portrait add activity grids and hours.
 The HUD design includes the fuller agent profile with decorative animation; the other profile designs are static by default.
 
@@ -202,7 +202,7 @@ computai --set card.style=paper --set card.layout=portrait  # save defaults for 
 
 Every profile design supports light/dark mode (`--card-theme`) and English/Traditional Chinese labels.
 The HUD colour presets are `netrunner` (default), `arasaka`, `militech`, `amber`, `matrix` and `synthwave`;
-they share the same layout. To compare all presets and layouts locally, use `computai --card --html styles.html` (beta.2 development).
+they share the same layout. To compare all presets and layouts locally, use `computai --card --html styles.html` (unreleased development).
 Display names, custom accents and other options are in the [card reference](docs/MANUAL.md#profile-card).
 
 ### GitHub profile updates

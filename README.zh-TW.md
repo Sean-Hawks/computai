@@ -5,10 +5,10 @@
 
 單一 Python 檔 · 只用標準函式庫 · Python 3.8+ · macOS、Linux、Windows
 
-[English](README.md) · [快速開始](#快速開始) · [使用手冊](docs/MANUAL.zh-TW.md) · [版本說明](docs/RELEASE-v0.1.0-beta.md)
+[English](README.md) · [快速開始](#快速開始) · [使用手冊](docs/MANUAL.zh-TW.md) · [版本說明](docs/RELEASE-v0.1.0-beta.2.md)
 
-**目前版本：** [v0.1.0-beta.1](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1)。
-標示 **beta.2 開發版** 的功能在[開發分支](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery)提供，已釋出的 beta.1 與 `main` 尚未包含。
+**目前版本：** [v0.1.0-beta.2](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.2)。
+標示 **未發佈開發版** 的功能在[開發分支](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery)提供，已釋出的 beta.2 與 `main` 尚未包含。
 也支援匯出[社群分享與 GitHub README 用量卡片](#圖卡與分享)。
 
 ## 監控介面
@@ -38,10 +38,10 @@
 macOS／Linux：安裝已釋出的 beta 到 `~/.local/bin/computai`：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.1/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.2/install.sh | sh
 ```
 
-Windows：從[版本頁](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1)下載並解壓 ZIP，在該資料夾執行：
+Windows：從[版本頁](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.2)下載並解壓 ZIP，在該資料夾執行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
@@ -127,11 +127,11 @@ computai --set general.theme=classic
 - 除非明確設定分享、遠端存取或發佈，用量與報告留在本機。監控介面與完整匯出可能包含專案、機器名稱；分享卡會排除這些欄位。
 
 ComputAI 每天最多檢查一次更新，可用 `computai --set general.update_check=no` 關閉。
-資料涵蓋範圍與平台限制見[beta 版本說明](docs/RELEASE-v0.1.0-beta.md#已知限制)。
+資料涵蓋範圍與平台限制見[beta 版本說明](docs/RELEASE-v0.1.0-beta.2.md#驗證與限制)。
 
 ## 開發版功能
 
-[開發分支](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery)另有 beta.2 功能，已釋出的 beta.1 與 `main` 尚未包含：
+[開發分支](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery)另有未發佈功能，已釋出的 beta.2 與 `main` 尚未包含：
 
 | 功能 | 說明 |
 |---|---|
@@ -146,12 +146,12 @@ ComputAI 每天最多檢查一次更新，可用 `computai --set general.update_
 
 | 設計 | 適合用途 | 預設版型 | 指令 | 可用版本 |
 |---|---|---|---|---|
-| **Minimal** | 用關鍵數字呈現簡潔的 README 橫幅 | `compact` · 720×230 | `--card --card-style minimal` | beta.2 開發版 |
-| **Paper** | 襯線字體與直式用量摘要 | `portrait` · 420×610 | `--card --card-style paper` | beta.2 開發版 |
-| **GitHub** | 統計方塊、活動圖與模型比例 | `dashboard` · 900×360 | `--card --card-style github` | beta.2 開發版 |
-| **Terminal** | 等寬字體的終端機橫幅 | `compact` · 720×230 | `--card --card-style terminal` | beta.2 開發版 |
+| **Minimal** | 用關鍵數字呈現簡潔的 README 橫幅 | `compact` · 720×230 | `--card --card-style minimal` | 未發佈開發版 |
+| **Paper** | 襯線字體與直式用量摘要 | `portrait` · 420×610 | `--card --card-style paper` | 未發佈開發版 |
+| **GitHub** | 統計方塊、活動圖與模型比例 | `dashboard` · 900×360 | `--card --card-style github` | 未發佈開發版 |
+| **Terminal** | 等寬字體的終端機橫幅 | `compact` · 720×230 | `--card --card-style terminal` | 未發佈開發版 |
 | **HUD** | Agent 活動、等級與徽章的完整個人頁 | `hud` · 900×390 | `--card --card-style netrunner` | beta.1 |
-| **Web／TUI 分享卡** | 社群貼文、月回顧或 README 圖片 | 方形、直式、橫式或 README | `--create` · 下載 PNG／SVG | beta.2 開發版 |
+| **Web／TUI 分享卡** | 社群貼文、月回顧或 README 圖片 | 方形、直式、橫式或 README | `--create` · 下載 PNG／SVG | 未發佈開發版 |
 
 <details>
 <summary>查看六種設計的預覽（示範資料）</summary>
@@ -168,7 +168,7 @@ ComputAI 每天最多檢查一次更新，可用 `computai --set general.update_
 
 ### 匯出圖卡
 
-在 [beta.2 開發版資料夾](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery)裡，有 Python 3.8+ 就能執行：
+在 [未發佈開發版資料夾](https://github.com/Sean-Hawks/computai/tree/docs-card-gallery)裡，有 Python 3.8+ 就能執行：
 
 ```sh
 python3 ./computai --create --lang zh                # 選範圍，下載 PNG／SVG
@@ -188,7 +188,7 @@ Windows 把 `python3 ./computai` 換成 `py -3 computai`；安裝後可直接用
 
 ### 調整版型
 
-beta.2 開發版的 `--card-layout` 可選 `auto`（跟隨風格）、`compact`、`portrait`、`dashboard` 或 `hud`。
+未發佈開發版的 `--card-layout` 可選 `auto`（跟隨風格）、`compact`、`portrait`、`dashboard` 或 `hud`。
 簡潔橫幅呈現關鍵數字，統計面板與直式另有活動圖與活動時數。
 HUD 提供較完整的 agent 個人頁與裝飾動畫，其餘個人頁設計預設靜態。
 
@@ -199,7 +199,7 @@ computai --set card.style=paper --set card.layout=portrait  # 儲存預設，匯
 
 每種個人頁設計都支援深／淺色（`--card-theme`）與英文／繁中標籤。
 HUD 的配色選項為 `netrunner`（預設）、`arasaka`、`militech`、`amber`、`matrix`、`synthwave`，版型相同。
-要在本機比較所有配色與版型，可用 `computai --card --html styles.html --lang zh`（beta.2 開發版）。
+要在本機比較所有配色與版型，可用 `computai --card --html styles.html --lang zh`（未發佈開發版）。
 顯示名稱、自訂強調色與其他選項見[卡片參考](docs/MANUAL.zh-TW.md#個人頁卡片)。
 
 ### GitHub 個人頁更新
