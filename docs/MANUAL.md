@@ -622,7 +622,9 @@ another machine); the one-line reason goes to stderr. The rules, in order:
 2. Light tasks: a local Ollama model, which costs no quota.
 3. The subscription with the most room that won't run out early at the current pace.
 4. One that will run out early.
-5. Heavy tasks fall back to a local model last. A used-up limit is never picked.
+5. An installed subscription CLI whose limit usage is unknown, as a fallback. Unknown usage is reported
+   explicitly and never treated as 100% remaining.
+6. Heavy tasks fall back to a local model last. A used-up limit is never picked.
 
 It only reads the ledger (no network, no SSH), so it is fast enough for `$(...)`. The home screen's advice
 also says when a limit is about to reset with plenty left, and agents can ask the same question through the
