@@ -2,6 +2,7 @@ import io
 import json
 import os
 import unittest
+from unittest import mock
 
 from tests import helpers
 
@@ -59,6 +60,28 @@ class Mcp(unittest.TestCase):
         data = json.loads(r[0]["result"]["content"][0]["text"])
         self.assertEqual(set(data), {"tool", "command", "reason", "ranked"})
         self.assertTrue(r[1]["result"]["isError"])
+
+    def test_pick_tool_distinguishes_measured_and_unknown_limits(self):
+        self.m.add_limits(self.db, [{"source": "codex", "name": "week", "ts": 1790000000,
+                                    "used_percent": 56, "window_minutes": 10080,
+                                    "resets_at": 1790000000 + 2 * 86400}])
+        self.m.set_lang("en")
+        with mock.patch.object(self.m.shutil, "which", side_effect=lambda src: "/fake/" + src):
+            for measured in (True, False):
+                with self.subTest(measured=measured):
+                    if not measured:
+                        self.db.execute("DELETE FROM limits")
+                    r = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                   "params": {"name": "pick", "arguments": {"task": "heavy"}}})
+                    p = json.loads(r[0]["result"]["content"][0]["text"])
+                    if measured:
+                        self.assertEqual(p["tool"], "codex")
+                        self.assertEqual(p["ranked"], ["codex", "claude"])
+                        self.assertEqual(p["reason"], "Codex has the most room left (44%)")
+                    else:
+                        self.assertEqual(p["tool"], "claude")
+                        self.assertIn("limit usage is unknown", p["reason"])
+                    self.assertNotIn("100%", p["reason"])
 
     def test_bad_month_is_tool_error(self):
         r = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/call",

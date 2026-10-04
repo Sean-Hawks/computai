@@ -1,4 +1,7 @@
+import json
+import os
 import unittest
+from unittest import mock
 
 from tests import helpers
 
@@ -143,6 +146,60 @@ class PickInsight(unittest.TestCase):
 
 
 class PickCommand(unittest.TestCase):
+    def setUp(self):
+        self.sb = helpers.Sandbox()
+        self.addCleanup(self.sb.close)
+        self.bin = os.path.join(self.sb.root, "bin")
+        os.mkdir(self.bin)
+        for src in ("claude", "codex"):
+            path = os.path.join(self.bin, src + (".cmd" if os.name == "nt" else ""))
+            with open(path, "w") as f:
+                f.write("@exit /b 1\n" if os.name == "nt" else "#!/bin/sh\nexit 1\n")
+            os.chmod(path, 0o700)
+        self.t = 1790000000
+
+    def test_missing_claude_limits_do_not_beat_codex_in_cli(self):
+        with mock.patch.dict(os.environ, self.sb.env(), clear=True):
+            m = helpers.load()
+            db = m.open_ledger()
+            try:
+                m.add_limits(db, [{"source": "codex", "name": "week", "ts": self.t,
+                                   "used_percent": 56, "window_minutes": 10080,
+                                   "resets_at": self.t + 2 * 86400}])
+                db.commit()
+            finally:
+                db.close()
+        for args in (("--pick",), ("--pick", "--json")):
+            with self.subTest(args=args):
+                r = self.sb.run(*args, PATH=self.bin, COMPUTAI_FAKE_NOW=self.t)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                if "--json" in args:
+                    p = json.loads(r.stdout)
+                    self.assertEqual((p["tool"], p["why"]), ("codex", "headroom"))
+                    self.assertEqual(p["args"], {"src": "codex", "left": 44.0})
+                    self.assertEqual(p["ranked"], ["codex", "claude"])
+                else:
+                    self.assertEqual(r.stdout, "codex\n")
+                    self.assertEqual(r.stderr, "computai: codex - Codex has the most room left (44%)\n")
+
+    def test_unknown_cli_reason_and_json_have_no_percentage(self):
+        for lang, reason in (("en", "limit usage is unknown"), ("zh", "額度不明")):
+            for as_json in (False, True):
+                with self.subTest(lang=lang, as_json=as_json):
+                    args = ["--pick", "--lang", lang] + (["--json"] if as_json else [])
+                    r = self.sb.run(*args, PATH=self.bin, COMPUTAI_FAKE_NOW=self.t)
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    if as_json:
+                        p = json.loads(r.stdout)
+                        self.assertEqual((p["tool"], p["why"]), ("claude", "unknown"))
+                        self.assertEqual(p["args"], {"src": "claude"})
+                        self.assertEqual(p["ranked"], ["claude", "codex"])
+                        self.assertIn(reason, p["reason"])
+                    else:
+                        self.assertEqual(r.stdout, "claude\n")
+                        self.assertIn(reason, r.stderr)
+                    self.assertNotIn("100%", r.stdout + r.stderr)
+
     def test_shell_output_is_just_the_command(self):
         sb = helpers.Sandbox()
         self.addCleanup(sb.close)
