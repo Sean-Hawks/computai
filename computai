@@ -6285,6 +6285,8 @@ UI = {
         "cs_style_netrunner": "cyan, magenta and yellow neon (default)", "cs_style_arasaka": "corporate red on black",
         "cs_style_militech": "hazard yellow", "cs_style_amber": "violet into amber", "cs_style_matrix": "green phosphor",
         "cs_style_synthwave": "pink and teal",
+        "cs_style_minimal": "quiet monochrome banner", "cs_style_paper": "serif typography on warm paper",
+        "cs_style_github": "statistics panels and activity grid", "cs_style_terminal": "plain monospace console",
         "cs_readme_q": "Add the card to %s?", "cs_readme_done": "added the card to README.md and committed it",
         "cs_readme_fail": "could not commit README.md", "cs_pushed": "Pushed. Your profile shows the card now.",
         "cs_watch_q": "Update the card every day in the background (computai --install-watch)?",
@@ -6539,6 +6541,8 @@ UI = {
         "cs_style": "主題",
         "cs_style_netrunner": "青、洋紅、黃的霓虹（預設）", "cs_style_arasaka": "企業紅黑", "cs_style_militech": "警示黃",
         "cs_style_amber": "紫到琥珀", "cs_style_matrix": "綠色螢光", "cs_style_synthwave": "粉紅和青綠",
+        "cs_style_minimal": "簡潔灰階橫幅", "cs_style_paper": "暖色紙張與襯線字體",
+        "cs_style_github": "統計面板與活動方格", "cs_style_terminal": "純文字等寬終端風格",
         "cs_readme_q": "要把卡片加進 %s 嗎？", "cs_readme_done": "已經把卡片加進 README.md 並 commit",
         "cs_readme_fail": "README.md 沒辦法 commit", "cs_pushed": "已經推上去了，個人頁現在看得到卡片。",
         "cs_watch_q": "要每天在背景自動更新卡片嗎（computai --install-watch）？",
@@ -10514,8 +10518,18 @@ CARD_STYLES = {
                "light": ("#0a8f55", "#5a8f00", "#0a8f55", ("#cdf3df", "#7fe0b0", "#1fae68", "#5a8f00"))},
     "synthwave": {"dark": ("#ff2bd6", "#2de2e6", "#ff2bd6", ("#3a0f35", "#7a1f6e", "#d22bb6", "#2de2e6")),
                   "light": ("#c4129f", "#0a9da0", "#c4129f", ("#f7cdee", "#ee8ed8", "#d63bb6", "#0a9da0"))},
+    "minimal": {"dark": ("#a1a1aa", "#e4e4e7", "#e4e4e7", ("#303036", "#52525b", "#a1a1aa", "#e4e4e7")),
+                "light": ("#52525b", "#18181b", "#18181b", ("#e4e4e7", "#a1a1aa", "#71717a", "#18181b"))},
+    "paper": {"dark": ("#c9a86a", "#ecd7b4", "#c9a86a", ("#44392b", "#71604a", "#a88d65", "#ecd7b4")),
+              "light": ("#8a5935", "#5b3b25", "#8a5935", ("#eee2cd", "#d6bea0", "#ad865f", "#8a5935"))},
+    "github": {"dark": ("#58a6ff", "#3fb950", "#58a6ff", ("#0e4429", "#006d32", "#26a641", "#39d353")),
+               "light": ("#0969da", "#1a7f37", "#0969da", ("#9be9a8", "#40c463", "#30a14e", "#216e39"))},
+    "terminal": {"dark": ("#86efac", "#f0fdf4", "#86efac", ("#163527", "#286548", "#4d9e70", "#86efac")),
+                 "light": ("#166534", "#14532d", "#166534", ("#dcfce7", "#86efac", "#4ade80", "#166534"))},
 }
 CARD_STYLE_ALIASES = {"computai": "netrunner", "mono": "netrunner"}   # 舊名稱照樣能用
+CARD_LAYOUTS = ("auto", "hud", "compact", "dashboard", "portrait")
+CARD_DEFAULT_LAYOUT = {"minimal": "compact", "paper": "portrait", "github": "dashboard", "terminal": "compact"}
 
 
 def card_palette(style="netrunner", mode="dark", colors=None):
@@ -10523,6 +10537,15 @@ def card_palette(style="netrunner", mode="dark", colors=None):
     style = CARD_STYLE_ALIASES.get(style, style)
     mode = mode if mode in CARD_BASE else "dark"
     base = dict(CARD_BASE[mode])
+    if style == "paper":
+        base.update({"bg": "#241f19", "panel": "#302920", "frame": "#5c5040", "text": "#f5ead8", "gray": "#c1b39f"}
+                    if mode == "dark" else {"bg": "#faf6ed", "panel": "#f2ebdd", "frame": "#d4c6b2", "text": "#342a20", "gray": "#756650"})
+    elif style == "github":
+        base.update({"bg": "#0d1117", "panel": "#161b22", "frame": "#30363d", "text": "#e6edf3", "gray": "#8b949e"}
+                    if mode == "dark" else {"bg": "#ffffff", "panel": "#f6f8fa", "frame": "#d0d7de", "text": "#1f2328", "gray": "#59636e"})
+    elif style == "minimal":
+        base.update({"bg": "#18181b", "panel": "#27272a", "frame": "#3f3f46", "text": "#fafafa", "gray": "#a1a1aa"}
+                    if mode == "dark" else {"bg": "#ffffff", "panel": "#f4f4f5", "frame": "#e4e4e7", "text": "#18181b", "gray": "#71717a"})
     a, b, key, heat = CARD_STYLES.get(style, CARD_STYLES["netrunner"])[mode]
     if colors:
         a, b = colors
@@ -10561,12 +10584,18 @@ def card_persona(key, lang):
     return name.upper() if lang == "en" else name
 
 
-def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netrunner", colors=None, credit=True):
+def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netrunner", colors=None, credit=True, layout="auto"):
     """GitHub 個人頁卡片（900x390），cyberpunk HUD：切角霓虹外框和光暈、掃描線、警示條紋、片假名副標、
     色差殘影的大數字、反白的區段標籤、13 週熱力圖（有掃描光）、分段等級環、agent 工作指標（工時、最多同時、
     最長連續、快取命中）、各來源佔比、裝備欄、成就徽章，分隔線是近 30 天的脈搏。
     所有內容都是靜態畫好的；動畫（故障抖動、掃描、游標、光暈呼吸）只是裝飾，停在第一格也什麼都不缺，
     系統設了「減少動態效果」就停。只有彙總數字和模型名稱；沒有腳本和外部資源。"""
+    style = CARD_STYLE_ALIASES.get(style, style)
+    layout = CARD_DEFAULT_LAYOUT.get(style, "hud") if layout == "auto" else layout
+    if layout not in CARD_LAYOUTS:
+        raise ValueError("unknown card layout: %s" % layout)
+    if layout != "hud":
+        return render_card_flat(c, theme, handle, t, lang, style, colors, credit, layout)
     p = card_palette(style, theme, colors)
     lang = lang if lang in CARD_TXT else _lang
     tx = CARD_TXT.get(lang, CARD_TXT["en"])
@@ -10747,6 +10776,151 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netr
         o.append('<path d="M%.1f 361h%.1fl6 6v12h-%.1fz" fill="none" stroke="%s"/>' % (x, w_, w_ + 6, p["amber"]))
         o.append(text(x + 9, 374, label_, 10, p["amber"], weight="700", spacing=1))
         x += w_ + 12
+    o.append("</svg>\n")
+    return "".join(o)
+
+
+def render_card_flat(c, theme, handle, t, lang, style, colors, credit, layout):
+    """靜態卡片：相同彙總資料可選橫幅、統計面板或直式；不載入外部字型或圖片。"""
+    c = clean_strings(c)
+    p = card_palette(style, theme, colors)
+    lang = lang if lang in CARD_TXT else _lang
+    zh = lang == "zh"
+    tx = CARD_TXT[lang]
+    labels = ({"title": "AI 用量", "tokens": "TOKEN 用量", "api": "API 等值", "days": "活躍天數",
+               "hours": "累計活動時數", "cache": "快取命中", "mix": "用量來源", "heat": "近 13 週活動",
+               "models": "常用模型", "none": "尚無用量", "updated": "更新"} if zh else
+              {"title": "AI usage", "tokens": "TOKENS", "api": "API EQUIVALENT", "days": "ACTIVE DAYS",
+               "hours": "ACTIVITY HOURS", "cache": "CACHE HIT", "mix": "USAGE MIX", "heat": "LAST 13 WEEKS",
+               "models": "TOP MODELS", "none": "No usage yet", "updated": "Updated"})
+    W, H = {"compact": (720, 230), "dashboard": (900, 360), "portrait": (420, 610)}[layout]
+    pad = 32 if layout == "portrait" else 28
+    font = ("Georgia,'Noto Serif CJK TC',serif" if style == "paper" else CARD_FONT if style == "terminal" else
+            "-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans CJK TC',Arial,sans-serif")
+    radius = 0 if style in ("paper", "terminal") else 8 if style == "github" else 18
+    handle = clip_text(clean_strings(handle or "ComputAI"), 32)
+    title = ("$ " if style == "terminal" else "") + handle + " / " + labels["title"]
+    period = tx["all_p"] if c["period"] == "all" else tx[c["period"]]
+    stamp = time.strftime("%Y-%m-%d %H:%M", time.localtime(now() if t is None else t))
+    e = svg_escape
+    o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" data-layout="%s" aria-label="%s">'
+         % (W, H, W, H, layout, e("%s · %s · %s tokens" % (title, period, fmt_tok(c["tokens"])))),
+         '<title>%s</title><desc>%s</desc>' % (e(title), e("%s · %s %s" % (period, labels["updated"], stamp))),
+         '<style>text{font-family:%s}</style>' % font,
+         '<rect x=".5" y=".5" width="%s" height="%s" rx="%d" fill="%s" stroke="%s"/>' % (W - 1, H - 1, radius, p["bg"], p["frame"])]
+
+    def text(x, y, value, size=12, fill=None, weight="400", anchor="start", room=None):
+        # 保守估算字寬，避免長模型名和中文溢出卡片；完整名稱保留於 SVG title。
+        room = room if room is not None else W - pad - x if anchor == "start" else x - pad
+        full = str(value)
+        shown = clip_text(full, max(1, int(room / (size * .65))))
+        o.append('<g><title>%s</title>%s</g>' % (e(full), svg_text(x, y, shown, size, fill or p["text"], anchor=anchor, weight=weight)))
+
+    def rule(y):
+        o.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s"/>' % (pad, y, W - pad, y, p["frame"]))
+
+    def rect(x, y, w, h, fill, rx=0):
+        o.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="%d" fill="%s"/>' % (x, y, max(0, w), h, rx, fill))
+
+    def metric(x, y, label, value, room, size=28):
+        text(x, y, label, 11, p["gray"], room=room)
+        text(x, y + 34, value, size, weight="600", room=room)
+
+    ops = c.get("ops") or {}
+    fleet = ops.get("fleet") or []
+    source_colors = (p["violet"], p["to"], p["amber"], p["gray"])
+
+    def mix(x, y, width, vertical=False):
+        selected = fleet[:4]
+        if not selected:
+            text(x, y + 12, labels["none"], fill=p["gray"], room=width)
+            return
+        if vertical:
+            for i, f in enumerate(selected):
+                yy = y + i * 25
+                name = tx["src"].get(f["source"], f["source"])
+                text(x, yy, name, 11, room=width - 45)
+                text(x + width, yy, "%d%%" % f["pct"], 11, p["gray"], anchor="end", room=45)
+                rect(x, yy + 5, width, 5, p["track"], 2)
+                rect(x, yy + 5, width * max(0, min(100, f["pct"])) / 100, 5, source_colors[i], 2)
+        else:
+            rect(x, y, width, 8, p["track"])
+            xx = x
+            for i, f in enumerate(selected):
+                w_ = min(x + width - xx, width * max(0, min(100, f["pct"])) / 100)
+                rect(xx, y, w_, 8, source_colors[i])
+                xx += w_
+                col = width / len(selected)
+                name = tx["src"].get(f["source"], f["source"])
+                name = clip_text(name, max(3, int((col - 40) / 7)))
+                text(x + i * col, y + 26, "%s %d%%" % (name, f["pct"]), 11, room=col - 6)
+
+    def heat(x, y, step, size):
+        values = c.get("heat") or []
+        top = max([v for v in values if v] or [1])
+        for i, value in enumerate(values[:91]):
+            if value is None:
+                continue
+            ratio = value / float(top)
+            k = 0 if not value else 1 if ratio <= .25 else 2 if ratio <= .5 else 3 if ratio <= .8 else 4
+            col, row = divmod(i, 7)
+            rect(x + col * step, y + row * step, size, size, p["heat"][k], 2)
+
+    def models(x, y, width, count=3):
+        for i, model in enumerate(c.get("models", [])[:count]):
+            yy = y + i * 30
+            text(x, yy, model["model"], 12, room=width - 45)
+            text(x + width, yy, "%d%%" % model["share_pct"], 11, p["gray"], anchor="end", room=45)
+            rect(x, yy + 8, width, 4, p["track"], 2)
+            rect(x, yy + 8, width * max(0, min(100, model["share_pct"])) / 100, 4, p["violet"], 2)
+
+    if layout == "portrait":
+        text(pad, 40, title, 20, weight="600")
+        text(pad, 65, period, 12, p["gray"])
+    else:
+        text(pad, 34, title, 18, weight="600", room=W - 2 * pad - 130)
+        text(W - pad, 34, period, 12, p["gray"], anchor="end", room=120)
+    if not c["tokens"]:
+        text(W / 2, H / 2, labels["none"], 18, p["gray"], anchor="middle", room=W - 2 * pad)
+    elif layout == "compact":
+        metric(pad, 72, labels["tokens"], fmt_tok(c["tokens"]), 215, 40)
+        metric(280, 72, labels["api"], fmt_usd(c["api_equivalent_usd"]), 210, 28)
+        metric(526, 72, labels["days"], c["active_days"], 165, 32)
+        rule(124)
+        mix(pad, 140, W - 2 * pad)
+        text(pad, 190, labels["models"] + ": " + (c.get("top_model") or "-"), 12, room=W - 2 * pad)
+    elif layout == "dashboard":
+        metrics = [(labels["tokens"], fmt_tok(c["tokens"])), (labels["api"], fmt_usd(c["api_equivalent_usd"])),
+                   (labels["days"], c["active_days"]), (labels["hours"], "%sh" % ops.get("agent_hours", 0))]
+        for i, (label, value) in enumerate(metrics):
+            x = pad + i * 215
+            rect(x, 66, 199, 96, p["panel"], radius)
+            metric(x + 14, 90, label, value, 170)
+        text(pad, 196, labels["heat"], 12, p["gray"])
+        heat(pad, 214, 14, 10)
+        text(pad, 326, tx["less"] + "  ·  " + tx["more"], 10, p["gray"])
+        for i in range(5):
+            rect(pad + 100 + i * 14, 317, 10, 10, p["heat"][i], 2)
+        text(340, 196, labels["mix"], 12, p["gray"])
+        mix(340, 219, 240, vertical=True)
+        text(630, 196, labels["models"], 12, p["gray"])
+        models(630, 219, 242)
+    else:
+        text(pad, 102, labels["tokens"], 11, p["gray"])
+        text(pad, 147, fmt_tok(c["tokens"]), 48, weight="600")
+        metric(pad, 181, labels["api"], fmt_usd(c["api_equivalent_usd"]), 170, 26)
+        metric(232, 181, labels["days"], c["active_days"], 156)
+        metric(pad, 237, labels["hours"], "%sh" % ops.get("agent_hours", 0), 170, 24)
+        metric(232, 237, labels["cache"], "%d%%" % ops["cache_hit_pct"] if ops.get("cache_hit_pct") is not None else "-", 156, 24)
+        rule(284)
+        text(pad, 307, labels["mix"], 11, p["gray"])
+        mix(pad, 320, W - 2 * pad)
+        text(pad, 368, labels["heat"], 11, p["gray"])
+        heat(pad, 386, 22, 16)
+        text(pad, 561, labels["models"] + ": " + (c.get("top_model") or "-"), 12)
+    text(pad, H - 15, labels["updated"] + " " + stamp, 10, p["gray"], room=W - 2 * pad - (90 if credit else 0))
+    if credit:
+        text(W - pad, H - 15, "ComputAI", 10, p["gray"], anchor="end", room=85)
     o.append("</svg>\n")
     return "".join(o)
 

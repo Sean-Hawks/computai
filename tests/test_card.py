@@ -100,6 +100,44 @@ class Card(unittest.TestCase):
         self.assertEqual(self.m.card_colors("#123456, #abcdef"), ("#123456", "#abcdef"))
         self.assertIsNone(self.m.card_colors("red, blue"))                # 格式不對就當沒設
 
+    def test_flat_layouts_are_static_and_private_in_both_languages(self):
+        c = self.card()
+        c["models"][0]["model"] = '<script>"&' + "長模型" * 35 + "\x1b[2J"
+        c["top_model"] = c["models"][0]["model"]
+        for lang in ("en", "zh"):
+            for theme in ("dark", "light"):
+                for style in ("minimal", "paper", "github", "terminal"):
+                    for layout, dims in (("compact", (720, 230)), ("dashboard", (900, 360)), ("portrait", (420, 610))):
+                        with self.subTest(lang=lang, theme=theme, style=style, layout=layout):
+                            svg = self.m.render_card_svg(c, theme, handle='<reader>&', lang=lang, style=style, layout=layout, t=self.t)
+                            root = ET.fromstring(svg)
+                            self.assertEqual((int(root.get("width")), int(root.get("height"))), dims)
+                            for bad in ("<script", "<image", "href=", "@import", "@font-face", "animation:", "filter=", "\x1b", SECRET, SESSION):
+                                self.assertNotIn(bad, svg)
+                            self.assertIn("API 等值" if lang == "zh" else "API EQUIVALENT", svg)
+                            self.assertIn("13.9M", svg)
+                            for rect in root.findall("{http://www.w3.org/2000/svg}rect"):
+                                self.assertGreaterEqual(float(rect.get("width")), 0)
+                                self.assertLessEqual(float(rect.get("x")) + float(rect.get("width")), dims[0])
+                                self.assertLessEqual(float(rect.get("y")) + float(rect.get("height")), dims[1])
+
+    def test_style_defaults_and_empty_layouts(self):
+        c = self.card()
+        for style, layout in self.m.CARD_DEFAULT_LAYOUT.items():
+            self.assertIn('data-layout="%s"' % layout, self.m.render_card_svg(c, style=style))
+        self.assertEqual(self.m.render_card_svg(c), self.m.render_card_svg(c, layout="hud"))
+        self.assertEqual(self.m.render_card_svg(c, style="mono"), self.m.render_card_svg(c))
+        db = self.m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        empty = self.m.card_data(db, t=self.t)
+        for layout in ("compact", "dashboard", "portrait"):
+            svg = self.m.render_card_svg(empty, style="minimal", layout=layout, handle="reader", credit=False)
+            root = ET.fromstring(svg)
+            self.assertIn("No usage yet", svg)
+            self.assertNotIn("ComputAI", "".join(root.itertext()))
+        with self.assertRaises(ValueError):
+            self.m.render_card_svg(c, layout="bad")
+
     @unittest.skipUnless(shutil.which("git"), "needs git")
     def test_handle_from_profile_repo(self):
         self.assertIsNone(self.m.github_owner(""))
