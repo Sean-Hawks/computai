@@ -1836,7 +1836,7 @@ def write_guard_state(db, t=None):
     g = guard_settings()
     f = forecast(db)
     state = {"ts": int(t), "warn_left": g["warn_left"], "strict": g["strict"],
-             "limits": [{"label": "%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])),
+             "limits": [{"label": "%s %s" % (limit_source(r), limit_label(r["name"])),
                          "left": 100.0 - (r["used_percent"] or 0), "resets_at": r["resets_at"]}
                         for r in current_limits(db, t) if r["resets_at"] and not r["stale"]],
              "over_budget": bool(f.get("over_budget")), "projected": int(round(f.get("projected_usd") or 0)),
@@ -4856,6 +4856,8 @@ def line_parts(db):
     parts = []
     for src, label in LINE_SOURCES:
         rows = [r for r in limits if r["source"] == src]
+        mine = [r for r in rows if (r.get("account") or "") == current_account(src)]   # 在某個帳號底下跑：只看那個帳號
+        rows = mine or rows
         if not rows:
             continue
         top = max(rows, key=lambda r: r["used_percent"])
@@ -4872,8 +4874,7 @@ def claude_statusline_limits(payload, ts):
     rate_limits.five_hour／seven_day 的 used_percentage 和 resets_at（epoch 秒）。
     此函式只取額度欄位；不讀路徑或對話內容。帳號看 Claude Code 傳下來的 CLAUDE_CONFIG_DIR（只會有一個）。"""
     out = []
-    home = os.environ.get("CLAUDE_CONFIG_DIR", "")
-    account = account_name("claude", home) if home and "," not in home else ""
+    account = current_account("claude") or ""
     rl = payload.get("rate_limits") if isinstance(payload, dict) else None
     if not isinstance(rl, dict):
         return out
@@ -6220,8 +6221,10 @@ def dashboard_state(db):
             "energy": energy, "cloud": latest_cloud(db), "daily": daily_costs(db, 14, t),
             "forecast": forecast(db, t, month_machines=energy),
             "alerts": machine_alerts() + idle_alerts(db, t) + cloud_alerts(db, t)}
-    row = db.execute("SELECT value FROM meta WHERE key = 'codex_reset_credits'").fetchone()
-    _reset_credits["codex"] = st["reset_credits"] = _int(row[0]) if row else 0
+    _reset_credits.clear()
+    for key, value in db.execute("SELECT key, value FROM meta WHERE key LIKE 'codex_reset_credits%'"):
+        _reset_credits[("codex", key.partition(":")[2])] = _int(value)
+    st["reset_credits"] = _reset_credits.get(("codex", ""), 0)
     st["verdict"] = verdict(st)
     st["local"] = local_overview(db, st["machines"], energy, t)
     st["ledger_empty"] = not st["sources"] and ledger_empty(db)
@@ -6259,9 +6262,9 @@ def prometheus(st):
            [({"source": x["source"]}, x["tokens"]) for x in st["sources"]])
     metric("today_cost_usd", "cost recorded today", [({}, st["today_usd"])])
     metric("limit_used_percent", "subscription limit window used",
-           [({"source": r["source"], "window": r["name"]}, r["used_percent"]) for r in st["limits"]])
+           [(limit_metric_labels(r), r["used_percent"]) for r in st["limits"]])
     metric("limit_resets_in_seconds", "seconds until the limit window resets",
-           [({"source": r["source"], "window": r["name"]}, r["resets_in"]) for r in st["limits"]])
+           [(limit_metric_labels(r), r["resets_in"]) for r in st["limits"]])
     metric("machine_cpu_percent", "machine CPU use", [({"machine": m["machine"]}, m["cpu_pct"]) for m in st["machines"]])
     metric("machine_gpu_percent", "machine GPU use", [({"machine": m["machine"]}, m["gpu_util"]) for m in st["machines"]])
     metric("machine_power_watts", "machine power (measured GPU plus configured rest, or estimated)",
@@ -7232,6 +7235,33 @@ def limit_label(name):
     return T("win").get(name, name)
 
 
+def limit_source(r):
+    """額度屬於誰：Claude、Codex；不是預設帳號時加上帳號（Claude nycu）。"""
+    src = T("src").get(r["source"], r["source"])
+    return "%s %s" % (src, r["account"]) if r.get("account") else src
+
+
+def limit_window(r):
+    """已經在來源底下列出時的視窗名稱：不是預設帳號時前面加上帳號。"""
+    return "%s %s" % (r["account"], limit_label(r["name"])) if r.get("account") else limit_label(r["name"])
+
+
+def limit_metric_labels(r):
+    """Prometheus 標籤：預設帳號不加 account，原本的查詢和告警規則不用改。"""
+    out = {"source": r["source"]}
+    if r.get("account"):
+        out["account"] = r["account"]
+    out["window"] = r["name"]
+    return out
+
+
+def current_account(source):
+    """現在這個程序在哪個帳號底下跑（Claude Code、Codex 只會傳一個資料夾給 statusline 和 hook）；
+    沒設或列了好幾個時回傳 None。"""
+    home = os.environ.get("CLAUDE_CONFIG_DIR" if source == "claude" else "CODEX_HOME", "")
+    return account_name(source, home) if home and "," not in home else None
+
+
 def limit_note(r):
     """額度下面那一行：已用完就講重置時間，用太快就講幾點用完，不然講重置時大約到幾 %。
     資料太舊時後面加上「幾小時前看到的」，提醒這不一定是現在的數字。"""
@@ -7242,14 +7272,15 @@ def limit_note(r):
     return note
 
 
-_reset_credits = {}   # 來源 -> 還有幾次提早重置可以用（dashboard_state 時填）
+_reset_credits = {}   # (來源, 帳號) -> 還有幾次提早重置可以用（dashboard_state 時填）
 
 
 def _limit_note(r):
     used = r["used_percent"] or 0
-    if used >= LIMIT_FAIL and _reset_credits.get(r["source"]):
+    credits = _reset_credits.get((r["source"], r.get("account") or ""))
+    if used >= LIMIT_FAIL and credits:
         reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else "?"
-        return rgb(RED, T("q_wait") % reset) + dim(" \u00b7 ") + rgb(AMBER, T("q_credits") % _reset_credits[r["source"]])
+        return rgb(RED, T("q_wait") % reset) + dim(" \u00b7 ") + rgb(AMBER, T("q_credits") % credits)
     reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
     if used >= LIMIT_FAIL:
         return rgb(RED, T("q_wait") % reset) if reset else ""
@@ -7301,7 +7332,7 @@ def hero_panel(st, width, frame=0):
         lv = limit_level(used)
         big = bigtext("%d%%" % round(shown_pct(used)))
         col = tone(lv) if lv != "brand" else MAG
-        label = "%s %s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]),
+        label = "%s %s %s" % (limit_source(r), limit_label(r["name"]),
                               T("w_left") if _limit_view == "left" else T("w_used"))
         state = (" " + bold(rgb(RED, T("used_up")))) if used >= LIMIT_FAIL else ""
         note = limit_note(r)
@@ -7355,7 +7386,7 @@ def quota_panel(st, width):
     lines = []
     limits = sorted(st["limits"], key=lambda r: (r["source"], r["window_minutes"] or 0))
     have = {r["source"] for r in limits}
-    names = {id(r): "%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])) for r in limits}
+    names = {id(r): "%s %s" % (limit_source(r), limit_label(r["name"])) for r in limits}
     name_w = min(28, max([vlen(n) for n in names.values()] + [12]))
     gw = max(10, min(48, width - name_w - 14))
     for r in limits:
@@ -7450,7 +7481,7 @@ def usage_panel(st, width):
             state = T("used_up") if used >= LIMIT_FAIL else T("used_pct") % used
             state = bold(rgb(tone(lv), state)) if lv != "brand" else state
             when = dim(" " + sym("\u00b7", "|") + " " + T("resets") % fmt_dur(r["resets_in"])) if r["resets_in"] is not None else ""
-            lines.append("   %s %s %s%s" % (dim(cell(limit_label(r["name"]), 12)),
+            lines.append("   %s %s %s%s" % (dim(cell(limit_window(r), 12)),
                                             gradbar(used, bar_w, lv if theme().get("flat") else None), state, when))
         series = daily["sources"].get(src)
         if series and any(series):
@@ -7459,7 +7490,7 @@ def usage_panel(st, width):
                                                % fmt_usd(series[-1]))))
     for src, rows in (lim.items() if not QUOTA_PANEL else []):  # 有額度但這個月還沒有用量的來源
         for r in rows:
-            lines.append(" %s %s %s %s" % (bold(cell(T("src").get(src, src), 14)), dim(limit_label(r["name"])),
+            lines.append(" %s %s %s %s" % (bold(cell(limit_source(r), 14)), dim(limit_label(r["name"])),
                                           gradbar(r["used_percent"], bar_w), T("used_pct") % r["used_percent"]))
     if not lines:
         lines.append(dim(" " + (T("no_logs") % log_places() if st.get("ledger_empty") else T("no_usage"))))
@@ -7555,7 +7586,7 @@ def verdict(st):
     items = []
     for r in st.get("limits") or []:
         used = r["used_percent"] or 0
-        src, win = T("src").get(r["source"], r["source"]), limit_label(r["name"])
+        src, win = limit_source(r), limit_label(r["name"])
         reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else None
         if used >= LIMIT_FAIL and (r.get("age") or 0) > LIMIT_STALE:   # 舊資料：說清楚這是上次看到的
             items.append(("warn", T("v_used_up_old") % (src, win, fmt_dur(r["age"]))))
@@ -7613,7 +7644,7 @@ def ticker(st, width, frame=0):
         if m["ai_active"]:
             items.append("%s %s" % (m["machine"], T("t_gen") % m["recent"]["tok_s"] if m["recent"]["tok_s"] else T("busy")))
     for r in sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0)):
-        txt = "%s %s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]), pct_word(r["used_percent"]))
+        txt = "%s %s %s" % (limit_source(r), limit_label(r["name"]), pct_word(r["used_percent"]))
         if r.get("resets_in") is not None:
             txt += sym(" \u00b7 ", " - ") + T("resets") % fmt_dur(r["resets_in"])
         items.append(txt)
@@ -7660,7 +7691,7 @@ def boot_checks(st):
             out.append(("NODE  " + a["machine"], "OFFLINE", "fail"))
     for r in st["limits"]:
         used = r["used_percent"] or 0
-        out.append(("LIMIT %s %s" % (r["source"], r["name"]), "DEPLETED" if used >= LIMIT_FAIL else "%d%% %s" % (round(shown_pct(used)), T("m_left") if _limit_view == "left" else T("m_used")),
+        out.append(("LIMIT %s %s" % (r["source"] + ("/" + r["account"] if r.get("account") else ""), r["name"]), "DEPLETED" if used >= LIMIT_FAIL else "%d%% %s" % (round(shown_pct(used)), T("m_left") if _limit_view == "left" else T("m_used")),
                     limit_level(used) if used >= LIMIT_WARN else "ok"))
     return out
 
@@ -7811,7 +7842,7 @@ def limit_station(r, width):
     col = {"brand": CYAN, "warn": AMBER, "fail": RED}[lv]
     big = T("used_up").upper() if used >= LIMIT_FAIL else "%d%%" % round(shown_pct(used))
     d = dial(shown_pct(used) / 100.0, 26, 10, col, GREY, "%d%%" % round(shown_pct(used)), "", None)
-    name = "%s \u00b7 %s" % (T("src").get(r["source"], r["source"]).upper(), limit_label(r["name"]).upper())
+    name = "%s \u00b7 %s" % (limit_source(r).upper(), limit_label(r["name"]).upper())
     mw = max(10, min(30, width - vlen(d[0]) - 16))
     el = r.get("elapsed_pct")
     side = ["", tag(name, col) if lv != "brand" else tag(name), ""]
@@ -8033,7 +8064,7 @@ def limit_hero(r, width, bw=None):
         if used < LIMIT_FAIL else ["", bold(rgb(RED, T("used_up"))), "", ""]
     bw = max([vlen(x) for x in big] + [bw or 0])
     rw = max(16, width - bw - 3)
-    name = bold("%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"])))
+    name = bold("%s %s" % (limit_source(r), limit_label(r["name"])))
     reset = dim(T("m_resets") % fmt_dur(r["resets_in"])) if r.get("resets_in") is not None else ""
     head = name + " " * max(1, rw - vlen(name) - vlen(reset)) + reset if vlen(name) + vlen(reset) + 1 <= rw else name
     note = limit_note(r) or ""
@@ -8079,7 +8110,7 @@ def render_mission(st, width, height, frame):
                                                T("m_left") if _limit_view == "left" else T("m_used"))) for r in limits] + [0])
     heroes = [limit_hero(r, cw, bw) for r in limits]
     if not two and len(heroes) > 1 and width < 100:   # 窄的時候只有最吃緊的那個畫大，其他一行
-        heroes = heroes[:1] + [[cell(bold("%s %s" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]))), 26) +
+        heroes = heroes[:1] + [[cell(bold("%s %s" % (limit_source(r), limit_label(r["name"]))), 26) +
                                 limit_gauge(r, max(8, cw - 40)) + " " + bold(pct_word(r["used_percent"] or 0))]
                                for r in limits[1:]]
     body = []
@@ -9072,7 +9103,8 @@ function localCard(st) {   // 本地模型：每個模型一列，狀態、現�
 }
 
 function quotaCard(st) {   // 額度：粗量表、大百分比、白線標出週期過了多久，下一行講速度
-  const rows = [...st.limits].sort((a, b) => a.source.localeCompare(b.source) || (a.window_minutes || 0) - (b.window_minutes || 0));
+  const rows = [...st.limits].sort((a, b) => a.source.localeCompare(b.source) || (a.account || "").localeCompare(b.account || "") ||
+    (a.window_minutes || 0) - (b.window_minutes || 0));
   const have = new Set(rows.map((r) => r.source));
   const kids = rows.map((r) => {
     const lv = limitLevel(r.used_percent), reset = r.resets_in !== null ? dur(r.resets_in) : null;
@@ -9087,7 +9119,7 @@ function quotaCard(st) {   // 額度：粗量表、大百分比、白線標出�
     else if (r.eta_full) { note = fmt(t.q_eta, dur(r.eta_full), reset); cls += " lv-warn"; }
     else if (r.projected_pct !== null && r.projected_pct !== undefined) note = fmtn(t.q_proj, {pct: r.projected_pct, reset: reset});
     if (old) note = note ? `${note} · ${old}` : old;
-    return el("div", {class: "q"}, el("span", {class: "lab"}, `${t.src[r.source] || r.source} ${winLabel(r.name)}`), g,
+    return el("div", {class: "q"}, el("span", {class: "lab"}, `${t.src[r.source] || r.source}${r.account ? " " + r.account : ""} ${winLabel(r.name)}`), g,
               el("span", {class: "p" + (lv ? " lv-" + lv : "")}, r.used_percent >= 99.5 ? t.used_up : fmt(left ? t.pct_left : t.used_pct, Math.round(shown))),
               note ? el("span", {class: cls}, note) : null);
   });
@@ -9703,7 +9735,8 @@ def weekly(db, t=None):
                                                    fmt_tok(src["totals"]["output"]), ("; " + top) if top else ""))
     if not s["sources"]:
         lines.append("- " + T("wk_none"))
-    peaks = db.execute("SELECT source, name, MAX(used_percent) AS p FROM limits WHERE ts >= ? GROUP BY source, name "
+    peaks = db.execute("SELECT source || CASE account WHEN '' THEN '' ELSE '/' || account END AS source, name, "
+                       "MAX(used_percent) AS p FROM limits WHERE ts >= ? GROUP BY source, account, name "
                        "ORDER BY p DESC", (start,)).fetchall()
     if peaks:
         lines.append("- " + T("wk_peaks") + ", ".join("%s %s %d%%" % (r["source"], r["name"], r["p"]) for r in peaks))
@@ -9826,14 +9859,14 @@ def notify_events(db, st):
         for r in st["limits"]:
             worst[r["source"]] = max(worst.get(r["source"], 0.0), r["used_percent"] or 0.0)
         for r in st["limits"]:
-            key = "limit:%s:%s" % (r["source"], r["name"])
+            key = "limit:%s:%s" % (r["source"] + (":" + r["account"] if r.get("account") else ""), r["name"])
             used = r["used_percent"] or 0.0
             lv = "full" if used >= LIMIT_FAIL else "high" if used >= LIMIT_WARN else "ok"
             new[key] = [lv, r["resets_at"]]
             was = old.get(key)
             if not was:
                 continue
-            src, win = T("src").get(r["source"], r["source"]), limit_label(r["name"])
+            src, win = limit_source(r), limit_label(r["name"])
             reset = fmt_dur(r["resets_in"]) if r.get("resets_in") is not None else "?"
             if was[0] != "ok" and lv == "ok" and (r.get("stale") or r["resets_at"] != was[1]):
                 out.append(("ok", T("nt_reset") % (src, win)))
@@ -12731,7 +12764,7 @@ def mcp_call(db, name, args):
                              "models": [{"model": mm["model"], "cost_usd": mm["cost_usd"], "output": mm["output"]}
                                         for mm in x["models"]]} for x in s["sources"]]}
     if name == "limits":
-        return {"limits": [{"source": r["source"], "window": r["name"], "used_percent": r["used_percent"],
+        return {"limits": [{"source": r["source"], "account": r.get("account") or "", "window": r["name"], "used_percent": r["used_percent"],
                             "resets_in_seconds": r["resets_in"]} for r in current_limits(db)]}
     if name == "budget":
         ts, te = today_range()
@@ -14232,7 +14265,7 @@ def run(args, db):
         add_limits(db, rows)
         db.commit()
         for r in rows:
-            print("computai: %s %s -> 0%% (%s)" % (T("src").get(r["source"], r["source"]), limit_label(r["name"]),
+            print("computai: %s %s -> 0%% (%s)" % (limit_source(r), limit_label(r["name"]),
                                                  T("lr_note")))
         if not rows:
             print("computai: no %s limits recorded yet" % args.limit_reset)

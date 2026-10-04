@@ -47,6 +47,21 @@ class Ledger(unittest.TestCase):
                           n("claude", "/u/.claude-nycu"), n("codex", "/u/.codex-cs14"), n("codex", "/w/work")],
                          ["", "", "", "nycu", "cs14", "work"])
 
+    def test_other_accounts_are_named_where_limits_show(self):
+        lim = [dict(source="claude", account=a, name="5h", ts=1, used_percent=u, window_minutes=300, resets_at=None)
+               for a, u in (("", 10.0), ("nycu", 80.0))]
+        self.m.add_limits(self.db, lim)
+        rows = self.m.current_limits(self.db, t=2)
+        self.assertEqual(sorted(self.m.limit_source(r) for r in rows), ["Claude Code", "Claude Code nycu"])
+        labels = [self.m.limit_metric_labels(r) for r in rows]
+        self.assertIn({"source": "claude", "window": "5h"}, labels)              # 預設帳號的指標不變
+        self.assertIn({"source": "claude", "account": "nycu", "window": "5h"}, labels)
+        old = os.environ.get("CLAUDE_CONFIG_DIR")
+        self.addCleanup(lambda: os.environ.pop("CLAUDE_CONFIG_DIR") if old is None
+                        else os.environ.update(CLAUDE_CONFIG_DIR=old))
+        os.environ["CLAUDE_CONFIG_DIR"] = "/u/.claude-nycu"                     # statusline 在 nycu 底下跑
+        self.assertEqual([p["used_percent"] for p in self.m.line_parts(self.db)["limits"]], [80.0])
+
     def test_old_limits_table_moves_to_default_account(self):
         import sqlite3
         import tempfile
