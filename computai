@@ -11023,11 +11023,23 @@ def render_profile_share_html(svg, lang=None):
     return ('<!doctype html><html lang="%s"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>ComputAI %s</title><style>body{margin:0;background:#09090d;color:#f5f5f5;font:16px/1.5 -apple-system,sans-serif}'
             'main{max-width:1080px;margin:auto;padding:20px}img{display:block;width:100%%;height:auto}'
-            'a{display:block;width:fit-content;margin:20px auto;color:#fbbf24;padding:10px 18px;border:1px solid #52495e;border-radius:6px}'
-            '@media print{main{padding:0}a{display:none}}</style></head><body><main><img src="%s" alt="ComputAI %s">'
-            '<a href="%s" download="computai-share.svg">%s</a></main></body></html>') % (
+            '.downloads{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:20px 0}'
+            'a,button{font:inherit;display:block;color:#fbbf24;background:transparent;padding:10px 18px;border:1px solid #52495e;border-radius:6px;cursor:pointer}'
+            'button:disabled{opacity:.5}#status{text-align:center;color:#bbb}'
+            '@media print{main{padding:0}.downloads,#status{display:none}}</style></head><body><main><img id="card" src="%s" alt="ComputAI %s">'
+            '<div class="downloads"><button id="png" hidden>%s</button><a href="%s" download="computai-share.svg">%s</a></div>'
+            '<p id="status" role="status"></p></main><script>"use strict";'
+            'const button=document.getElementById("png");button.hidden=false;'
+            'button.addEventListener("click",async()=>{button.disabled=true;const status=document.getElementById("status");status.textContent="";'
+            'try{const img=document.getElementById("card");await img.decode();const canvas=document.createElement("canvas");'
+            'canvas.width=img.naturalWidth;canvas.height=img.naturalHeight;canvas.getContext("2d").drawImage(img,0,0);'
+            'const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));if(!blob)throw new Error("PNG");'
+            'const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download="computai-share.png";link.click();'
+            'setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){status.textContent="%s";}finally{button.disabled=false;}});'
+            '</script></body></html>') % (
                 "zh-Hant" if zh else "en", "用量分享卡" if zh else "usage share card", uri,
-                "用量分享卡" if zh else "usage share card", uri, "下載 SVG 圖卡" if zh else "Download SVG card")
+                "用量分享卡" if zh else "usage share card", "下載 PNG 圖卡" if zh else "Download PNG card", uri,
+                "下載 SVG 圖卡" if zh else "Download SVG card", "無法匯出 PNG，請下載 SVG。" if zh else "PNG export failed. Please download the SVG.")
 
 
 # ---- GitHub 個人頁卡片（--card）

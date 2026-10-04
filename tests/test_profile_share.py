@@ -1,6 +1,8 @@
 import json
 import base64
 import os
+import shutil
+import subprocess
 import tempfile
 import time
 import unittest
@@ -138,3 +140,10 @@ class ProfileShare(unittest.TestCase):
         result = box.run('--profile', '--share-layout', 'wide', '--json', '--no-sync')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)['periods'][0]['tokens']['total'], 0)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node is optional for browser download logic checks')
+    def test_png_download_uses_original_dimensions_and_shows_failure(self):
+        page = self.m.render_profile_share_html(self.render(layout='portrait'), lang='zh')
+        result = subprocess.run(['node', os.path.join(helpers.ROOT, 'tests', 'share_download_dom.js')],
+                                input=page, text=True, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
