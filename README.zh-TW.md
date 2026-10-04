@@ -7,16 +7,18 @@
 
 [English](README.md) · [快速開始](#快速開始) · [使用手冊](docs/MANUAL.zh-TW.md) · [版本說明](docs/RELEASE-v0.1.0-beta.md)
 
-**目前版本：** [v0.1.0-beta.1](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1)。
-標示 **beta.2 開發版** 的功能可在這份開發分支使用。
+**目前版本：** [v0.1.0-beta.2](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.2)。
+標示 **beta.3 開發版** 的功能可在這份開發分支使用。
 也支援匯出[社群分享與 GitHub README 用量卡片](#圖卡與分享)。
 
 ## 監控介面
 
 ### 終端機 TUI
 
-執行 `computai`，即時查看額度、機器、花費與警示。
-用 `1`–`6` 或 `Tab` 切換總覽、額度、機器、本地模型、花費與時間軸；按 `q` 離開。
+這份開發版直接輸入 `computai` 就會顯示功能選單：即時監控、做月報、開網頁、花費分析、資料檢查和環境設定。
+輸入數字再按 Enter；直接按 Enter 進監控。也可以用 `computai --live` 直接開啟監控。
+監控內用 `1`–`6` 或 `Tab` 切換總覽、額度、機器、本地模型、花費與時間軸；
+`h` 或 `?` 看功能說明、`c` 開製卡頁、`q` 離開。
 
 ![ComputAI 終端機監控畫面](docs/images/live.svg)
 
@@ -38,10 +40,10 @@
 macOS／Linux：安裝已釋出的 beta 到 `~/.local/bin/computai`：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.1/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.2/install.sh | sh
 ```
 
-Windows：從[版本頁](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1)下載並解壓 ZIP，在該資料夾執行：
+Windows：從[版本頁](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.2)下載並解壓 ZIP，在該資料夾執行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
@@ -54,12 +56,18 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 ### 啟動
 
 ```sh
-computai --lang zh        # 終端機 TUI
+computai --lang zh        # 功能選單（開發版）；已釋出 beta.2 仍直接進 TUI
+computai --live --lang zh # 直接開終端機 TUI
 computai --web --lang zh  # 瀏覽器 GUI：http://127.0.0.1:8765/
 ```
 
 兩種介面可各自在一個終端機啟動。Claude Code、Codex 用量會從支援的本機紀錄自動偵測，
-首次執行可能會詢問訂閱方案。網頁伺服器按 `Ctrl-C` 停止。
+開發版從選單進監控不會先問訂閱方案，需要時再選「設定我的環境」。
+直接用 `--live` 首次啟動仍可能詢問方案。網頁伺服器按 `Ctrl-C` 停止。
+
+選單也會列出每項功能的直接指令，不需要先讀完整文件。
+在非互動環境，開發版的 `computai` 印出功能指南後結束；腳本需要用量時用 `--summary` 或 `--json`。
+選「開網頁監控」會自動開啟本機網頁，終端機持續執行服務。
 
 ```sh
 computai --setup         # 設定方案、機器、電價與選用 API 金鑰
@@ -131,17 +139,18 @@ ComputAI 每天最多檢查一次更新，可用 `computai --set general.update_
 
 ## 開發版功能
 
-這份分支另有 beta.2 功能，已釋出的 beta.1 尚未包含：
+這份分支另有 beta.3 開發功能，已釋出的 beta.2 尚未包含：
 
 | 功能 | 說明 |
 |---|---|
-| Token 細項與本地請求紀錄 | [用量與追蹤](docs/MANUAL.zh-TW.md#token-細項與本地請求追蹤beta2-開發版) |
-| 個人歷史、月報與年報 | [Profile 報告](docs/MANUAL.zh-TW.md#個人歷史-profilebeta2-開發版) |
+| 功能選單與監控說明 | `computai` 開選單；監控內按 `h` 或 `?` |
+| Token 細項與本地請求紀錄 | [用量與追蹤](docs/MANUAL.zh-TW.md#token-細項與本地請求追蹤beta3-開發版) |
+| 個人歷史、月報與年報 | [Profile 報告](docs/MANUAL.zh-TW.md#個人歷史-profilebeta3-開發版) |
 | 瀏覽器製卡頁與四種新風格 | [下方圖卡說明](#圖卡與分享) |
 
 ## 圖卡與分享
 
-想做第一份社群月報？安裝這份 **beta.2 開發版**後，只要：
+想做第一份社群月報？安裝這份 **beta.3 開發版**後，只要：
 
 ```sh
 computai recap
@@ -155,12 +164,12 @@ computai recap
 
 | 設計 | 適合用途 | 預設版型 | 指令 | 可用版本 |
 |---|---|---|---|---|
-| **Minimal** | 用關鍵數字呈現簡潔的 README 橫幅 | `compact` · 720×230 | `--card --card-style minimal` | beta.2 開發版 |
-| **Paper** | 襯線字體與直式用量摘要 | `portrait` · 420×610 | `--card --card-style paper` | beta.2 開發版 |
-| **GitHub** | 統計方塊、活動圖與模型比例 | `dashboard` · 900×360 | `--card --card-style github` | beta.2 開發版 |
-| **Terminal** | 等寬字體的終端機橫幅 | `compact` · 720×230 | `--card --card-style terminal` | beta.2 開發版 |
+| **Minimal** | 用關鍵數字呈現簡潔的 README 橫幅 | `compact` · 720×230 | `--card --card-style minimal` | beta.3 開發版 |
+| **Paper** | 襯線字體與直式用量摘要 | `portrait` · 420×610 | `--card --card-style paper` | beta.3 開發版 |
+| **GitHub** | 統計方塊、活動圖與模型比例 | `dashboard` · 900×360 | `--card --card-style github` | beta.3 開發版 |
+| **Terminal** | 等寬字體的終端機橫幅 | `compact` · 720×230 | `--card --card-style terminal` | beta.3 開發版 |
 | **HUD** | Agent 活動、等級與徽章的完整個人頁 | `hud` · 900×390 | `--card --card-style netrunner` | beta.1 |
-| **Web／TUI 分享卡** | 社群貼文、月回顧或 README 圖片 | 方形、直式、橫式或 README | `recap` · 下載 PNG／SVG | beta.2 開發版 |
+| **Web／TUI 分享卡** | 社群貼文、月回顧或 README 圖片 | 方形、直式、橫式或 README | `recap` · 下載 PNG／SVG | beta.3 開發版 |
 
 月報會列出選定月份的來源日期、紀錄筆數和相鄰曆月比較，缺資料會提示而不冒充零用量。
 先支援留有本機用量 log 的 Codex GUI／T3、本地模型及混合使用者；純網頁聊天暫不涵蓋。
@@ -201,7 +210,7 @@ Windows 把 `python3 ./computai` 換成 `py -3 computai`；安裝後可直接用
 
 ### 調整版型
 
-beta.2 開發版的 `--card-layout` 可選 `auto`（跟隨風格）、`compact`、`portrait`、`dashboard` 或 `hud`。
+beta.3 開發版的 `--card-layout` 可選 `auto`（跟隨風格）、`compact`、`portrait`、`dashboard` 或 `hud`。
 簡潔橫幅呈現關鍵數字，統計面板與直式另有活動圖與活動時數。
 HUD 提供較完整的 agent 個人頁與裝飾動畫，其餘個人頁設計預設靜態。
 
@@ -212,7 +221,7 @@ computai --set card.style=paper --set card.layout=portrait  # 儲存預設，匯
 
 每種個人頁設計都支援深／淺色（`--card-theme`）與英文／繁中標籤。
 HUD 的配色選項為 `netrunner`（預設）、`arasaka`、`militech`、`amber`、`matrix`、`synthwave`，版型相同。
-要在本機比較所有配色與版型，可用 `computai --card --html styles.html --lang zh`（beta.2 開發版）。
+要在本機比較所有配色與版型，可用 `computai --card --html styles.html --lang zh`（beta.3 開發版）。
 顯示名稱、自訂強調色與其他選項見[卡片參考](docs/MANUAL.zh-TW.md#個人頁卡片)。
 
 ### GitHub 個人頁更新

@@ -25,7 +25,14 @@ and machine and prints the command that fixes each gap. `computai --set SECTION.
 `--unset SECTION.KEY` change single settings without touching your comments. `computai --discover --add`
 adds every reachable machine with power settings suggested from its hardware.
 
-The first time you open `computai` in a terminal with no plan set, it asks one question per subscription:
+In the development checkout, `computai` first shows a menu with six choices. Enter opens the monitor;
+`2` makes a monthly recap, `3` opens the browser automatically, `4` analyzes spending, `5` checks sources and
+`6` sets up your environment. `0`, `q`, Ctrl-C or EOF exits. Browsing the menu does not read usage, connect
+to machines or create configuration/ledger files. Outside a terminal, it prints the same guide and exits.
+Use `--summary` or `--json` to get usage in scripts. Released beta.2 still opens the monitor directly.
+
+Selecting the monitor from the menu skips plan questions. The first direct `computai --live` with no plan set
+asks one question per subscription:
 the plan in Codex's logs, or for Claude a guess from the last 30 days of usage. Enter keeps it, `n` skips,
 or type another plan's name. It only asks once; `computai --setup` changes it later.
 
@@ -96,7 +103,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 
 | Command | What it does |
 |---|---|
-| `computai` | On a terminal: the live dashboard. Otherwise the same as `--summary`. |
+| `computai` | Development: feature menu; Enter opens the monitor. Outside an interactive terminal: guide, then exit. Released beta.2: live on a terminal, summary otherwise. |
 | `--summary [--by model\|project\|session\|day]` | Totals per source and model, API-equivalent cost, plan comparison, limits, machines, cloud and alerts. |
 | `--sync` | Import new usage and print how many rows were added per source. |
 | `--line [--sep " · "]` | One line: each subscription's fullest limit window and today's cost. Re-reads logs at most every 30 s. |
@@ -130,7 +137,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--proxy [--listen ... --upstream ... --machine NAME]` | Token-counting proxy for Ollama and OpenAI-compatible servers. |
 | `--tokens` | Exact token breakdown and cache share for the last 30 days; date filters and JSON supported. Beta.2 development. |
 | `--local-requests [N] [--tag test/production/benchmark]` | New proxy request timings, HTTP outcomes and output / elapsed tok/s; date/machine/model filters. Beta.2 development. |
-| `--local-history [N] [--machine NAME] [--model MODEL]` | Recent local usage: today's latest 20 rows by default, at most 200; date filters and `--json` supported. Added in beta.2 development. |
+| `--local-history [N] [--machine NAME] [--model MODEL]` | Recent local usage: today's latest 20 rows by default, at most 200; date filters and `--json` supported. Added in beta.3 development. |
 | `--mcp` | MCP server on stdio for agents (see below). |
 | `--paths`, `--version` | |
 
@@ -221,7 +228,7 @@ computer or homelab boxes ([details](MULTI-DEVICE.md)):
 - **Shared folder** (recommended): on every computer, `computai --set devices.folder=PATH` with a folder they all
   sync (iCloud Drive, Dropbox, Syncthing, a private git repo). Each writes its own usage there (usage numbers only:
   no prompts or full paths; session IDs are replaced by device- and source-scoped one-way hashes) and reads the others'.
-  `devices.name` sets the name shown. The session export fix is available in beta.2 development checkouts;
+  `devices.name` sets the name shown. The anonymous-session export fix is available in released beta.2 and this checkout;
   see the [upgrade steps](MULTI-DEVICE.md#從沒有-session-的舊格式升級) to recover grouping for previously imported usage.
 - **SSH pull**: `[machine.X] usage = pull` for a machine in `[machines]`. ComputAI copies itself to
   `~/.cache/computai` there (only `python3` is needed) and runs `computai --export-usage`.
@@ -316,7 +323,7 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 
 ## Dashboards
 
-- `computai` / `--live` (cyber theme) has tabs: **1 overview** (fits one screen: limit gauges, one line per machine, spend, the top alerts and advice), **2 limits**, **3 machines**, **4 local models**, **5 spend**, **6 timeline**; `1`-`6` or `Tab` switch, `q` quits. Limits show what is left by default (`[general] limits = used` flips it). The panels, top to bottom:
+- `--live` (or Enter in the development menu, cyber theme) has tabs: **1 overview** (fits one screen: limit gauges, one line per machine, spend, the top alerts and advice), **2 limits**, **3 machines**, **4 local models**, **5 spend**, **6 timeline**; `1`-`6` or `Tab` switch, `q` quits. Development: `h` or `?` opens help with feature commands, even while data loads; `h`, `?` or Esc returns, `c` opens the card creator. Limits show what is left by default (`[general] limits = used` flips it). The panels, top to bottom:
   - **Verdict**: ALL CLEAR, WATCH or ALERT and the worst problem in plain words
     ("Codex weekly limit is used up - resets in 4h43m · +1 more").
   - **LIMITS**: a thick gauge per limit window with its percentage. A white `┃` marks how much of the
@@ -390,7 +397,7 @@ vLLM, llama.cpp and SGLang report token totals themselves. Ollama does not: put 
 Clients keep using `:11434` unchanged. The proxy serves running totals at `/metrics`, which sampling reads over SSH, so this works on other machines too.
 
 - If sampling reads the proxy as an Ollama service, or reads counters from upstream vLLM/llama.cpp/SGLang, the proxy only keeps totals. Sampling native Ollama/LM Studio alone does not disable per-request recording.
-- Sampling is normally detected automatically to avoid double counting. Explicit `--no-ledger` keeps only `/metrics`; in beta.2 development it also disables persistent request metadata.
+- Sampling is normally detected automatically to avoid double counting. Explicit `--no-ledger` keeps only `/metrics`; in beta.3 development it also disables persistent request metadata.
 
 ## GitHub profile card, kept fresh
 
@@ -414,7 +421,7 @@ Once a day, `computai`, `--web` or `--watch` rewrites the two card SVGs there an
 - `lang` sets the card's language.
 - `--setup` asks for all of this and finds the profile repo on disk. Before pushing it rebases onto any commit a bot pushed in the meantime.
 
-## Recent local inference (beta.2 development)
+## Recent local inference (beta.3 development)
 
 Available on `feature-local-history`; the published `v0.1.0-beta.1` does not include it.
 
@@ -463,7 +470,7 @@ price in `prices.ini`; hardware is not counted. Only usage fields are read from 
 
 Macs need `idle_watts` / `max_watts` (or a smart plug) for the power columns.
 
-## Personal history profile (beta.2 development)
+## Personal history profile (beta.3 development)
 
 ```sh
 computai --profile --html profile.html --who hawks
@@ -696,7 +703,7 @@ Codex, an `[mcp_servers.computai]` entry with `command = "computai"` and `args =
 - *Uninstall*: delete the `computai` file, `~/.config/computai` and `~/.local/share/computai`.
 
 
-## Token breakdown and local request tracing (beta.2 development)
+## Token breakdown and local request tracing (beta.3 development)
 
 ```sh
 computai --tokens
