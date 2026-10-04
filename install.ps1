@@ -9,11 +9,11 @@ param([switch]$Create, [switch]$Recap, [switch]$NoOpen)
 $ErrorActionPreference = "Stop"
 if ($NoOpen -and -not ($Create -or $Recap)) { Write-Error "-NoOpen requires -Recap or -Create"; exit 2 }
 $Bin = Join-Path $env:LOCALAPPDATA "computai\bin"
-$Ref = if ($env:COMPUTAI_REF) { $env:COMPUTAI_REF } else { "v0.1.0-beta.2" }
+$Ref = if ($env:COMPUTAI_REF) { $env:COMPUTAI_REF } else { "v0.1.0-beta.3" }
 $Url = if ($env:COMPUTAI_URL) { $env:COMPUTAI_URL } else { "https://raw.githubusercontent.com/Sean-Hawks/computai/$Ref/computai" }
 $Local = Join-Path $PSScriptRoot "computai"
 if (($Create -or $Recap) -and -not (Test-Path $Local) -and $Ref -in @("v0.1.0-beta.1", "v0.1.0-beta.2")) {
-    Write-Error "Monthly recaps need the development folder; released beta.1 and beta.2 do not include the creator yet. Nothing has been installed."
+    Write-Error "Monthly recaps require beta.3 or later; beta.1 and beta.2 do not include the creator. Use a beta.3 folder. Nothing has been installed."
     exit 2
 }
 
