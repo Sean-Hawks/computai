@@ -8381,6 +8381,8 @@ def spend_panels(st, width, height=None):
         out += panel(bold(text("需要注意與調整", "ATTENTION & NEXT STEPS")), "", attention, width)
     else:
         out += paragraph(dim(text("警示與建議：computai --insights", "Alerts and advice: computai --insights")), width)
+    if height and len(out) > max(6, height - 7):
+        return spend_panels(st, width, min(height, 36))
     return out
 
 

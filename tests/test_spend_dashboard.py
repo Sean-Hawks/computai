@@ -101,6 +101,15 @@ class SpendDashboard(unittest.TestCase):
                 for amount in ("$315.79", "$425.63", "$274.67"):
                     self.assertIn(amount, result)
 
+    def test_medium_terminal_falls_back_instead_of_losing_bottom_rows(self):
+        for lang in ("zh", "en"):
+            for width in (60, 90, 160):
+                for height in (30, 36, 40, 50, 60):
+                    result = self.render(width=width, height=height, lang=lang)
+                    self.assertLessEqual(len(result.splitlines()), height - 7)
+                    for amount in ("$315.79", "$425.63", "$274.67"):
+                        self.assertIn(amount, result)
+
     def test_missing_prices_plans_and_zero_fees_are_visible(self):
         del self.state["forecast"]["subscription_by_source"]["claude"]
         self.state["forecast"]["subscription_by_source"]["codex"]["usd"] = 0
