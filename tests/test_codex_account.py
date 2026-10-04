@@ -7,7 +7,7 @@ import unittest
 from tests import helpers
 
 FAKE = r"""#!/usr/bin/env python3
-import json, sys
+import json, os, sys
 for line in sys.stdin:
     m = json.loads(line)
     if m.get("id") == 1:
@@ -16,7 +16,8 @@ for line in sys.stdin:
         print(json.dumps({"id": 2, "result": {
             "accountId": "acct-SECRET", "ordinaryUsageAllowed": True,
             "rateLimitResetCredits": {"availableCount": 1, "credits": None},
-            "rateLimits": {"planType": "pro", "primary": {"usedPercent": 39, "windowDurationMins": 10080,
+            "rateLimits": {"planType": "pro", "primary": {
+                "usedPercent": 80 if os.environ.get("CODEX_HOME", "").endswith("-nycu") else 39, "windowDurationMins": 10080,
                                                           "resetsAt": 1791593542},
                            "secondary": {"usedPercent": 12, "windowDurationMins": 300, "resetsAt": 1791000000}}}}),
               flush=True)
@@ -55,6 +56,17 @@ class CodexAccount(unittest.TestCase):
         dump = "\n".join(db.iterdump())
         self.assertNotIn("acct-SECRET", dump)                                    # 帳號 ID 不留
         self.assertEqual(db.execute("SELECT value FROM meta WHERE key = 'codex_reset_credits'").fetchone()[0], "1")
+
+    @unittest.skipIf(os.name == "nt", "fake codex is a POSIX script")
+    def test_polls_every_listed_account(self):
+        os.environ["CODEX_HOME"] = ",".join(os.path.join(self.tmp, d) for d in (".codex", ".codex-nycu"))
+        db = self.m.open_ledger(":memory:")
+        self.addCleanup(db.close)
+        self.m.codex_account_poll(db, t=1790000000)
+        got = {(r["account"], r["used_percent"]) for r in self.m.current_limits(db, t=1790000000) if r["name"] == "week"}
+        self.assertEqual(got, {("", 39.0), ("nycu", 80.0)})
+        keys = {r[0] for r in db.execute("SELECT key FROM meta WHERE key LIKE 'codex_reset_credits%'")}
+        self.assertEqual(keys, {"codex_reset_credits", "codex_reset_credits:nycu"})
 
     def test_no_codex_cli(self):
         os.environ["PATH"] = "/nonexistent"
