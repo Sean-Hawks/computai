@@ -94,3 +94,45 @@ class RemoteSessions(unittest.TestCase):
         self.a.execute("UPDATE usage SET session = ''")
         rows = self.m.parse_export(self.export())[1]
         self.assertTrue(all(r["session"] == "" for r in rows))
+
+    def test_shared_folder_rewrites_legacy_signature_and_backfills_existing_rows(self):
+        folder = os.path.join(self.sb.root, "share")
+        os.makedirs(folder)
+        path = os.path.join(folder, self.head["device"] + ".jsonl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.legacy)
+        self.assertEqual(self.m.read_device_folder(self.b, folder), 4)
+        sig = self.a.execute("SELECT COUNT(*), MAX(ts), SUM(input + output + cache_read + cache_write_5m + cache_write_1h) FROM usage").fetchone()
+        self.a.execute("INSERT INTO meta VALUES ('device_export_sig', ?)", ("%s:%s:%s" % tuple(sig),))
+        self.a.execute("INSERT INTO meta VALUES ('device_data_at', ?)", (str(self.head["written"] - 130),))
+        self.assertEqual(self.m.write_device_files(self.a, folder, t=self.head["written"]), 4)
+        self.assertEqual(self.m.read_device_folder(self.b, folder), 4)
+        self.assertEqual(self.m.read_device_folder(self.b, folder), 0)
+        self.assertEqual(self.b.execute("SELECT COUNT(DISTINCT session) FROM usage").fetchone()[0], 2)
+        self.assertIsNone(self.m.write_device_files(self.a, folder, t=self.head["written"] + 130))
+
+    def test_ssh_upgrade_replays_history_once_and_keeps_retrying_after_bad_exports(self):
+        old_head, old_rows = self.m.parse_export(self.legacy)
+        self.m.merge_export(self.b, old_head, old_rows, "ssh")
+        self.b.execute("INSERT INTO meta VALUES ('pull_since:demo', '1790036100')")
+        body = b"synthetic remote script"
+        import hashlib
+        since = []
+        exports = ["{broken", self.export(), self.export()]
+
+        def remote(host, script, timeout=20):
+            if script == self.m.PULL_CHECK:
+                return "PY " + hashlib.sha256(body).hexdigest() + "\n"
+            since.append(int(script.rsplit(" ", 1)[-1]))
+            return exports.pop(0)
+
+        box = {"name": "demo", "host": "fixture-host"}
+        with mock.patch.object(self.m, "run_script", side_effect=remote):
+            added, error = self.m.pull_device(self.b, box, body=body)
+            self.assertEqual(added, 0)
+            self.assertIn("bad export", error)
+            self.assertIsNone(self.b.execute("SELECT value FROM meta WHERE key = 'pull_sessions:demo'").fetchone())
+            self.assertEqual(self.m.pull_device(self.b, box, body=body), (4, ""))
+            self.assertEqual(self.m.pull_device(self.b, box, body=body), (0, ""))
+        self.assertEqual(since, [0, 0, self.head["written"] - 86400])
+        self.assertEqual(self.b.execute("SELECT COUNT(*), COUNT(DISTINCT session) FROM usage").fetchone()[:], (4, 2))
