@@ -39,7 +39,22 @@ CASES = [
      {"claude": [w("week", 100, 86400)], "codex": [w("5h", 99.6, 3 * H)]}, OLLAMA, "heavy",
      "local:qwen3:8b", "local_fallback"),
     ("沒有額度資料但有裝：還是可以選",
-     {"claude": []}, [], "heavy", "claude", "headroom"),
+     {"claude": []}, [], "heavy", "claude", "unknown"),
+    ("Claude 額度不明，Codex 剩 44%：選已知額度",
+     {"claude": [], "codex": [w("week", 56, 4 * 86400)]}, [], "heavy", "codex", "headroom"),
+    ("Codex 額度不明，Claude 有剩：選已知額度",
+     {"claude": [w("week", 56, 4 * 86400)], "codex": []}, [], "heavy", "claude", "headroom"),
+    ("未知百分比不算成 100%",
+     {"claude": [w("week", None, 4 * 86400)], "codex": [w("week", 56, 4 * 86400)]}, [], "heavy",
+     "codex", "headroom"),
+    ("已知額度會提早用完：仍優先於未知額度",
+     {"claude": [], "codex": [w("week", 95, 4 * 86400, eta=H)]}, [], "heavy", "codex", "early"),
+    ("已知額度用完：選未知額度作備用",
+     {"claude": [], "codex": [w("week", 100, 4 * 86400)]}, [], "heavy", "claude", "unknown"),
+    ("重任務：未知額度在本地模型前面",
+     {"claude": []}, OLLAMA, "heavy", "claude", "unknown"),
+    ("輕任務：本地模型仍在未知額度前面",
+     {"claude": []}, OLLAMA, "light", "local:qwen3:8b", "local_light"),
     ("什麼都沒有",
      {"claude": None, "codex": [w("week", 100, 86400)]}, [], "heavy", None, "none"),
 ]
@@ -63,6 +78,31 @@ class Pick(unittest.TestCase):
         self.assertEqual(self.m.pick_reason(p), "Claude Code 5-hour limit resets in 40m with 60% left - use it now or lose it")
         p = self.m.pick_agent({}, OLLAMA, "light")
         self.assertEqual(p["command"], "ssh m1m ollama run qwen3:8b")
+
+    def test_unknown_has_no_invented_headroom(self):
+        for windows in ([], [w("week", None, 4 * 86400)]):
+            with self.subTest(windows=windows):
+                p = self.m.pick_agent({"claude": windows, "codex": []}, OLLAMA, "heavy")
+                self.assertEqual(p["why"], "unknown")
+                self.assertEqual(p["args"], {"src": "claude"})
+                self.assertEqual(p["ranked"], ["claude", "codex", "local:qwen3:8b"])
+                for lang, reason in (("en", "Claude Code limit usage is unknown; selected as a fallback"),
+                                     ("zh", "Claude Code 額度不明，作為備用選項")):
+                    self.m.set_lang(lang)
+                    self.assertEqual(self.m.pick_reason(p), reason)
+
+    def test_known_headroom_ranks_before_unknown(self):
+        for used in (0, 56, 99):
+            with self.subTest(used=used):
+                p = self.m.pick_agent({"claude": [], "codex": [w("week", used, 4 * 86400)]}, OLLAMA, "heavy")
+                self.assertEqual(p["ranked"], ["codex", "claude", "local:qwen3:8b"])
+                self.assertEqual(p["args"]["left"], 100 - used)
+
+    def test_known_window_still_applies_with_unknown_window(self):
+        for used, tool in ((56, "codex"), (100, "claude")):
+            with self.subTest(used=used):
+                p = self.m.pick_agent({"claude": [], "codex": [w("5h", None, H), w("week", used, 4 * 86400)]}, [], "heavy")
+                self.assertEqual(p["tool"], tool)
 
 
 class PickQuoting(unittest.TestCase):

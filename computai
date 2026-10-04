@@ -6206,7 +6206,8 @@ def pick_agent(subs, local, task="heavy"):
       2. 輕量任務優先用本地模型（不花額度）
       3. 剩最多、照速度不會提早用完的訂閱
       4. 照速度會提早用完的訂閱
-      5. 重的任務最後才退到本地模型
+      5. 額度未知但已安裝的訂閱（不假設剩餘百分比）
+      6. 重的任務最後才退到本地模型
     用完的額度永遠不選。"""
     cands = []
     for src in ("claude", "codex"):
@@ -6214,9 +6215,13 @@ def pick_agent(subs, local, task="heavy"):
         if ws is None:
             continue
         ws = [w for w in ws if w.get("used_percent") is not None]
+        if not ws:
+            cands.append({"tool": src, "command": src, "rank": 4, "score": 0.0,
+                          "why": "unknown", "args": {"src": src}})
+            continue
         if any(w["used_percent"] >= LIMIT_FAIL for w in ws):
             continue
-        left = min([100.0 - w["used_percent"] for w in ws] or [100.0])
+        left = min(100.0 - w["used_percent"] for w in ws)
         early = [w for w in ws if w.get("eta_full") is not None and w.get("resets_in") and w["eta_full"] < w["resets_in"]]
         expiring = [w for w in ws if expiring_soon(w) and 100.0 - w["used_percent"] >= PICK_EXPIRING_LEFT]
         rank = 0 if expiring else (2 if not early else 3)
@@ -6226,7 +6231,7 @@ def pick_agent(subs, local, task="heavy"):
             ("headroom", {"src": src, "left": left})
         cands.append({"tool": src, "command": src, "rank": rank, "score": left, "why": why, "args": args})
     for x in local:
-        cands.append({"tool": "local:" + x["model"], "command": x["command"], "rank": 1 if task == "light" else 4,
+        cands.append({"tool": "local:" + x["model"], "command": x["command"], "rank": 1 if task == "light" else 5,
                       "score": 0.0 if x.get("busy") else 1.0,
                       "why": "local_light" if task == "light" else "local_fallback",
                       "args": {"model": x["model"], "machine": x["machine"]}})
@@ -6565,6 +6570,7 @@ UI = {
         "tab_timeline": "TIMELINE",
         "pk_expiring": "%(src)s %(win)s resets in %(reset)s with %(left)s left - use it now or lose it",
         "pk_headroom": "%(src)s has the most room left (%(left)s)",
+        "pk_unknown": "%(src)s limit usage is unknown; selected as a fallback",
         "pk_early": "%(src)s %(win)s runs out in %(eta)s at this pace, but it's the best one left",
         "pk_local_light": "a light task: %(model)s on %(machine)s uses no quota",
         "pk_local_fallback": "the subscriptions are used up; %(model)s on %(machine)s still works",
@@ -6827,6 +6833,7 @@ UI = {
         "tab_timeline": "時間軸",
         "pk_expiring": "%(src)s %(win)s %(reset)s 後重置、還剩 %(left)s，現在用最划算",
         "pk_headroom": "%(src)s 剩最多（%(left)s）",
+        "pk_unknown": "%(src)s 額度不明，作為備用選項",
         "pk_early": "%(src)s %(win)s照速度 %(eta)s 後用完，但已經是剩最多的",
         "pk_local_light": "輕量任務：%(machine)s 上的 %(model)s 不花額度",
         "pk_local_fallback": "訂閱額度都用完了，%(machine)s 上的 %(model)s 還能用",
