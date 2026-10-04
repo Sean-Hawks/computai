@@ -79,7 +79,7 @@ computai --discover --add             # 把連得上的機器都加進來，附�
 ## 使用
 
 ```sh
-computai                          # 終端機 live 畫面：1-5 切分頁（總覽、額度、機器、本地模型、花費），q 離開
+computai                          # 終端機 live 畫面：1-6 切分頁（總覽、額度、機器、本地模型、花費、時間軸），q 離開
 computai --summary --month        # 這個月；--since 2026-09-01、--by project|day|session
 computai --line                   # Claude 42%｜Codex 100% (1d0h)｜today $6.9
 computai --analyze                # 預測、方案建議、快取浪費、電費
@@ -89,6 +89,7 @@ computai --report --month 2026-09 --html september.html
 computai --sample                 # 讀一次 [machines] 裡的每台機器
 computai --cloud                  # RunPod / Vast.ai / Lambda
 computai --proxy                  # 統計 Ollama 的 token：127.0.0.1:11435 -> :11434
+computai --local-history --lang zh # beta.2 開發分支：最近本地用量，區分逐筆請求與取樣差值
 computai --payback 1800 --gpu-watts 450
 computai --discover               # 看看哪些機器讀得到
 computai --bench                  # 每個本地模型的速度和每百萬 token 電費

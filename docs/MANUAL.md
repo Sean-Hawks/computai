@@ -128,6 +128,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--sample` | Read every machine once and print the machine table. |
 | `--cloud` | List RunPod, Vast.ai and Lambda instances and record their cost. |
 | `--proxy [--listen ... --upstream ... --machine NAME]` | Token-counting proxy for Ollama and OpenAI-compatible servers. |
+| `--local-history [N] [--machine NAME] [--model MODEL]` | Recent local usage: today's latest 20 rows by default, at most 200; date filters and `--json` supported. Added in beta.2 development. |
 | `--mcp` | MCP server on stdio for agents (see below). |
 | `--paths`, `--version` | |
 
@@ -405,6 +406,26 @@ Once a day, `computai`, `--web` or `--watch` rewrites the two card SVGs there an
 - `handle` sets the title; it defaults to the repo's GitHub account.
 - `lang` sets the card's language.
 - `--setup` asks for all of this and finds the profile repo on disk. Before pushing it rebases onto any commit a bot pushed in the meantime.
+
+## Recent local inference (beta.2 development)
+
+Available on `feature-local-history`; the published `v0.1.0-beta.1` does not include it.
+
+```sh
+computai --local-history
+computai --local-history 50 --machine m1m --model qwen3:8b
+computai --local-history 200 --since 2026-10-01 --until 2026-10-04 --json
+```
+
+Rows show time, model, machine, input (including cache reads), output and recording source.
+Proxy rows represent requests and show their count. Counter rows represent usage between two samples;
+their request count is unknown (`-`) and a row may cover multiple requests. This reads the existing ledger
+without importing logs or running a model. Capture through the proxy or service `/metrics` first;
+uncaptured history cannot be recovered.
+
+Terminal tab **4 Local models** and the web dashboard show today's latest eight rows. Short terminals
+show fewer rows with a CLI hint. Restart an existing dashboard to load the new code.
+Only usage metadata is recorded: no prompts, responses, Claude Code task contents, duration or outcome.
 
 ## What local models really cost (`--local-cost`)
 

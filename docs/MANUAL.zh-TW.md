@@ -113,6 +113,7 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 | `--sample` | 讀一次每台機器，印出機器表。 |
 | `--cloud` | 列出 RunPod、Vast.ai、Lambda 的機器並記下花費。 |
 | `--proxy [--listen ... --upstream ... --machine 名稱]` | Ollama 和 OpenAI 相容服務的 token 計數 proxy。 |
+| `--local-history [筆數] [--machine 名稱] [--model 模型]` | 最近本地用量，預設今天最新 20 筆，最多 200 筆；支援日期範圍與 `--json`。beta.2 開發版新增。 |
 | `--mcp` | 給 agent 用的 MCP server（見下面）。 |
 | `--paths`、`--version` | |
 
@@ -360,6 +361,23 @@ push = yes
 - `handle` 是標題上的名字，預設用 repo 的 GitHub 帳號。
 - `lang` 是卡片的語言。
 - `--setup` 會一項一項問，也會自動找到本機的個人頁 repo。推之前會先接上機器人推的 commit。
+
+## 最近本地推論紀錄（beta.2 開發版）
+
+這項功能位於 `feature-local-history` 分支，已發佈的 `v0.1.0-beta.1` 尚未包含。
+
+```sh
+computai --local-history --lang zh
+computai --local-history 50 --machine m1m --model qwen3:8b --lang zh
+computai --local-history 200 --since 2026-10-01 --until 2026-10-04 --json
+```
+
+每列顯示時間、模型、機器、輸入與輸出 token，以及記帳來源；輸入包含快取讀取。
+`proxy` 是逐筆請求，會顯示請求數；「取樣差值」是兩次服務計數器之間的用量，請求數顯示 `-`，不能當成單一請求。
+這只查現有帳本，不會觸發模型或重新匯入 log。沒有紀錄時，需先透過 proxy 或服務的 `/metrics` 記帳；無法還原未記錄的歷史。
+
+TUI 分頁 **4 本地模型** 與網頁會顯示今天最新 8 筆；終端視窗較矮時會減少顯示筆數，並提示完整查詢指令。
+已在執行的 TUI／網頁需重新啟動才會載入新版程式。紀錄僅含用量，不保存提示詞、回應、Claude Code 的任務內容、耗時或成功／失敗狀態。
 
 ## 本地模型的真實成本（`--local-cost`）
 
