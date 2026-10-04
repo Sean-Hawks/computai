@@ -254,6 +254,21 @@ class SshErrors(unittest.TestCase):
         m.run_cmd(["sh", "-c", "sleep 5"], timeout=1, errors=errs)
         self.assertEqual(errs, ["no answer within 1 s"])
 
+    def test_check_required_timeout_keeps_cause_without_authentication_url(self):
+        from unittest.mock import patch
+        import subprocess
+        m = helpers.load()
+        with open(helpers.fixture("ssh", "check-required.txt"), "rb") as f:
+            stderr = f.read()
+        for diagnostic in (stderr, stderr.decode()):
+            with patch.object(m.subprocess, "run", side_effect=subprocess.TimeoutExpired("ssh", 1, stderr=diagnostic)):
+                errors = []
+                self.assertEqual(m.run_cmd(["ssh", "example"], timeout=1, errors=errors), "")
+                self.assertEqual(errors, ["Tailscale SSH requires an additional check"])
+                self.assertNotIn("SYNTHETIC-PRIVATE-CHECK", str(errors))
+                self.assertNotIn("https://", str(errors))
+                self.assertIn("browser", m.ssh_hint(errors[0]))
+
     def test_unreachable_machine_becomes_alert(self):
         sb = helpers.Sandbox()
         old = dict(os.environ)

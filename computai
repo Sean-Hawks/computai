@@ -2805,9 +2805,16 @@ def run_cmd(argv, stdin=None, timeout=20, errors=None):
             lines = [ln.strip() for ln in untrusted(p.stderr or "").splitlines() if ln.strip()]
             errors.append(lines[-1][:200] if lines else "exit status %d" % p.returncode)
         return p.stdout or ""
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as e:
         if errors is not None:
-            errors.append("no answer within %d s" % timeout)
+            stderr = e.stderr or b""
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
+            # Keep the cause, never the temporary authentication URL.
+            if "Tailscale SSH requires an additional check" in stderr:
+                errors.append("Tailscale SSH requires an additional check")
+            else:
+                errors.append("no answer within %d s" % timeout)
         return ""
     except (OSError, subprocess.SubprocessError) as e:
         if errors is not None:
@@ -2821,6 +2828,8 @@ ssh_errors = {}
 
 def ssh_hint(msg):
     """把 ssh 的錯誤訊息翻成下一步該做什麼。"""
+    if "Tailscale SSH requires an additional check" in msg:
+        return "run `ssh HOST` in a terminal and open its authentication link in your browser"
     if "Host key verification failed" in msg:
         return "its host key is not in known_hosts under this name; use the name or IP you already " \
                "ssh to, or run `ssh HOST` once by hand"
