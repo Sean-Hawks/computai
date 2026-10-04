@@ -7508,16 +7508,22 @@ def verdict(st):
     return {"level": level, "word": T("v_" + level), "items": items}
 
 
+def machine_connectivity(st):
+    """Count each node once; an old sample or a failed poll is not online."""
+    down = {a["machine"] for a in st["alerts"] if a["kind"] == "machine_unreachable"}
+    names = {m["machine"] for m in st["machines"]} | down
+    online = {m["machine"] for m in st["machines"] if not m.get("stale") and m["machine"] not in down}
+    return len(online), len(names), down
+
+
 def hud_header(st, width, clock, frame=0):
     """標頭（Minerva 的 instrument rail）：左邊品牌和這是什麼、這個月；右邊在線機器數和時間。"""
     left = " " + bold(sym("\u25ce ", "") + "COMPUTAI") + "  " + dim(T("hud_tag")) + rgb(GREY, sym("  \u2502  ", "  |  ")) + \
         dim("Month ") + bold(st["month"])
-    ms = st["machines"]
-    errors = sum(1 for a in st["alerts"] if a["kind"] == "machine_unreachable")
+    online, total, down = machine_connectivity(st)
     bits = []
-    if ms or errors:
-        total = len(ms) + errors
-        bits.append(rgb(GREEN if not errors else AMBER, sym("\u25cf ", "* ") + T("h_online") % (len(ms), total)))
+    if total:
+        bits.append(rgb(GREEN if online == total else AMBER, sym("\u25cf ", "* ") + T("h_online") % (online, total)))
     bits.append(dim(clock))
     right = "   ".join(bits) + " "
     gap = width - vlen(left) - vlen(right)
@@ -7565,11 +7571,14 @@ def boot_checks(st):
     out = [("LEDGER", "OK", "ok")]
     for x in st["sources"]:
         out.append(("LINK  " + T("src").get(x["source"], x["source"]).upper(), fmt_tok(x["tokens"]) + " tok", "ok"))
+    _, _, down_names = machine_connectivity(st)
     for m in st["machines"]:
+        if m["machine"] in down_names:
+            continue
         gpus = m.get("gpus") or []
         hw = (gpus[0].get("model") or gpus[0].get("vendor") or "GPU") if gpus else "CPU"
-        out.append(("NODE  " + m["machine"], ("GENERATING" if m["ai_active"] else "ONLINE") + "  " + hw,
-                    "ok"))
+        out.append(("NODE  " + m["machine"], ("STALE" if m.get("stale") else "GENERATING" if m["ai_active"] else "ONLINE") + "  " + hw,
+                    "warn" if m.get("stale") else "ok"))
     for a in st["alerts"]:
         if a["kind"] == "machine_unreachable":
             out.append(("NODE  " + a["machine"], "OFFLINE", "fail"))
@@ -7979,10 +7988,11 @@ def render_mission(st, width, height, frame):
     字一律白，顏色只代表狀態；大數字只畫數字，$ 和 % 用小字，才不會看錯。"""
     out = []
     v = verdict(st)
-    ms = st["machines"]
+    online, total, down_names = machine_connectivity(st)
+    ms = [m for m in st["machines"] if m["machine"] not in down_names]
     lo = st.get("local") or {}
     f = st["forecast"]
-    down = sum(1 for a in st["alerts"] if a["kind"] == "machine_unreachable")
+    down = total - online
     # ── 額度橫幅 ──
     limits = sorted(st["limits"], key=lambda r: -(r["used_percent"] or 0))
     have = {r["source"] for r in limits}
@@ -8055,7 +8065,7 @@ def render_mission(st, width, height, frame):
     t4 = tile(T("hm_power"), big_num("%d" % round(watts), "W"),
               [line_chart(hist[-iw * 2:], iw, 1)[0] if any(hist) else dim(T("m_nopower")),
                dim(T("h_month_kwh") % kwh) + dim(" \u00b7 ") + fmt_usd(ecost)], tw,
-              dim(T("h_machines_n") % len(ms)))
+              dim(T("h_machines_n") % total))
     tiles = [t1, t2, t3, t4] if n == 4 else [t1, t2]   # 窄的時候只留錢；推論和功耗在分頁 3、4
     for i in range(0, len(tiles), n):
         out += side_by_side_many(tiles[i:i + n], 1)
@@ -8102,7 +8112,7 @@ def render_mission(st, width, height, frame):
     ch = bh - len(rows_) - 2
     if ch >= 2 and any(load) and not _ascii:
         rows_ += ["", dim(T("h_load"))] + line_chart(load[-(nw - 6) * 2:], nw - 6, min(6, ch - 1), scale=(0, 100))
-    nodes = mpanel(tag(T("h_nodes")), rows_, nw, rgb(GREEN if not down else AMBER, T("hm_online") % (len(ms), len(ms) + down)),
+    nodes = mpanel(tag(T("h_nodes")), rows_, nw, rgb(GREEN if not down else AMBER, T("hm_online") % (online, total)),
                    height=bh)
     att = attention_cards(st, aw - 4, bh if side else max(3, room - bh - 2))
     total = len(v["items"])
@@ -8213,7 +8223,8 @@ def render_hud(st, width, height, frame, view):
     elif view == "overview":
         body += hero_panel(st, width, frame)
         if st["machines"]:
-            rows = [machine_row(m, width - 4) for m in st["machines"]]
+            _, _, down_names = machine_connectivity(st)
+            rows = [machine_row(m, width - 4) for m in st["machines"] if m["machine"] not in down_names]
             errors = [a for a in st["alerts"] if a["kind"] == "machine_unreachable"]
             rows += [" %s %s" % (rgb(RED, "!"), bold(a["machine"]) + " " + dim(T("v_down") % "")) for a in errors]
             watts = sum(m["power_w"] or 0 for m in st["machines"])
@@ -9053,16 +9064,20 @@ function homeTiles(st) {   // 跟 TUI 總覽一樣的四塊：今天、本月、
           tile(t.h_local, `${Math.round(rate)}`, `tok/s · ${who}`, gen.length ? "ok" : null), ...(ms.length ? [pw] : [])];
 }
 function machineTable(st) {   // 機器表：狀態字＋點、CPU／GPU／記憶體小量表、功耗、正在跑的模型
-  const card = el("div", {class: "card"}, hd(t.h_nodes, fmt(t.h_online, st.machines.filter((m) => !m.stale).length, st.machines.length)));
-  if (!st.machines.length) { card.append(el("div", {class: "muted"}, t.w_no_machines)); return card; }
+  const down = new Set(st.alerts.filter((a) => a.kind === "machine_unreachable").map((a) => a.machine));
+  const nodes = new Map(st.machines.map((m) => [m.machine, m]));
+  for (const name of down) nodes.set(name, {machine: name, offline: true});
+  const online = [...nodes.values()].filter((m) => !m.stale && !m.offline).length;
+  const card = el("div", {class: "card"}, hd(t.h_nodes, fmt(t.h_online, online, nodes.size)));
+  if (!nodes.size) { card.append(el("div", {class: "muted"}, t.w_no_machines)); return card; }
   const tb = el("table", {class: "mt"}), head = el("tr");
   for (const [h, opt] of [["", 0], [t.w_machine, 0], ["CPU", 0], ["GPU", 0], ["MEM", 1], ["W", 0], [t.lc_model || "MODEL", 1]])
     head.append(el("th", opt ? {class: "opt"} : {}, h));
   tb.append(head);
-  for (const m of st.machines) {
+  for (const m of nodes.values()) {
     const mem = m.mem_total ? 100 * m.mem_used / m.mem_total : null, busy = m.ai_active, old = m.stale;
     const tr = el("tr");
-    tr.append(el("td", {class: busy ? "lv-ok" : old ? "lv-warn" : ""}, busy ? "● " + t.busy : old ? "! " + t.w_stale : "○ " + t.idle),
+    tr.append(el("td", {class: m.offline ? "lv-fail" : busy ? "lv-ok" : old ? "lv-warn" : ""}, m.offline ? "▲ " + t.h_down : busy ? "● " + t.busy : old ? "! " + t.w_stale : "○ " + t.idle),
               el("td", {}, m.machine),
               el("td", {}, mini(m.cpu_pct), m.cpu_pct == null ? "-" : Math.round(m.cpu_pct) + "%"),
               el("td", {}, mini(m.gpu_util), m.gpu_util == null ? "-" : Math.round(m.gpu_util) + "%"),
