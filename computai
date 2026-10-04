@@ -5853,12 +5853,13 @@ def timeline_data(db, start=None, end=None, t=None, prices=None):
         row["events"].append((r["ts"], tok))
         row["tokens"] += tok
         row["cost_usd"] += row_cost(r, price_for(r["model"], prices)) or 0.0
-    # 跨午夜：這個 session 在 start 之前一小時內就有請求
+    # 跨午夜：這個 session 在 start 之前一小時內就有請求。一次查完那一小時（走 ts 索引）；
+    # 逐個 session 查的話 SQLite 會挑主鍵 (source) 索引，每次都掃過那個來源的全部歷史。
+    before = {(r[0], r[1]) for r in db.execute("SELECT DISTINCT source, session FROM usage WHERE ts >= ? AND ts < ?",
+                                               (start - 3600, start))}
     for row in rows.values():
         if row["source"] != "local":
-            src, sess = row["key"].split("|")[:2]
-            row["continued"] = db.execute("SELECT 1 FROM usage WHERE source = ? AND session = ? AND ts >= ? AND ts < ? "
-                                          "LIMIT 1", (src, sess, start - 3600, start)).fetchone() is not None
+            row["continued"] = tuple(row["key"].split("|")[:2]) in before
         segs = []
         for ts, _tok in row["events"]:
             if segs and ts - segs[-1][1] <= TL_GAP:
