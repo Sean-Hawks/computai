@@ -10851,6 +10851,185 @@ document.getElementById("print").addEventListener("click",()=>window.print());
     return "".join(out)
 
 
+SHARE_LAYOUTS = {"square": (1080, 1080), "portrait": (1080, 1350), "wide": (1200, 630)}
+
+
+def render_profile_share_svg(d, selected="all", handle=None, layout="square", style="netrunner",
+                             colors=None, lang=None):
+    """一頁式社群圖卡；只放選定區間，沿用原有 HUD 配色，不附完整歷史。"""
+    if layout not in SHARE_LAYOUTS:
+        raise ValueError("unknown share layout: %s" % layout)
+    report = next((p for p in d["periods"] if p["key"] == selected), None)
+    if report is None:
+        raise ValueError("No observed history for %s" % selected)
+    zh = (lang or _lang) == "zh"
+    def L(z, e):
+        return z if zh else e
+    def short(n):
+        return ("%.2fB" % (n / 1e9) if n >= 1e9 else "%.1fM" % (n / 1e6) if n >= 1e6 else
+                "%.1fK" % (n / 1e3) if n >= 1e3 else str(n))
+    p = card_palette(style, "dark", colors)
+    W, H = SHARE_LAYOUTS[layout]
+    total = report["tokens"]["total"]
+    buckets = report["tokens"]["buckets"]
+    pct = report["tokens"]["cache_share_pct"]
+    first = max(report["start"], d["coverage"]["first"] or report["end"] - 1)
+    date = lambda ts: time.strftime("%Y.%m.%d", time.localtime(ts))
+    span = date(first) + " - " + date(report["end"] - 1)
+    title = (L("我的 AI 用量", "MY AI USAGE") if report["kind"] == "all" else
+             report["label"] + L(" 年度回顧" if report["kind"] == "year" else " 月回顧",
+                                 " IN REVIEW" if report["kind"] == "year" else " MONTHLY RECAP"))
+    stamp = L("截至目前", "SO FAR") if report["in_progress"] else L("已記錄歷史", "RECORDED HISTORY")
+    badge = clip(untrusted(handle or "COMPUTAI").upper(), 24)
+    frame = "M46 24H%dV%dL%d %dH24V46Z" % (W - 24, H - 46, W - 46, H - 24)
+    e = svg_escape
+    o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" data-layout="%s" aria-label="%s">' %
+         (W, H, W, H, layout, e(title + " " + span + " " + short(total) + " tokens")),
+         '<title>%s</title><desc>%s</desc>' % (e(title + " / " + badge), e(
+             "%s; %s tokens; %s" % (span, format(total, ","), "; ".join(
+                 "%s: %s" % (token_labels(zh)[k], format(buckets[k], ",")) for k in TOKEN_COLS)))),
+         '<style>text{font-family:%s}</style>' % CARD_FONT,
+         # 沿用 render_card_svg 的格線／掃描線／切角語彙，社群輸出採靜態構圖。
+         '<defs><linearGradient id="share-ac" x1="0" x2="1"><stop stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>' % (p["violet"], p["to"]),
+         '<pattern id="share-grid" width="36" height="36" patternUnits="userSpaceOnUse"><path d="M36 0H0V36" fill="none" stroke="%s" opacity=".07"/></pattern>' % p["violet"],
+         '<pattern id="share-scan" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="1" fill="#000" opacity=".16"/></pattern>'
+         '<clipPath id="share-frame"><path d="%s"/></clipPath></defs>' % frame,
+         '<rect width="%d" height="%d" fill="%s"/><g clip-path="url(#share-frame)"><rect width="%d" height="%d" fill="url(#share-grid)"/>' % (W, H, p["bg"], W, H),
+         '<rect width="%d" height="%d" fill="url(#share-scan)"/></g><path d="%s" fill="none" stroke="url(#share-ac)" stroke-width="2"/>' % (W, H, frame),
+         '<path d="M46 24H260" stroke="%s" stroke-width="5"/>' % p["amber"]]
+    def text(x, y, s, size=24, color=None, weight="400", anchor="start", room=None):
+        room = room if room is not None else (x - 60 if anchor == "end" else W - 60 - x)
+        full = untrusted(str(s))
+        # CJK 算兩欄，保守的等寬字寬估算；完整模型名留在 title。
+        cap = max(1, int(room / (size * .64)))
+        shown = full if vlen(full) <= cap else clip(full, max(0, cap - 1)) + "…"
+        o.append('<g><title>%s</title>%s</g>' % (e(full), svg_text(x, y, shown, size,
+                  color or p["text"], anchor=anchor, weight=weight)))
+    def rule(y, x=64, width=None):
+        o.append('<path d="M%d %dH%d" stroke="%s"/>' % (x, y, x + (W - 128 if width is None else width), p["frame"]))
+    def hero(x, y, size, room):
+        text(x + 3, y, short(total), size, p["to"], "800", room=room)
+        text(x - 3, y - 2, short(total), size, p["violet"], "800", room=room)
+        text(x, y, short(total), size, p["text"], "800", room=room)
+    def metric(x, y, value, label, room, size=50, color=None):
+        text(x, y, value, size, color or p["text"], "700", room=room)
+        text(x, y + 40, label, 22, p["gray"], room=room)
+    def sources(x, y, width):
+        rows = report["sources"]
+        mix = [(r["source"].upper(), r["tokens"]) for r in rows[:2]]
+        rest = sum(r["tokens"] for r in rows[2:])
+        if rest:
+            mix.append((L("其他", "OTHER"), rest))
+        text(x, y, L("用量來源", "USAGE SOURCES"), 24, p["amber"], "700", room=width)
+        left = x
+        for i, (name, n) in enumerate(mix):
+            w = width * n / total if total else 0
+            o.append('<rect x="%.2f" y="%d" width="%.2f" height="14" fill="%s"/>' %
+                     (left, y + 25, w, (p["violet"], p["to"], p["gray"])[i]))
+            left += w
+            share = ("<1%" if 0 < n < total / 100.0 else "%.1f%%" % (100.0 * n / total)) if total else "—"
+            size = 18 if layout == "wide" else 20
+            room = width / 3 - 12
+            cap = max(1, int(room / (size * .64)) - len(share) - 1)
+            shown_name = name if vlen(name) <= cap else clip(name, max(0, cap - 1)) + "…"
+            text(x + i * width / 3, y + 76, shown_name + " " + share, size, room=room)
+        if not mix:
+            text(x, y + 65, L("尚無可見用量", "No observed usage"), 22, p["gray"], room=width)
+    def trend(x, y, width, height):
+        if report["kind"] == "month":
+            start_day = datetime.date.fromisoformat(time.strftime("%Y-%m-%d", time.localtime(report["start"])))
+            last_day = datetime.date.fromisoformat(time.strftime("%Y-%m-%d", time.localtime(report["end"] - 1)))
+            counts = {r["day"]: r["tokens"] for r in report["daily"]}
+            values = [(str(i + 1), counts.get((start_day + datetime.timedelta(days=i)).isoformat(), 0))
+                      for i in range((last_day - start_day).days + 1)]
+            label = L("每日處理量", "DAILY TOKENS")
+        else:
+            values = [(m["label"][5:] + ("*" if m["in_progress"] else ""), m["tokens"]["total"])
+                      for m in reversed(d["periods"]) if m["kind"] == "month" and
+                      (report["kind"] == "all" or m["label"][:4] == report["label"])]
+            label = L("每月處理量", "MONTHLY TOKENS") if len(values) <= 12 else L("最近 12 個有紀錄月份", "LAST 12 RECORDED MONTHS")
+            values = values[-12:]
+        text(x, y, label, 24, p["amber"], "700", room=width)
+        if not values:
+            return
+        bw = width / len(values)
+        peak = max(n for _, n in values) or 1
+        for i, (label, n) in enumerate(values):
+            h = height * n / peak
+            o.append('<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" fill="%s"><title>%s tokens</title></rect>' %
+                     (x + i * bw + 6, y + 32 + height - h, max(1, bw - 12), max(0, h),
+                      p["to"] if label.endswith("*") else p["violet"], format(n, ",")))
+            if len(values) <= 12:
+                text(x + (i + .5) * bw, y + 22 + height - h, short(n), 18, p["gray"], anchor="middle", room=bw)
+            if len(values) <= 12 or i in (0, len(values) - 1):
+                text(x + (i + .5) * bw, y + 32 + height + 30, label, 20, p["gray"], anchor="middle", room=bw)
+        if report["in_progress"] or any(label.endswith("*") for label, _ in values):
+            text(x + width, y, L("* 截至目前", "* SO FAR"), 18, p["gray"], anchor="end", room=250)
+    top_model = report["models"][0]["model"] if report["models"] else "—"
+    if layout == "wide":
+        text(60, 78, "SYS." + badge + " :: AI_OPS", 20, p["amber"], "700")
+        text(60, 132, title, 36, weight="700", room=540)
+        text(60, 174, span, 20, p["gray"], room=560)
+        text(60, 242, L("TOKEN 處理量", "TOKENS PROCESSED"), 22, p["violet"], "700", room=530)
+        hero(60, 354, 112, 530)
+        text(64, 392, format(total, ",") + " tokens", 18, p["gray"], room=530)
+        metric(650, 153, "%.1f%%" % pct if pct is not None else "—", L("快取讀取占總數", "CACHE READ / TOTAL"), 240, 40, p["to"])
+        metric(930, 153, short(buckets["output"]), L("產生的輸出", "OUTPUT TOKENS"), 220, 40)
+        metric(650, 272, str(report["active_days"]), L("有用量的天數", "ACTIVE DAYS"), 240, 40)
+        metric(930, 272, str(report["longest_streak"]), L("最長連續天數", "LONGEST STREAK"), 220, 40)
+        sources(650, 372, 490)
+        rule(440, 60, 530)
+        text(60, 480, L("處理量最高模型", "TOP MODEL BY TOKENS"), 20, p["amber"], room=530)
+        text(60, 520, top_model, 26, weight="700", room=530)
+        text(650, 500, stamp, 20, p["gray"], room=490)
+        rule(552)
+        text(60, 586, L("B＝十億，含重複快取讀取；推理已含於輸出。", "B = billion. Includes repeated cache reads; reasoning is within output."), 18, p["gray"], room=930)
+        text(1140, 586, "COMPUTAI", 20, p["amber"], "700", anchor="end", room=160)
+    else:
+        portrait = layout == "portrait"
+        text(64, 96, "SYS." + badge + " :: AI_OPS", 24, p["amber"], "700")
+        text(64, 176 if portrait else 155, title, 48 if portrait else 42, weight="700")
+        text(64, 218 if portrait else 198, span + "  " + stamp, 24 if portrait else 22, p["gray"])
+        rule(252 if portrait else 232)
+        text(64, 308 if portrait else 282, L("TOKEN 處理量", "TOKENS PROCESSED"), 26, p["violet"], "700")
+        hero(58, 460 if portrait else 410, 160 if portrait else 140, 952)
+        text(66, 500 if portrait else 447, format(total, ",") + " tokens", 22, p["gray"])
+        metric(64, 596 if portrait else 538, "%.1f%%" % pct if pct is not None else "—", L("快取讀取占總數", "CACHE READ / TOTAL"), 440, 54, p["to"])
+        metric(576, 596 if portrait else 538, short(buckets["output"]), L("產生的輸出 token", "OUTPUT TOKENS"), 440, 54)
+        metric(64, 724 if portrait else 659, str(report["active_days"]), L("有用量的天數", "ACTIVE DAYS"), 440, 48)
+        metric(576, 724 if portrait else 659, str(report["longest_streak"]), L("最長連續天數", "LONGEST STREAK"), 440, 48)
+        rule(798 if portrait else 732)
+        sources(64, 846 if portrait else 778, 952)
+        if portrait:
+            trend(64, 982, 952, 100)
+            text(64, 1198, L("處理量最高模型", "TOP MODEL BY TOKENS"), 22, p["amber"], room=340)
+            text(1016, 1198, top_model, 28, weight="700", anchor="end", room=590)
+        else:
+            text(64, 911, L("處理量最高模型", "TOP MODEL BY TOKENS"), 22, p["amber"], room=340)
+            text(1016, 911, top_model, 28, weight="700", anchor="end", room=590)
+        rule(H - 145)
+        text(64, H - 104, L("B＝十億，含重複快取讀取。推理已含於輸出。", "B = billion. Repeated cache reads count again."), 23, p["gray"])
+        text(64, H - 65, L("依可見用量紀錄彙總", "Observed usage records"), 22, p["gray"], room=700)
+        text(W - 64, H - 65, "COMPUTAI", 24, p["amber"], "700", anchor="end", room=250)
+    o.append("</svg>\n")
+    return "".join(o)
+
+
+def render_profile_share_html(svg, lang=None):
+    """單張圖卡的本機分享預覽，只嵌入選定區間的 SVG。"""
+    import base64
+    zh = (lang or _lang) == "zh"
+    uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return ('<!doctype html><html lang="%s"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>ComputAI %s</title><style>body{margin:0;background:#09090d;color:#f5f5f5;font:16px/1.5 -apple-system,sans-serif}'
+            'main{max-width:1080px;margin:auto;padding:20px}img{display:block;width:100%%;height:auto}'
+            'a{display:block;width:fit-content;margin:20px auto;color:#fbbf24;padding:10px 18px;border:1px solid #52495e;border-radius:6px}'
+            '@media print{main{padding:0}a{display:none}}</style></head><body><main><img src="%s" alt="ComputAI %s">'
+            '<a href="%s" download="computai-share.svg">%s</a></main></body></html>') % (
+                "zh-Hant" if zh else "en", "用量分享卡" if zh else "usage share card", uri,
+                "用量分享卡" if zh else "usage share card", uri, "下載 SVG 圖卡" if zh else "Download SVG card")
+
+
 # ---- GitHub 個人頁卡片（--card）
 #
 # 495x195 的小 SVG，像 github-readme-stats 的卡片，貼在個人 README 裡。純 SVG、行內樣式、
@@ -12803,7 +12982,7 @@ def shlex_quote(s):
 # ---------------------------------------------------------------- 指令
 
 HELP_GROUPS = (
-    ("reports", ("sync", "summary", "month", "since", "until", "by", "analyze", "profile", "report", "html", "weekly", "send",
+    ("reports", ("sync", "summary", "month", "since", "until", "by", "analyze", "profile", "share_layout", "report", "html", "weekly", "send",
                  "recap", "csv", "totals", "who", "lab", "payback", "gpu_watts", "hours_per_day", "rent_per_hour")),
     ("dashboards", ("live", "once", "interval", "web", "line", "statusline", "sep", "lang", "theme")),
     ("machines and cloud", ("sample", "discover", "add", "wake", "cloud", "proxy", "listen", "upstream", "machine",
@@ -12939,6 +13118,9 @@ def parse_args(argv=None):
     p.add_argument("--profile", nargs="?", const="all", metavar="all|YYYY-MM|YYYY",
                    help="personal usage profile with selectable monthly and annual reports; imports local usage logs only; "
                         "use --html FILE for a private page, or --json for aggregate data")
+    p.add_argument("--share-layout", choices=sorted(SHARE_LAYOUTS),
+                   help="with --profile: a one-page HUD share card; square 1080x1080 (SVG default), portrait 1080x1350 or wide 1200x630; "
+                        "use --svg FILE and/or --html FILE; follows card style settings")
     p.add_argument("--weekly", action="store_true", help="the last 7 days as a short report")
     p.add_argument("--send", action="store_true",
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
@@ -12947,7 +13129,7 @@ def parse_args(argv=None):
     p.add_argument("--wrapped", nargs="?", const="", metavar="YYYY-MM|YYYY",
                    help="a Wrapped-style recap of a month (default: this month so far) or a year; "
                         "add --html FILE for a story page, --svg FILE for a share card")
-    p.add_argument("--svg", metavar="FILE", help="with --wrapped, --card or --timeline: write an SVG")
+    p.add_argument("--svg", metavar="FILE", help="with --profile, --wrapped, --card or --timeline: write an SVG")
     p.add_argument("--card", action="store_true",
                    help="a small SVG card for your GitHub profile README (use with --svg FILE; see --period, --card-theme)")
     p.add_argument("--period", choices=CARD_PERIODS, default="30d",
@@ -13370,10 +13552,23 @@ def run(args, db):
         key = "all" if args.profile == "all" else ("month-" if len(args.profile) == 7 else "year-") + args.profile
         if key not in {p["key"] for p in d["periods"]}:
             raise SystemExit("computai: no observed usage for %r; use --profile all to view available periods" % args.profile)
+        share = None
+        if args.svg or args.share_layout:
+            cs = card_settings()
+            share = render_profile_share_svg(d, key, args.who or cs["handle"], args.share_layout or "square",
+                                             args.card_style or cs["style"], cs["colors"], args.lang or _lang)
+        if args.svg:
+            with open(args.svg, "w", encoding="utf-8") as f:
+                f.write(share)
+            print("computai: wrote %s" % args.svg)
         if args.html:
             with open(args.html, "w", encoding="utf-8") as f:
-                f.write(render_history_profile_html(d, args.who or "", key))
+                f.write(render_profile_share_html(share) if args.share_layout else render_history_profile_html(d, args.who or "", key))
             print("computai: wrote %s" % args.html)
+        elif args.svg:
+            pass
+        elif args.share_layout:
+            print(share, end="")
         elif args.json:
             emit(d, "", True)
         else:
