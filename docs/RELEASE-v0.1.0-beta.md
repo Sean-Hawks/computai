@@ -1,55 +1,56 @@
 # ComputAI v0.1.0-beta（草稿，等作者確認後才發佈）
 
-> **Where your compute and AI money goes.** One ledger for your Claude and ChatGPT subscriptions,
-> local models, homelab machines and rented cloud GPUs.
+> **一眼看完你的算力和 AI 花費。** Claude、ChatGPT 訂閱、本地模型、homelab 機器和租用的雲端 GPU，
+> 放在同一本帳裡。
 
-This is the first public beta. It is one Python file (3.8+, standard library only) that runs on macOS,
-Linux and Windows. Watched machines only need SSH and `sh`.
+這是 ComputAI 的第一個公開測試版。整個程式只有一個 Python 檔案，支援 Python 3.8 以上，
+只用標準函式庫，可在 macOS、Linux 和 Windows 執行。被監控的機器只需要 SSH 和 `sh`。
 
-## Install
+## 安裝
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh
-computai            # live dashboard; the first run asks one question about your plan
-computai --doctor   # what is detected, and the command that fixes each gap
+computai            # 即時總帳畫面；第一次執行會詢問你的訂閱方案
+computai --doctor   # 偵測到什麼、缺什麼，以及每一項要下的指令
 ```
 
-Windows: `powershell -ExecutionPolicy Bypass -File install.ps1`.
+Windows：`powershell -ExecutionPolicy Bypass -File install.ps1`。
 
-## What's in it
+## 能做什麼
 
-- **Subscriptions**: Claude Code and Codex logs → tokens per model (cache and reasoning shown separately),
-  per project, at API prices versus your monthly fee. Account-wide limits come from the official
-  `claude` and `codex` CLIs (no tokens read, no quota used). Checks follow the burn rate: every 10 minutes
-  when calm, down to every minute while a limit burns, and 30 seconds after a reset.
-- **Local models**: Ollama, llama.cpp, vLLM, SGLang, LM Studio; an optional `--proxy` counts Ollama tokens;
-  "loaded but idle" alerts.
-- **Machines**: CPU, GPU, power, kWh and electricity cost over SSH; Taipower time-of-use presets; smart plugs.
-- **Cloud GPUs**: RunPod, Vast.ai, Lambda (read-only), with "idle but still billing" alerts.
-- **Analysis**: cache efficiency, month-end forecast and budget, plan simulator, GPU payback.
-- **Views**: terminal dashboard, `--web` (phone layout), `/metrics`, `--html` reports, a one-line status
-  for Claude Code / tmux / SwiftBar, `--wrapped`, a GitHub profile card, an MCP server.
+- **訂閱用量**：從 Claude Code 和 Codex 的 log 統計各模型、各專案的 token，快取與推理用量分開顯示，
+  並把照 API 價格換算的等值花費和訂閱月費比較。整個帳號的額度由官方 `claude`、`codex` 指令查詢，
+  不讀取登入憑證、不消耗額度。查詢頻率跟著消耗速度調整：平常每 10 分鐘一次，消耗快時最短每分鐘一次，
+  重置後 30 秒再查一次。
+- **本地模型**：支援 Ollama、llama.cpp、vLLM、SGLang、LM Studio；可選的 `--proxy` 統計 Ollama 的 token，
+  並提醒「模型已載入卻沒在用」。
+- **機器監控**：透過 SSH 讀取 CPU、GPU、功耗、度數與電費；提供台電時間電價預設值，也支援智慧插座。
+- **雲端 GPU**：支援 RunPod、Vast.ai、Lambda，只呼叫唯讀 API，提醒「閒著卻還在計費」的 GPU。
+- **分析**：快取效率、月底花費預測與預算、方案模擬器、GPU 回本計算機。
+- **呈現與整合**：終端機總帳畫面、`--web` 網頁版（含手機排版）、`/metrics`、`--html` 報告、
+  Claude Code／tmux／SwiftBar 一行狀態列、`--wrapped` 回顧、GitHub 個人頁卡片，以及 MCP server。
 
-## New in the beta
+## 這次公測新增
 
-- The first run explains every empty spot: where it looked for logs, how to connect limits, and one
-  question per subscription with a plan guessed from the logs.
-- `computai --doctor --redact` for bug reports: machine names, hosts, IPs, project names and home paths
-  become codes.
-- Update check, at most once a day (`[general] update_check = no` turns it off). Only the version line of
-  `computai` on GitHub is read; nothing about you is sent.
-- Usage from your other computers: a shared folder (iCloud, Dropbox, Syncthing) or SSH pull, usage numbers only
-  (docs/MULTI-DEVICE.md).
-- Limit checks follow the burn rate (`[limits] refresh = adaptive|fixed`); `--doctor` shows the next check and why.
+- **首次執行引導**：沒有資料的地方會說明去哪裡找過 log、怎麼接上額度；每個訂閱只問一個方案問題，
+  並先根據 log 推測方案供你確認。
+- **適合回報問題的診斷**：`computai --doctor --redact` 會將機器名稱、主機位址、IP、專案名稱和家目錄路徑
+  換成代號。
+- **更新檢查**：每天最多一次，可用 `[general] update_check = no` 關閉。只讀取 GitHub 上 `computai` 的版本行，
+  不傳送你的個人資料或用量。
+- **多台電腦的用量合併**：透過共用資料夾（iCloud、Dropbox、Syncthing）或 SSH 拉取，只交換用量數字，
+  詳見[多裝置設定](MULTI-DEVICE.md)。
+- **自適應額度查詢**：查詢頻率跟著消耗速度調整（`[limits] refresh = adaptive|fixed`）；`--doctor` 會顯示
+  下次查詢時間和原因。
 
-## Privacy
+## 隱私
 
-Only usage fields are read from logs; prompts and responses are never stored or sent. `~/.codex/auth.json`
-and Claude's OAuth tokens are never read. The web server and proxy listen on `127.0.0.1` by default.
+只取用 log 裡的用量欄位，不儲存、不傳送提示詞與回應內容。不讀取 `~/.codex/auth.json` 或 Claude 的 OAuth token。
+網頁伺服器和 proxy 預設只監聽 `127.0.0.1`。
 
-## Known gaps
+## 已知限制
 
-- Windows has been tested less than macOS and Linux.
-- Claude's plan can't be read from anywhere local, so the first-run plan is a guess you confirm.
+- Windows 的測試覆蓋較 macOS、Linux 少。
+- 無法從本機資料直接讀出 Claude 的訂閱方案，首次執行時會先推測，再請你確認。
 
-Found a bug? Open an issue and paste `computai --doctor --redact`.
+遇到問題時，請開一則 issue，附上 `computai --doctor --redact` 的輸出。
