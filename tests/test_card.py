@@ -138,6 +138,39 @@ class Card(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.m.render_card_svg(c, layout="bad")
 
+    def test_gallery_embeds_safe_complete_svg_without_external_assets(self):
+        import base64
+        import re
+        c = self.card()
+        c["top_model"] = '<script>"&\x1b[2J'
+        c["models"][0]["model"] = c["top_model"]
+        for lang in ("en", "zh"):
+            page = self.m.render_card_gallery(c, handle='<reader>&', lang=lang, t=self.t)
+            self.assertIn('lang="%s"' % ("zh-Hant" if lang == "zh" else "en"), page)
+            self.assertNotIn("<script", page)
+            self.assertNotIn('src="http', page)
+            images = re.findall('src="data:image/svg\\+xml;base64,([^"]+)"', page)
+            self.assertEqual(len(images), 2 * (len(self.m.CARD_STYLES) + 4))
+            for encoded in images:
+                svg = base64.b64decode(encoded).decode("utf-8")
+                ET.fromstring(svg)
+                for bad in (SECRET, SESSION, "\x1b", "<script", "href="):
+                    self.assertNotIn(bad, svg)
+            for style in self.m.CARD_STYLES:
+                self.assertIn('id="%s"' % style, page)
+
+    def test_cli_writes_gallery_and_selected_svg_together(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        page, svg = os.path.join(sb.root, "styles.html"), os.path.join(sb.root, "chosen.svg")
+        r = sb.run("--card", "--html", page, "--svg", svg, "--card-style", "github", "--card-layout", "portrait", "--lang", "zh", "--no-sync")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with open(page, encoding="utf-8") as f:
+            self.assertIn("卡片樣式", f.read())
+        with open(svg, encoding="utf-8") as f:
+            self.assertEqual(ET.fromstring(f.read()).get("height"), "610")
+        self.assertEqual(sb.run("--card", "--html", page, "--no-sync").returncode, 0)
+
     @unittest.skipUnless(shutil.which("git"), "needs git")
     def test_handle_from_profile_repo(self):
         self.assertIsNone(self.m.github_owner(""))

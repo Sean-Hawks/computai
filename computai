@@ -10941,6 +10941,57 @@ def configured_card_svg(c, theme, cs=None):
                            credit=cs["credit"], layout=args_card_layout(cs))
 
 
+def render_card_gallery(c, handle=None, lang=None, credit=True, t=None):
+    """本機樣式比較頁：把 SVG 包成 data URI，避免多張 HUD 的 id 相互干擾。"""
+    import base64
+    c, handle = clean_strings(c), clean_strings(handle)
+    lang = lang if lang in CARD_TXT else _lang
+    zh = lang == "zh"
+    title = "ComputAI 卡片樣式" if zh else "ComputAI card styles"
+    intro = ("同一份彙總用量，比較 10 種風格、深淺色與不同版型。下方指令只產生本機檔案。" if zh else
+             "Compare ten styles, light and dark themes, and layouts using the same usage totals. Commands write local files.")
+    o = ['<!doctype html><html lang="%s"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+         '<title>%s</title><style>' % ("zh-Hant" if zh else "en", svg_escape(title)),
+         'body{margin:0;padding:32px 20px;background:#f5f5f5;color:#202020;font:16px/1.6 system-ui,sans-serif}'
+         'main{max-width:1240px;margin:auto}h1{font-size:32px;line-height:1.2}h2{margin-top:48px}p{color:#555}'
+         'nav{display:flex;gap:8px;flex-wrap:wrap}nav a{color:inherit;padding:4px 12px;background:white;border:1px solid #ddd;border-radius:20px}'
+         '.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:20px}'
+         'figure{margin:0;padding:16px;background:white;border:1px solid #ddd;border-radius:12px;min-width:0}'
+         'img{display:block;width:100%;height:auto;margin-top:12px}figcaption{font-size:14px;color:#555}'
+         'code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 ui-monospace,monospace;padding-top:12px}'
+         '@media(prefers-color-scheme:dark){body{background:#121212;color:#eee}p,figcaption{color:#aaa}figure,nav a{background:#202020;border-color:#444}}',
+         '</style><main><h1>%s</h1><p>%s</p><nav>' % (svg_escape(title), svg_escape(intro))]
+    for style in CARD_STYLES:
+        o.append('<a href="#%s">%s</a>' % (style, style))
+    o.append('</nav>')
+
+    def pair(style, layout="auto"):
+        o.append('<div class="pair">')
+        for theme in ("dark", "light"):
+            svg = render_card_svg(c, theme, handle, t, lang, style, credit=credit, layout=layout)
+            uri = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+            command = "computai --card --card-style %s --card-theme %s%s --svg card.svg --lang %s" % (
+                style, theme, " --card-layout " + layout if layout != "auto" else "", lang)
+            caption = ("深色" if theme == "dark" else "淺色") if zh else theme
+            o.append('<figure><figcaption>%s</figcaption><img alt="%s" src="data:image/svg+xml;base64,%s"><code>%s</code></figure>'
+                     % (svg_escape(caption), svg_escape(style + " / " + layout + " / " + theme), uri, svg_escape(command)))
+        o.append('</div>')
+
+    for style in CARD_STYLES:
+        layout = CARD_DEFAULT_LAYOUT.get(style, "hud")
+        desc = UI[lang]["cs_style_" + style]
+        o.append('<section id="%s"><h2>%s</h2><p>%s · %s</p>' % (style, style, svg_escape(desc), layout))
+        pair(style)
+        o.append('</section>')
+    o.append('<h2>%s</h2><p>%s</p>' % ("版型比較" if zh else "Compare layouts",
+        "以下使用相同 github 配色，單獨比較版型。" if zh else "The same github palette across each layout."))
+    for layout in CARD_LAYOUTS[1:]:
+        o.append('<h3>%s</h3>' % layout)
+        pair("github", layout)
+    o.append('</main></html>\n')
+    return "".join(o)
+
+
 PROJECT_URL = "https://github.com/Sean-Hawks/computai"
 
 
@@ -12352,7 +12403,7 @@ def parse_args(argv=None):
     p.add_argument("--uninstall-watch", action="store_true", help="undo --install-watch")
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
-    p.add_argument("--html", metavar="FILE", help="with --report, --recap or --wrapped: write an HTML page")
+    p.add_argument("--html", metavar="FILE", help="with --report, --recap or --wrapped: write an HTML page; with --card: a style gallery")
     p.add_argument("--weekly", action="store_true", help="the last 7 days as a short report")
     p.add_argument("--send", action="store_true",
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
@@ -12767,6 +12818,13 @@ def run(args, db):
         if args.publish:
             for line in publish_card(db, args.period, args.publish, args.push):
                 print("computai: " + line)
+            if not args.svg and not args.html:
+                return 0
+        if args.html:
+            cs = card_settings()
+            with open(args.html, "w", encoding="utf-8") as f:
+                f.write(render_card_gallery(c, cs["handle"], lang=cs["lang"], credit=cs["credit"]))
+            print("computai: wrote %s" % args.html)
             if not args.svg:
                 return 0
         if args.svg:
