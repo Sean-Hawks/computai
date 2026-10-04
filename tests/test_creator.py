@@ -100,3 +100,88 @@ class Creator(unittest.TestCase):
         result = subprocess.run(['node', os.path.join(helpers.ROOT, 'tests', 'creator_dom.js')],
                                 input=self.page(), text=True, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_existing_ledger_is_read_only_and_missing_ledger_stays_in_memory(self):
+        import sqlite3
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        with mock.patch.dict(os.environ, sb.env()):
+            db = self.m.creator_ledger()
+            db.close()
+            self.assertFalse(os.path.exists(self.m.ledger_path()))
+            db = self.m.open_ledger()
+            seed(self.m, db)
+            db.commit()
+            db.close()
+            db = self.m.creator_ledger()
+            try:
+                self.assertEqual(self.m.history_profile(db)['periods'][0]['tokens']['total'], 13904000)
+                with self.assertRaises(sqlite3.OperationalError):
+                    db.execute('DELETE FROM usage')
+            finally:
+                db.close()
+
+    def test_tui_c_opens_creator_without_sync_and_restores_terminal(self):
+        import io
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, sb.env()), mock.patch.object(self.m.threading, 'Thread'), \
+                mock.patch.object(self.m, 'read_key', side_effect=['c', 'q']), \
+                mock.patch.object(self.m, 'open_creator', return_value=('creator.html', True)) as creator, \
+                mock.patch.object(self.m, 'sync') as sync, mock.patch('sys.stdout', out), \
+                mock.patch('sys.stdin') as stdin:
+            stdin.isatty.return_value = False
+            self.assertEqual(self.m.run_live(1, 0, intro=False), 0)
+        creator.assert_called_once()
+        sync.assert_not_called()
+        self.assertIn('Card creator opened', out.getvalue())
+        self.assertIn('\x1b[?1049l', out.getvalue())
+
+
+class CreatorWeb(unittest.TestCase):
+    def setUp(self):
+        import http.server
+        import threading
+        self.m = helpers.load()
+        self.sb = helpers.Sandbox()
+        self.addCleanup(self.sb.close)
+        self.env = mock.patch.dict(os.environ, self.sb.env())
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        db = self.m.open_ledger()
+        seed(self.m, db)
+        db.commit()
+        db.close()
+        self.state = {'lock': threading.Lock(), 'state': {'lang': 'zh'}, 'metrics': None}
+        self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), self.m.web_handler(self.state, '127.0.0.1', 5))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def get(self, path, host=None):
+        import http.client
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=10)
+        conn.request('GET', path, headers={'Host': host or 'localhost'})
+        response = conn.getresponse()
+        body = response.read().decode()
+        conn.close()
+        return response, body
+
+    def test_web_creator_is_private_read_only_and_keeps_existing_csp_and_host_guards(self):
+        with mock.patch.object(self.m, 'sync') as sync:
+            response, page = self.get('/create')
+        sync.assert_not_called()
+        self.assertEqual(response.status, 200)
+        self.assertIn('做我的圖卡', page)
+        self.assertNotIn(SECRET, page)
+        self.assertNotIn(SESSION, page)
+        self.assertEqual(response.getheader('Cache-Control'), 'no-store')
+        self.assertEqual(response.getheader('Content-Security-Policy'), self.m.creator_csp(page))
+        self.assertNotIn('unsafe-inline', response.getheader('Content-Security-Policy'))
+        r, main = self.get('/')
+        self.assertIn('href="/create"', main)
+        self.assertIn("default-src 'self'", r.getheader('Content-Security-Policy'))
+        with mock.patch.object(self.m, 'creator_ledger') as ledger:
+            self.assertEqual(self.get('/create', 'evil.example')[0].status, 403)
+            ledger.assert_not_called()

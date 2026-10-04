@@ -6599,7 +6599,7 @@ UI = {
         "l_foot": "value at %s API prices; Ollama counts need computai --proxy in front of it",
         "tab_overview": "OVERVIEW", "tab_limits": "LIMITS", "tab_machines": "MACHINES", "tab_local": "LOCAL MODELS",
         "tab_spend": "SPEND", "tab_attention": "ATTENTION", "more_in_tab": "more in tab 5",
-        "hud_keys": ["1-6 switch tabs", "Tab next", "q quit", "computai --web for the browser"],
+        "hud_keys": ["1-6 switch tabs", "Tab next", "c make a card", "q quit"],
         "local_tip": "computai --bench measures tokens/s and electricity per 1M tokens for each model",
         "t_gen": "generating %s tok/s", "b_linking": "linking logs and machines...", "b_ready": "SYSTEM READY",
         "h_today": "TODAY'S USAGE VALUE", "h_month": "this month %s", "h_rate": "LOCAL TOKENS/S",
@@ -6861,7 +6861,7 @@ UI = {
         "l_foot": "價值照 %s 的 API 價格算；Ollama 要在前面接 computai --proxy 才數得到",
         "tab_overview": "總覽", "tab_limits": "額度", "tab_machines": "機器", "tab_local": "本地模型",
         "tab_spend": "花費", "tab_attention": "注意", "more_in_tab": "其他在分頁 5",
-        "hud_keys": ["1-6 切換分頁", "Tab 下一頁", "q 離開", "computai --web 開網頁版"],
+        "hud_keys": ["1-6 切換分頁", "Tab 下一頁", "c 做圖卡", "q 離開"],
         "local_tip": "computai --bench 會量每個模型的速度和每百萬 token 電費",
         "t_gen": "推論中 %s tok/s", "b_linking": "正在連線 log 和機器…", "b_ready": "系統就緒",
         "h_today": "今天用量價值", "h_month": "本月 %s", "h_rate": "本地推論 tok/s",
@@ -8374,6 +8374,7 @@ def run_live(interval, sample_every, intro=True):
         sys.stdout.write("\033[?1049h\033[?25l\033[2J")  # 換到另一個畫面、藏游標，離開時還原
         frame = 0
         view = "overview"
+        creator_notice = ""
         ascii_ = not can_draw_blocks()
         if intro and config_theme() == "cyber":
             set_style(color, ascii_, "cyber")
@@ -8404,6 +8405,8 @@ def run_live(interval, sample_every, intro=True):
             cols, rows = shutil.get_terminal_size((100, 40))
             text = (render_live(clean_strings(st), cols, color, ascii_=ascii_, height=rows, frame=frame, view=view) if st
                     else "ComputAI: reading logs and machines...")
+            if creator_notice:
+                text = "\n".join(text.splitlines()[:rows - 2]) + "\n" + clip(creator_notice, cols)
             draw(text, rows)
             k = read_key(tick)
             if k in ("q", "Q"):
@@ -8412,6 +8415,17 @@ def run_live(interval, sample_every, intro=True):
                 view = HUD_VIEWS[int(k) - 1]
             elif k == "\t":
                 view = HUD_VIEWS[(HUD_VIEWS.index(view) + 1) % len(HUD_VIEWS)]
+            elif k in ("c", "C"):
+                try:
+                    page_db = creator_ledger()
+                    try:
+                        _, opened = open_creator(page_db, lang=_lang)
+                    finally:
+                        page_db.close()
+                    creator_notice = ("已開啟製卡頁。" if _lang == "zh" else "Card creator opened.") if opened else (
+                        "製卡頁已儲存；用 computai --create 再開啟。" if _lang == "zh" else "Creator saved; reopen with computai --create.")
+                except Exception:
+                    creator_notice = "無法開啟製卡頁；請用 computai --create 重試。" if _lang == "zh" else "Could not open the creator; try computai --create."
             frame += 1
     except KeyboardInterrupt:
         pass
@@ -8464,6 +8478,7 @@ WEB_HTML = """<!doctype html>
 <body>
 <header>
   <div class="brand"><b>COMPUTAI</b><span id="tagline">where your compute and AI money goes</span></div>
+  <a id="make-card" href="/create">Make my card</a>
   <div id="clock"></div>
 </header>
 <main>
@@ -8506,6 +8521,7 @@ header { display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center; padding
 .brand span { color:var(--dim); margin-left:10px; letter-spacing:0; font-weight:400; font-size:12px; }
 #line { flex:1; color:var(--text); min-width:0; overflow-wrap:anywhere; }
 #clock { color:var(--dim); }
+#make-card { color:var(--text); border:1px solid var(--line); border-radius:6px; padding:7px 12px; text-decoration:none; margin-left:auto; }
 main { padding:12px 16px; display:grid; grid-template-columns:minmax(0,1fr); gap:12px; }
 .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
 .tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 12px; min-width:0; }
@@ -9048,6 +9064,7 @@ function render(st) {
   document.documentElement.lang = st.lang === "zh" ? "zh-Hant" : "en";
   $("#h-compute").textContent = t.w_compute; $("#h-usage").textContent = t.w_usage;
   $("#tagline").textContent = t.w_tagline;
+  $("#make-card").textContent = st.lang === "zh" ? "做我的圖卡" : "Make my card";
   $("#line").textContent = "";   // 額度和今天的用量已經在總結列、額度區和小卡片上
   if (st.verdict) verdictBand(st.verdict);
   $("#quota").replaceChildren(...quotaCard(st));
@@ -9138,7 +9155,7 @@ def web_handler(state, bind, interval, extra_hosts=()):
             if self.command != "HEAD":
                 self.wfile.write(data)
 
-        def send(self, code, body, ctype):
+        def send(self, code, body, ctype, csp=None):
             data = body.encode("utf-8")
             self.send_response(code)
             self.send_header("Content-Type", ctype)
@@ -9147,7 +9164,7 @@ def web_handler(state, bind, interval, extra_hosts=()):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Content-Security-Policy",
-                             "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'")
+                             csp or "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'")
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(data)
@@ -9164,6 +9181,16 @@ def web_handler(state, bind, interval, extra_hosts=()):
                 return self.send(200, WEB_CSS, "text/css; charset=utf-8")
             if path == "/app.js":
                 return self.send(200, js, "text/javascript; charset=utf-8")
+            if path == "/create":
+                try:
+                    page_db = creator_ledger()
+                    try:
+                        page = render_creator_html(history_profile(page_db), lang=(st or {}).get("lang") or config_lang())
+                    finally:
+                        page_db.close()
+                except Exception:
+                    return self.send(503, "Creator unavailable. Try computai --create.\n", "text/plain; charset=utf-8")
+                return self.send(200, page, "text/html; charset=utf-8", creator_csp(page))
             if path == "/api/state":
                 if st is None:
                     return self.send(503, '{"message": "loading"}', "application/json; charset=utf-8")
@@ -11162,6 +11189,18 @@ def creator_csp(page):
                         for s in re.findall(r"<%s(?:\s[^>]*)?>(.*?)</%s>" % (tag, tag), page, re.S))
     return ("default-src 'none'; script-src %s; style-src %s; img-src data: blob:; "
             "base-uri 'none'; form-action 'none'; frame-ancestors 'none'") % (hashes("script"), hashes("style"))
+
+
+def creator_ledger():
+    """Web／TUI 使用獨立唯讀連線；不透過頁面觸發同步或修改帳本。"""
+    import pathlib
+    import sqlite3
+    if not os.path.isfile(ledger_path()):
+        return open_ledger(":memory:")
+    uri = pathlib.Path(os.path.abspath(ledger_path())).as_uri() + "?mode=ro"
+    db = sqlite3.connect(uri, uri=True, timeout=10)
+    db.row_factory = sqlite3.Row
+    return db
 
 
 def open_creator(db, output=None, handle="", selected=None, lang=None, launch=True):
