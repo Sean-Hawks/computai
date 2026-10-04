@@ -7,7 +7,8 @@
 # the script is downloaded from $env:COMPUTAI_URL.
 $ErrorActionPreference = "Stop"
 $Bin = Join-Path $env:LOCALAPPDATA "computai\bin"
-$Url = if ($env:COMPUTAI_URL) { $env:COMPUTAI_URL } else { "https://raw.githubusercontent.com/Sean-Hawks/computai/main/computai" }
+$Ref = if ($env:COMPUTAI_REF) { $env:COMPUTAI_REF } else { "v0.1.0-beta.1" }
+$Url = if ($env:COMPUTAI_URL) { $env:COMPUTAI_URL } else { "https://raw.githubusercontent.com/Sean-Hawks/computai/$Ref/computai" }
 
 $Py = $null
 foreach ($cand in @(@("py", "-3"), @("python"), @("python3"))) {
