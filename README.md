@@ -154,6 +154,20 @@ addresses or sessions. It imports local logs only, with no API, SSH or model cal
 alone. The single HTML includes all observed periods and stays local; nothing is published automatically.
 The published beta.1 does not include this feature.
 
+For a one-page social image, retain your configured card style and colours:
+
+```sh
+computai --profile --share-layout square --html share.html --svg share.svg
+computai --profile 2026-09 --share-layout portrait --html month-share.html
+computai --profile 2026 --share-layout wide --svg year-share.svg
+```
+
+Sizes are square 1080×1080, portrait 1080×1350 and wide 1200×630. The share page can download an original-size
+PNG locally in your browser, or the SVG. Images show dates, cache share, output and activity days; portrait
+also shows usage trends. Share HTML/SVG contain only the selected period, with no billing or ability claims.
+`--svg` also enables this mode; a simultaneous HTML export becomes a single-card preview. Plain HTML remains
+the full history page. Override the palette with `--card-style` without changing saved settings.
+
 ## Your AI ops card for your GitHub profile
 
 A cyberpunk card for your profile README (`github.com/<you>/<you>`) that shows how AI agents work for you: how many tokens, for how many hours, how many at once, with which models. It is rendered on your own machine from your own Claude Code and Codex logs, and updated once a day. There is no web service and no upload.

@@ -136,6 +136,20 @@ computai --card --publish ~/Documents/me   # 把卡片 commit 進你的個人頁
 API 等值只按目前設定的價格估算已定價部分，不是實際帳單。預設只更新本機 log，不呼叫 API、SSH 或模型；
 加 `--no-sync` 可只讀帳本。單一 HTML 包含所有可見區間，留在本機，沒有自動發佈；已釋出的 beta.1 尚未包含此功能。
 
+要做一頁式社群圖卡，會沿用你設定的卡片風格與配色：
+
+```sh
+computai --profile --share-layout square --html share.html --svg share.svg --lang zh
+computai --profile 2026-09 --share-layout portrait --html month-share.html --lang zh
+computai --profile 2026 --share-layout wide --svg year-share.svg --lang zh
+```
+
+`square` 為 1080×1080、`portrait` 為 1080×1350、`wide` 為 1200×630。分享頁可按「下載 PNG 圖卡」直接儲存原尺寸圖片，
+也可下載 SVG。圖上有精確日期、快取占比、輸出與活動天數；直式另有用量趨勢。
+分享 SVG／HTML **只包含選定區間**，沒有嵌入其他月份；不顯示帳單或推測工作能力。
+`--svg` 也會啟用圖卡模式；同時輸出 HTML 時會是單張分享頁。沒加這兩個選項的 HTML 仍是完整歷史頁。
+`--card-style` 可臨時換風格，原本的卡片設定不會被改動。
+
 ## GitHub 個人頁的 AI 作戰卡
 
 一張放在個人頁 README（`github.com/<帳號>/<帳號>`）的 cyberpunk 卡片，展示 AI agent 怎麼替你工作：用了多少 token、工作了幾小時、同時跑幾個、用哪些模型。

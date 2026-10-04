@@ -107,6 +107,7 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 | `--csv 檔名` | 範圍內每一筆用量（時間、來源、模型、專案、token、金額）輸出成 CSV；`= + - @` 開頭的文字前面會加 `'`，避免試算表把它當公式執行。 |
 | `--report [--html 檔名]` | 月報，文字版或一個獨立的 HTML 檔（含每日花費圖）。 |
 | `--profile [all\|YYYY-MM\|YYYY] [--html 檔名]` | beta.2 開發版：個人用量頁，切換累計、月報、年報，附涵蓋日期與精確 token 細項。 |
+| `--profile --share-layout square\|portrait\|wide [--svg 檔名] [--html 檔名]` | beta.2 開發版：沿用原有卡片配色的一頁社群圖卡，分享頁可下載原尺寸 PNG。 |
 | `--analyze` | 月底預測、方案檢查、快取效率、電費分析。 |
 | `--payback 美元 [--gpu-watts W --hours-per-day H --rent-per-hour 美元]` | 買一張卡跟租雲端比，多久回本。 |
 | `--discover` | 從 `~/.ssh/config` 和 Tailscale 找機器，逐台試 SSH，說明連不上的原因，並印出可以貼進 `[machines]` 的設定。 |
@@ -438,6 +439,26 @@ API 等值按 `prices.ini` 的目前價格重算已定價部分，列出未定�
 `--no-sync` 停止匯入。帳本既有其他來源的 token 仍會納入彙總。
 `--json` 與 HTML 都含所有可見區間；日期參數只選擇 HTML 開啟時的報告，不裁切匯出資料。
 只有日期、用量、來源、模型與衍生統計，不含 prompt、回應、專案、機器或 session；不會自動上傳。
+
+### 一頁式社群圖卡
+
+```sh
+computai --profile --share-layout square --html share.html --svg share.svg --who hawks --lang zh
+computai --profile 2026-09 --share-layout portrait --html month-share.html --lang zh --no-sync
+computai --profile 2026 --share-layout wide --svg year-share.svg --lang zh --no-sync
+```
+
+`square` 1080×1080、`portrait` 1080×1350、`wide` 1200×630。SVG 是靜態的切角 HUD，沿用 `[card] style`／`colors`；
+`--card-style` 暫時覆蓋。`--who` 指定名稱，省略則使用已設定的 card.handle。語言依 `--lang` 或 general.lang。
+畫面有日期／進行中註記、總 token（及精確整數）、快取讀取占比、輸出、有用量天數、最長連續天數、
+來源占比與處理量最多的模型。直式另有曆日或月份長條，未結束的月份以 * 標示；長期累計只畫最近 12 個有紀錄月份。
+來源列最多兩個來源加「其他」，模型排序按 token，包含快取。沒有附訂閱回本、付款、能力判斷或 session 名稱。
+
+`--svg` 省略版型時預設 square；指定 --share-layout 而未給檔名時，SVG 輸出到 stdout（--json 仍輸出資料）。
+`--html` 加任一分享選項時產生單張圖卡預覽，可在本機瀏覽器按「下載 PNG 圖卡」；canvas 使用 SVG 原尺寸，
+不用安裝 Python 套件、不連外。也可下載 SVG，停用 JavaScript 仍能查看與下載 SVG。
+分享 SVG／HTML 只包含所選區間，不會附其他月份的完整歷史；純 --profile --html 與 --json 仍包含所有區間。
+圖片只寫到你指定的檔案或瀏覽器下載目錄，不會自動發社群貼文。
 
 ## Wrapped 回顧
 

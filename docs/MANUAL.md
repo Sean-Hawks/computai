@@ -491,6 +491,27 @@ in the ledger still count. `--no-sync` skips imports. Both HTML and JSON include
 the date selects the initial HTML view, not an export filter. No prompts, responses, projects, machines
 or sessions enter the profile, and nothing is uploaded automatically.
 
+### One-page social cards
+
+```sh
+computai --profile --share-layout square --html share.html --svg share.svg --who hawks
+computai --profile 2026-09 --share-layout portrait --html month-share.html --no-sync
+computai --profile 2026 --share-layout wide --svg year-share.svg --no-sync
+```
+
+Square is 1080×1080, portrait 1080×1350 and wide 1200×630. Static HUD artwork reuses `[card] style` and `colors`;
+`--card-style` overrides temporarily. Names use `--who` or saved card.handle; language follows --lang or general.lang.
+Cards show dates/partial periods, total and exact tokens, cache share, output, active days, longest streak,
+up to two sources plus Other, and the top model by tokens including cache. Portrait adds calendar-day or
+monthly bars, marking in-progress months with *. Long histories show the last 12 recorded months.
+There are no subscription-return, payment, ability or session claims.
+
+SVG defaults to square. A share layout without a file prints SVG to stdout; --json still prints data.
+HTML with either share option becomes a single-card preview with local original-size PNG and SVG downloads.
+The canvas uses the SVG's native dimensions with no Python dependencies or network access. Without JavaScript,
+viewing and SVG downloads still work. Share HTML/SVG include only the chosen period; plain profile HTML and
+JSON retain all periods. Nothing is posted to social media automatically.
+
 ## Wrapped
 
 `computai --wrapped [YYYY-MM|YYYY]` is the shareable version of the numbers: tokens, API-equivalent value,
