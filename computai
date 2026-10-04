@@ -6443,16 +6443,18 @@ class Updater:
                         self.last["insights"] = time.monotonic()
                         self.insights = insights(db)
                     # 整份畫面要算上百條查詢：帳本沒變（自己和別的程序都沒寫）就沿用，最多隔一分鐘重算一次（時間相關的欄位）
-                    if (db.total_changes, db.execute("PRAGMA data_version").fetchone()[0]) == seen \
+                    version = db.execute("PRAGMA data_version").fetchone()[0]
+                    if (db.total_changes, version) == seen \
                             and t0 - built < self.every["state"]:
                         self.stop.wait(max(0.5, interval - (time.monotonic() - t0)))
                         continue
-                    built = t0
                     st = dict(dashboard_state(db), insights=self.insights)
                     if self.notify:
                         notify_tick(db, st)
-                    seen = (db.total_changes, db.execute("PRAGMA data_version").fetchone()[0])
                     on_state(st)
+                    # 保留構建前的外部版本：構建途中別的程序寫入，下輪仍須更新。
+                    # 自己的通知狀態寫入不影響畫面；交付成功後才認定快取有效。
+                    seen, built = (db.total_changes, version), t0
                 except Exception as e:  # 更新失敗不能讓畫面或伺服器停掉
                     warn("update failed: %r" % (e,))
                 self.stop.wait(max(0.5, interval - (time.monotonic() - t0)))
