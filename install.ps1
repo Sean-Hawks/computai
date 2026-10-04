@@ -5,7 +5,9 @@
 # Installs computai.py and a computai.cmd wrapper into %LOCALAPPDATA%\computai\bin and
 # adds that folder to your user PATH. Run from a checkout to install that copy; otherwise
 # the script is downloaded from $env:COMPUTAI_URL.
+param([switch]$Create, [switch]$NoOpen)
 $ErrorActionPreference = "Stop"
+if ($NoOpen -and -not $Create) { Write-Error "-NoOpen requires -Create"; exit 2 }
 $Bin = Join-Path $env:LOCALAPPDATA "computai\bin"
 $Ref = if ($env:COMPUTAI_REF) { $env:COMPUTAI_REF } else { "v0.1.0-beta.1" }
 $Url = if ($env:COMPUTAI_URL) { $env:COMPUTAI_URL } else { "https://raw.githubusercontent.com/Sean-Hawks/computai/$Ref/computai" }
@@ -36,3 +38,9 @@ if (-not ($userPath -split ";" | Where-Object { $_ -eq $Bin })) {
 }
 Write-Host "installed $Target"
 & $Py[0] @($Py | Select-Object -Skip 1) $Target --version
+if ($Create) {
+    $CreatorArgs = @("--create")
+    if ($NoOpen) { $CreatorArgs += "--no-open" }
+    & $Py[0] @($Py | Select-Object -Skip 1) $Target @CreatorArgs
+    exit $LASTEXITCODE
+}

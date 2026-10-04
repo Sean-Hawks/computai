@@ -9,6 +9,20 @@
 # except the config and ledger folders ComputAI creates on its first run.
 set -eu
 
+CREATE=0
+NO_OPEN=0
+for option in "$@"; do
+    case "$option" in
+        --create) CREATE=1 ;;
+        --no-open) NO_OPEN=1 ;;
+        *) echo "usage: sh install.sh [--create [--no-open]]" >&2; exit 2 ;;
+    esac
+done
+if [ "$NO_OPEN" = 1 ] && [ "$CREATE" != 1 ]; then
+    echo "--no-open requires --create" >&2
+    exit 2
+fi
+
 PREFIX="${PREFIX:-$HOME/.local}"
 BIN="$PREFIX/bin"
 REF="${COMPUTAI_REF:-v0.1.0-beta.1}"
@@ -46,6 +60,13 @@ mv "$tmp" "$BIN/computai"
 trap - EXIT
 
 echo "installed $BIN/computai ($("$BIN/computai" --version))"
+if [ "$CREATE" = 1 ]; then
+    # 用絕對路徑開頁面，新安裝者不需要重開 terminal 或調整 PATH。
+    if [ "$NO_OPEN" = 1 ]; then
+        exec "$PY" "$BIN/computai" --create --no-open
+    fi
+    exec "$PY" "$BIN/computai" --create
+fi
 case ":$PATH:" in
     *":$BIN:"*) ;;
     *) echo "add $BIN to your PATH, e.g.: echo 'export PATH=\"$BIN:\$PATH\"' >> ~/.profile" ;;

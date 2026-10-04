@@ -47,3 +47,49 @@ class Installer(unittest.TestCase):
             with open(log, encoding="utf-8") as f:
                 url = f.read().strip()
             self.assertEqual(url, "https://raw.githubusercontent.com/Sean-Hawks/computai/%s/computai" % (ref or "v0.1.0-beta.1"))
+
+    def test_install_and_create_runs_without_path_refresh_or_configuration_wizard(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        prefix = os.path.join(sb.root, 'new install')
+        env = sb.env(PREFIX=prefix, COMPUTAI_URL='http://127.0.0.1:1/must-not-fetch')
+        result = subprocess.run(['sh', 'install.sh', '--create', '--no-open'], cwd=helpers.ROOT,
+                                env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Card creator:', result.stdout)
+        self.assertNotIn('add ', result.stdout)
+        self.assertNotIn('next:', result.stdout)
+        self.assertTrue(os.path.isfile(os.path.join(sb.data, 'creator.html')))
+        self.assertFalse(os.path.exists(os.path.join(sb.root, '.git')))
+
+    def test_invalid_installer_option_does_not_install(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        for args in (['--no-open'], ['--typo']):
+            result = subprocess.run(['sh', 'install.sh'] + args, cwd=helpers.ROOT,
+                                    env=sb.env(PREFIX=sb.root), capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+        self.assertFalse(os.path.exists(os.path.join(sb.root, 'bin')))
+
+    def test_mac_launcher_uses_its_own_folder_and_skips_installation(self):
+        from unittest import mock
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        # Fake interpreter records the launch; it never opens a real browser.
+        tools = os.path.join(sb.root, 'tools')
+        folder = os.path.join(sb.root, 'portable folder')
+        os.makedirs(tools)
+        os.makedirs(folder)
+        launcher = os.path.join(folder, 'Make a card.command')
+        shutil.copyfile(os.path.join(helpers.ROOT, 'Make a card.command'), launcher)
+        fake = os.path.join(tools, 'python3')
+        with open(fake, 'w') as f:
+            f.write('#!/bin/sh\nif [ "$1" = "-c" ]; then exit 0; fi\npwd > "$LAUNCH_LOG"\nprintf "%s\\n" "$@" >> "$LAUNCH_LOG"\n')
+        os.chmod(fake, 0o755)
+        log = os.path.join(sb.root, 'launch.log')
+        result = subprocess.run(['sh', launcher], cwd=sb.root,
+                                env=sb.env(PATH=tools + os.pathsep + os.environ['PATH'], LAUNCH_LOG=log),
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(log) as f:
+            self.assertEqual(f.read().splitlines(), [folder, './computai', '--create', '--lang', 'zh'])
