@@ -10929,18 +10929,26 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
     small, wide = layout == "readme", layout == "wide"
     total, b = r["tokens"]["total"], r["tokens"]["buckets"]
     pct = r["tokens"]["cache_share_pct"]
-    first = max(r["start"], d["coverage"]["first"] or r["end"] - 1)
+    first = max(r["start"], d["coverage"]["first"] or r["end"] - 1) if total else r["start"] or r["end"] - 1
     date = lambda ts: time.strftime("%Y.%m.%d", time.localtime(ts))
     span = date(first) + " - " + date(r["end"] - 1)
     title = L("我的 AI 用量", "My AI usage") if r["kind"] == "all" else r["label"] + L(
         " 年度回顧" if r["kind"] == "year" else " 月回顧", " in review" if r["kind"] == "year" else " monthly recap")
     partial = r["in_progress"] or r["history_starts_late"]
     stamp = L("截至目前", "So far") if r["in_progress"] else L("部分歷史", "Partial history") if r["history_starts_late"] else L("可見紀錄", "Observed usage")
+    if not total:
+        stamp = L("尚無用量紀錄", "No usage records")
+    total_short = short(total) if total else "—"
+    total_exact = format(total, ",") + " tokens" if total else L("尚無可見用量", "No observed usage")
+    output_short = short(b["output"]) if total else "—"
+    active, streak = (str(r["active_days"]), str(r["longest_streak"])) if total else ("—", "—")
+    description = "%s; %s" % (span, total_exact)
+    if total:
+        description += "; " + "; ".join("%s: %s" % (token_labels(zh)[k], format(b[k], ",")) for k in TOKEN_COLS)
     e = svg_escape
     o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" data-layout="%s" aria-label="%s">' %
-         (W, H, W, H, layout, e(title + " " + span + " " + short(total) + " tokens")),
-         '<title>%s</title><desc>%s</desc>' % (e(title), e("%s; %s tokens; %s" % (span, format(total, ","),
-             "; ".join("%s: %s" % (token_labels(zh)[k], format(b[k], ",")) for k in TOKEN_COLS)))),
+         (W, H, W, H, layout, e(title + " " + span + " " + total_exact)),
+         '<title>%s</title><desc>%s</desc>' % (e(title), e(description)),
          '<g font-family="%s">' % svg_escape(CARD_FONT),
          '<rect width="%d" height="%d" fill="%s"/>' % (W, H, bg)]
     def text(x, y, value, size=28, color=None, weight="400", room=None, anchor="start", ident=None):
@@ -10986,7 +10994,7 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
             vals = [(str(i + 1), counts.get((start + datetime.timedelta(days=i)).isoformat(), 0)) for i in range((end - start).days + 1)]
             label = L("每日處理量", "Daily tokens")
         else:
-            vals = [(p["label"] + ("*" if p["in_progress"] else ""), p["tokens"]["total"]) for p in reversed(d["periods"]) if p["kind"] == "month" and
+            vals = [(p["label"] + ("*" if p["in_progress"] else ""), p["tokens"]["total"]) for p in reversed(d["periods"]) if p["kind"] == "month" and p["tokens"]["total"] and
                     (r["kind"] == "all" or p["label"][:4] == r["label"])][-12:]
             label = L("每月處理量 · 最近 12 個有紀錄月份", "Monthly tokens · last 12 recorded months")
         text(x, y, label, 24, room=w - 240 if any(label.endswith("*") for label, _ in vals) else w)
@@ -11008,12 +11016,12 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
         text(W - 26, 37, stamp, 16, warn if partial else meta, anchor="end", room=190)
         rule(26, 56, W - 52)
         text(26, 90, title, 22, weight="700", room=500)
-        text(26, 162, short(total), 66, weight="700", room=400)
-        text(26, 193, format(total, ",") + " tokens", 16, meta, room=420)
+        text(26, 162, total_short, 66, weight="700", room=400)
+        text(26, 193, total_exact, 16, meta, room=420)
         metric(26, 235, "%.1f%%" % pct if pct is not None else "—", L("快取讀取 / 總數", "Cache read / total"), 220, 30)
-        metric(268, 235, short(b["output"]), L("產生的輸出 token", "Output tokens"), 220, 30)
+        metric(268, 235, output_short, L("產生的輸出 token", "Output tokens"), 220, 30)
         sources(535, 94, 335, True)
-        text(535, 225, L("有用量天數", "Active days") + "  " + str(r["active_days"]), 18, room=335)
+        text(535, 225, L("有用量天數", "Active days") + "  " + active, 18, room=335)
         rule(26, 296, W - 52)
         text(26, 322, span, 16, meta, room=420)
         text(535, 322, L("B＝十億；快取計入，推理含於輸出", "B=billion; reasoning within output"), 14, meta, room=335)
@@ -11024,15 +11032,15 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
         rect(48, 90, 510, 420)
         text(80, 142, title, 28, weight="700", room=446)
         text(80, 202, L("TOKEN 處理量", "Tokens processed"), 22, meta, room=446)
-        text(76, 312, short(total), 112, weight="700", room=446)
-        text(80, 353, format(total, ",") + " tokens", 22, meta, room=446)
+        text(76, 312, total_short, 112, weight="700", room=446)
+        text(80, 353, total_exact, 22, meta, room=446)
         rule(80, 390, 446)
         text(80, 442, span, 22, room=446)
         rect(582, 90, 570, 240)
         metric(614, 139, "%.1f%%" % pct if pct is not None else "—", L("快取讀取 / 總數", "Cache read / total"), 238, 44)
-        metric(888, 139, short(b["output"]), L("輸出 token", "Output tokens"), 232, 44)
-        text(614, 285, L("有用量天數", "Active days") + "  " + str(r["active_days"]), 24, room=238)
-        text(888, 285, L("最長連續", "Longest streak") + "  " + str(r["longest_streak"]), 24, room=232)
+        metric(888, 139, output_short, L("輸出 token", "Output tokens"), 232, 44)
+        text(614, 285, L("有用量天數", "Active days") + "  " + active, 24, room=238)
+        text(888, 285, L("最長連續", "Longest streak") + "  " + streak, 24, room=232)
         rect(582, 354, 570, 156)
         sources(614, 391, 506, True)
         text(48, 564, L("B＝十億，含重複快取讀取；推理已含於輸出。", "B = billion. Repeated cache reads count; reasoning is within output."), 22, meta, room=1104)
@@ -11046,14 +11054,14 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
         text(W - 48, 185, stamp, 26, warn if partial else meta, anchor="end", room=280)
         rect(48, 224, 984, 282)
         text(80, 282, L("TOKEN 處理量", "Tokens processed"), 28, meta)
-        text(75, 421, short(total), 150, weight="700", room=920)
-        text(80, 472, format(total, ",") + " tokens", 26, meta)
+        text(75, 421, total_short, 150, weight="700", room=920)
+        text(80, 472, total_exact, 26, meta)
         rect(48, 530, 984, 236)
         metric(80, 580, "%.1f%%" % pct if pct is not None else "—", L("快取讀取 / 總數", "Cache read / total"), 420)
-        metric(568, 580, short(b["output"]), L("產生的輸出 token", "Output tokens"), 432)
+        metric(568, 580, output_short, L("產生的輸出 token", "Output tokens"), 432)
         rule(80, 670, 920)
-        text(80, 724, L("有用量天數", "Active days") + "  " + str(r["active_days"]), 28, room=420)
-        text(568, 724, L("最長連續天數", "Longest streak") + "  " + str(r["longest_streak"]), 28, room=432)
+        text(80, 724, L("有用量天數", "Active days") + "  " + active, 28, room=420)
+        text(568, 724, L("最長連續天數", "Longest streak") + "  " + streak, 28, room=432)
         if portrait:
             rect(48, 790, 984, 234)
             sources(80, 841, 430)
@@ -11169,33 +11177,62 @@ def creator_period_details(p, lang=None):
             "guidance": guidance, "comparisonText": comparison_text, "export": export}
 
 
+def creator_history(d):
+    """製卡頁保留本月／上月空狀態；不改變歷史報告的已觀測區間。"""
+    if not d["periods"][0]["tokens"]["total"]:
+        return d
+    year, month = map(int, time.strftime("%Y-%m", time.localtime(d["generated_at"])).split("-"))
+    labels = ["%04d-%02d" % (year, month), "%04d-%02d" % (year - 1, 12) if month == 1 else "%04d-%02d" % (year, month - 1)]
+    periods = list(d["periods"])
+    keys = {p["key"] for p in periods}
+    for label in labels:
+        key = "month-" + label
+        if key in keys:
+            continue
+        start, end, label = month_range(label)
+        observed_end = min(end, d["generated_at"] + 1)
+        periods.append({"key": key, "label": label, "kind": "month", "start": start, "end": observed_end,
+            "period_end": end, "in_progress": end > observed_end, "history_starts_late": True,
+            "tokens": {"total": 0, "buckets": dict.fromkeys(TOKEN_COLS, 0), "cache_share_pct": None},
+            "active_days": 0, "longest_streak": 0, "coverage": [], "comparison": None,
+            "daily": [], "sources": [], "models": []})
+    return dict(d, periods=[p for p in periods if p["kind"] != "month"] +
+                sorted((p for p in periods if p["kind"] == "month"), key=lambda p: p["label"], reverse=True))
+
+
 def render_creator_html(d, handle="", selected=None, lang=None):
     """本機製卡工具；頁面持有彙總，下載只包含當下選定的一張圖。"""
     import html
     zh = (lang or _lang) == "zh"
     def L(z, e):
         return z if zh else e
+    d = creator_history(d)
     periods = d["periods"]
     keys = {p["key"] for p in periods}
     if selected is not None and selected not in keys:
         raise ValueError("No observed history for %s" % selected)
     # 第一張採最近一個已結束、已有紀錄的月份；新使用者則用最新月份。
-    selected = selected or next((p["key"] for p in periods if p["kind"] == "month" and not p["in_progress"]),
-                               next((p["key"] for p in periods if p["kind"] == "month"), "all"))
+    selected = selected or next((p["key"] for p in periods if p["kind"] == "month" and p["tokens"]["total"] and not p["in_progress"]),
+                               next((p["key"] for p in periods if p["kind"] == "month" and p["tokens"]["total"]), "all"))
     templates, choices, captions = {}, [], []
     for p in periods:
         label = (L("累計歷史", "All observed history") if p["kind"] == "all" else
                  p["label"] + L(" 年", " year") if p["kind"] == "year" else p["label"])
         if p["in_progress"]:
             label += L(" · 截至目前", " · so far")
+        if not p["tokens"]["total"]:
+            label += L(" · 尚無紀錄", " · no records")
         choices.append('<option value="%s"%s>%s</option>' %
                        (html.escape(p["key"], quote=True), ' selected' if p["key"] == selected else '', html.escape(label)))
         # 從所選區間圖像擷取相同的可見範圍，貼文不暗示完整帳號歷史。
-        first = max(p["start"], d["coverage"]["first"] or p["end"] - 1)
+        first = max(p["start"], d["coverage"]["first"] or p["end"] - 1) if p["tokens"]["total"] else p["start"] or p["end"] - 1
         date = lambda ts: time.strftime("%Y-%m-%d", time.localtime(ts))
         caption = L("我的 AI 用量", "My AI usage") + " · " + date(first) + " ~ " + date(p["end"] - 1)
-        caption += "\n" + format(p["tokens"]["total"], ",") + L(" token 處理量", " tokens processed")
-        caption += "\n" + L("輸出", "Output") + " " + format(p["tokens"]["buckets"]["output"], ",") + " token"
+        if p["tokens"]["total"]:
+            caption += "\n" + format(p["tokens"]["total"], ",") + L(" token 處理量", " tokens processed")
+            caption += "\n" + L("輸出", "Output") + " " + format(p["tokens"]["buckets"]["output"], ",") + " token"
+        else:
+            caption += "\n" + L("尚無用量紀錄", "No usage records")
         if p["in_progress"] or p["history_starts_late"]:
             caption += "\n" + L("此區間仍在進行，或只有部分歷史。", "This period is ongoing or has partial history.")
         captions.append(dict(creator_period_details(p, lang), key=p["key"], caption=caption))

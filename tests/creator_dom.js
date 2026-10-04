@@ -60,7 +60,7 @@ async function run(fail=false,clipboardFails=false){
  const exported=JSON.parse(await blobs.at(-1).text());assert.equal(exported.period,'2026-09');assert.equal(exported.total_tokens,12904000);
  assert.ok(!JSON.stringify(exported).includes('2026-08'));assert.ok(!JSON.stringify(exported).includes('secret-project'));
  // A selected empty period must disable exports even when other periods have data.
- vm.runInNewContext('data.periods.find(p=>p.key==="month-2026-09").hasUsage=false;update();',context);
+ ids.period.value='month-2026-10';ids.period.handlers.change();
  assert.equal(ids.png.disabled,true);assert.equal(ids.svg.disabled,true);assert.equal(ids.copy.disabled,true);assert.equal(ids.json.disabled,true);assert.equal(ids.empty.hidden,false);
  const before=links.length;await ids.png.handlers.click();ids.svg.handlers.click();ids.json.handlers.click();assert.equal(links.length,before);
 }

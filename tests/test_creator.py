@@ -36,7 +36,7 @@ class Creator(unittest.TestCase):
         self.assertNotIn('fetch(', page)
         self.assertNotIn('innerHTML', page)
         payload = json.loads(re.search(r'id="creator-data">(.*?)</script>', page, re.S)[1])
-        self.assertEqual(len(payload['templates']), len(self.data['periods']) * 8)
+        self.assertEqual(len(payload['templates']), len(self.m.creator_history(self.data)['periods']) * 8)
         self.assertEqual(payload['templates']['month-2026-09/portrait/dark'],
                          self.m.render_mission_share_svg(self.data, 'month-2026-09', '', 'portrait', lang='zh'))
         self.assertIn('value="month-2026-09" selected', page)
@@ -73,6 +73,30 @@ class Creator(unittest.TestCase):
             self.assertNotIn(forbidden,raw)
         self.assertIn('無紀錄的過去無法補算',self.m.creator_period_details(periods['month-2026-08'],'zh')['guidance']['local'])
         self.assertFalse(self.m.creator_period_details(dict(periods['all'],tokens=dict(periods['all']['tokens'],total=0)),'en')['hasUsage'])
+
+    def test_missing_current_and_previous_months_are_explicit_empty_choices(self):
+        original=json.dumps(self.data,sort_keys=True)
+        page=self.page(selected='month-2026-10')
+        payload=json.loads(re.search(r'id="creator-data">(.*?)</script>',page,re.S)[1])
+        empty=next(p for p in payload['periods'] if p['key']=='month-2026-10')
+        self.assertFalse(empty['hasUsage'])
+        self.assertIn('尚無用量紀錄',empty['caption'])
+        self.assertNotIn('0 token',empty['caption'])
+        self.assertEqual(json.dumps(self.data,sort_keys=True),original)
+        # A newer history start must not reverse the missing previous month's dates.
+        db=self.m.open_ledger(':memory:')
+        try:
+            at=self.m.calendar_ts(2026,1,4,12)
+            self.m.add_usage(db,[dict(source='codex',uid='jan',ts=at-1,output=5)])
+            d=self.m.history_profile(db,at,{})
+            creator=self.m.creator_history(d)
+            prev=next(p for p in creator['periods'] if p['key']=='month-2025-12')
+            self.assertFalse(self.m.creator_period_details(prev,'zh')['hasUsage'])
+            page=self.m.render_creator_html(d,selected='month-2025-12',lang='zh')
+            payload=json.loads(re.search(r'id="creator-data">(.*?)</script>',page,re.S)[1])
+            text=next(p['caption'] for p in payload['periods'] if p['key']=='month-2025-12')
+            self.assertIn('2025-12-01 ~ 2025-12-31',text)
+        finally:db.close()
 
     def test_create_only_imports_local_metadata_and_does_not_start_services(self):
         with mock.patch('sys.stdout'), mock.patch.object(self.m, 'sync') as sync, mock.patch.object(self.m, 'open_creator', return_value=('creator.html', False)) as create:
