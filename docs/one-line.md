@@ -28,7 +28,25 @@ passes to its status line, so they appear once `computai --statusline` has run a
 ```
 
 `--statusline` reads `rate_limits.five_hour` and `rate_limits.seven_day` from stdin, stores them in the
-ledger, and prints the same line as `--line`. It ignores every other field in the payload.
+ledger. In beta.2 development it also shows the model, live context window, last request's uncached input,
+cache reads/writes, output and input cache-hit ratio, plus reset countdowns. `--statusline-view compact`
+keeps the original single line. `--line` itself stays unchanged.
+
+These fields come from Claude Code's native stdin payload; no transcript is opened. Context counts
+are for the latest context window, **not cumulative session usage**, and exclude output when calculating
+context occupancy. Missing values are `?`. Context/last-request numbers are displayed, not added to the
+usage ledger; only limit snapshots are stored. Width uses Claude's `COLUMNS` and wraps when needed.
+See [Claude Code's official fields](https://code.claude.com/docs/en/statusline), verified 2026-10-04.
+
+Try it with the synthetic fixture (no API request):
+
+```sh
+COMPUTAI_DATA_DIR="$(mktemp -d)" computai --statusline --no-sync --lang zh < tests/fixtures/statusline/detailed.json
+```
+
+The temporary data directory keeps synthetic limits out of your real ledger. The fixture's rate-limit dates are fixed; its model/context/request numbers remain useful for a preview.
+Use `--setup` to review an integration and preserve an existing status line, or merge the configuration
+above into your settings rather than replacing unrelated settings.
 
 If you already have a status line script, keep it and feed the same input to ComputAI:
 
@@ -59,4 +77,7 @@ folder and make it executable. The menu bar shows the line; the drop-down shows 
 Codex 的額度從 log 讀；Claude 的額度只有 Claude Code 傳給 statusline 的 JSON 裡有，所以要把
 `computai --statusline` 設成 Claude Code 的 statusLine 指令（設定方式見上面），跑過一次之後
 `--line`、tmux、SwiftBar 才看得到 Claude 的百分比（限 Pro/Max 帳號）。
-`--statusline` 只讀 `rate_limits`，其他欄位一概不看。
+beta.2 開發版的 `--statusline` 另顯示模型、目前上下文進度、上次請求的新輸入／快取讀寫／輸出、輸入命中率及重置倒數。
+上下文不是 session 累計，缺少欄位顯示 `?`；模型與當次用量只顯示、不再入帳，仍只保存額度快照。
+不讀 transcript、提示詞或回應。加 `--statusline-view compact` 保留原本單行；`--line` 維持不變。
+可用上面的合成 fixture 先預覽；既有 Claude settings 整合用 `--setup` 檢視差異，或合併 statusLine 欄位。

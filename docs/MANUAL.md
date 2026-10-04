@@ -100,7 +100,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--summary [--by model\|project\|session\|day]` | Totals per source and model, API-equivalent cost, plan comparison, limits, machines, cloud and alerts. |
 | `--sync` | Import new usage and print how many rows were added per source. |
 | `--line [--sep " · "]` | One line: each subscription's fullest limit window and today's cost. Re-reads logs at most every 30 s. |
-| `--statusline` | For Claude Code's `statusLine`: records Claude's limits from stdin, prints `--line`. |
+| `--statusline` | For Claude Code's `statusLine`: records native limits and displays model, context and last request; `--statusline-view compact` keeps one line. |
 | `--live [-n SEC]` | Live terminal dashboard: one panel per machine (bars and sparklines for CPU, memory, every GPU and power, plus its inference servers), AI usage with limit bars and 14-day cost trends, and alerts. Two columns on wide terminals, one line per machine when the window is short. `q` quits. |
 | `--once` | Print the live dashboard once and exit (reads logs and samples machines first). |
 | `--card --setup` | Set up the GitHub profile card in a few questions (finds or clones the profile repo, writes the first card, adds it to the README). |
@@ -128,6 +128,8 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--sample` | Read every machine once and print the machine table. |
 | `--cloud` | List RunPod, Vast.ai and Lambda instances and record their cost. |
 | `--proxy [--listen ... --upstream ... --machine NAME]` | Token-counting proxy for Ollama and OpenAI-compatible servers. |
+| `--tokens` | Exact token breakdown and cache share for the last 30 days; date filters and JSON supported. Beta.2 development. |
+| `--local-requests [N] [--tag test/production/benchmark]` | New proxy request timings, HTTP outcomes and output / elapsed tok/s; date/machine/model filters. Beta.2 development. |
 | `--local-history [N] [--machine NAME] [--model MODEL]` | Recent local usage: today's latest 20 rows by default, at most 200; date filters and `--json` supported. Added in beta.2 development. |
 | `--mcp` | MCP server on stdio for agents (see below). |
 | `--paths`, `--version` | |
@@ -386,7 +388,7 @@ vLLM, llama.cpp and SGLang report token totals themselves. Ollama does not: put 
 Clients keep using `:11434` unchanged. The proxy serves running totals at `/metrics`, which sampling reads over SSH, so this works on other machines too.
 
 - If sampling reads the proxy as an Ollama service, or reads counters from upstream vLLM/llama.cpp/SGLang, the proxy only keeps totals. Sampling native Ollama/LM Studio alone does not disable per-request recording.
-- On a machine that another computai samples, use `--no-ledger`.
+- Sampling is normally detected automatically to avoid double counting. Explicit `--no-ledger` keeps only `/metrics`; in beta.2 development it also disables persistent request metadata.
 
 ## GitHub profile card, kept fresh
 
@@ -627,3 +629,40 @@ Codex, an `[mcp_servers.computai]` entry with `command = "computai"` and `args =
   most once a day; `[general] update_check = no` turns it off). Update by running the installer again.
 - *Start over*: delete `ledger.sqlite`; logs are re-imported on the next run.
 - *Uninstall*: delete the `computai` file, `~/.config/computai` and `~/.local/share/computai`.
+
+
+## Token breakdown and local request tracing (beta.2 development)
+
+```sh
+computai --tokens
+computai --tokens --month 2026-10 --json
+computai --proxy --tag test
+# Point your test client at 127.0.0.1:11435, then use another terminal:
+computai --local-requests
+computai --local-requests 50 --machine m1m --model qwen3:8b --tag test --json
+```
+
+`--tokens` defaults to the last 30 calendar days including today, matching the default card; explicit
+month/since/until filters select another range. Exact counts and percentages separate uncached input,
+cache reads, 5m/1h cache writes and output. Reasoning is already in output and is shown as a subset.
+B = billion, M = million; repeated cache reads count again, so totals are not unique text. Cache share
+uses all tokens while input cache-hit rate excludes output. Cloud GPU rows are excluded. Top five
+sources, models and projects are local reports; published cards still omit project and machine names.
+Web usage has an expandable breakdown; the TUI spend tab links to the CLI; SVG cards explain cache
+share and output, with accessible full counts.
+
+`--local-requests [N]` defaults to today's latest 20 requests, max 200, with date/machine/model filters.
+`--tag` labels new proxy requests or filters this query: test, production, benchmark; unset means no label.
+Timestamps mark forwarding start. Elapsed time runs from starting upstream forwarding to completing
+transfer, including connection, queue, input processing and generation. Output tok/s = output / elapsed;
+it is **not generation-only speed or time to first token**. Failed/unknown usage is `?`, never fabricated zero.
+Outcomes describe HTTP/transfer success, HTTP error, upstream failure, client disconnect or missing usage;
+they do not inspect whether the generated content fulfilled a task.
+
+Only new POST requests to /api/chat, /api/generate, /v1/chat/completions, /v1/completions and /v1/responses
+are traced. No query strings, headers, prompts, responses or error bodies are stored. Metadata is separate
+from token usage; automatic counter sampling may suppress usage rows while retaining request metadata,
+without adding tokens twice. Explicit `--no-ledger` disables both persistent usage and request metadata,
+leaving in-memory /metrics. Existing --local-history remains available; old rows cannot recover timings,
+outcomes or labels. The TUI local tab prioritizes requests when available; web shows both histories.
+Restart existing proxy/TUI/web processes to load the new code. These features are not in released beta.1.

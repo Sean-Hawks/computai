@@ -85,7 +85,7 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 | `--summary [--by model\|project\|session\|day]` | 每個來源、每個模型的總量、等值 API 花費、方案比較、額度、機器、雲端和警示。 |
 | `--sync` | 匯入新的用量，印出每個來源新增幾筆。 |
 | `--line [--sep " · "]` | 一行字：每個訂閱最吃緊的額度視窗、今天的花費。最多每 30 秒重讀一次 log。 |
-| `--statusline` | 給 Claude Code 的 `statusLine` 用：從 stdin 記下 Claude 的額度，印出 `--line`。 |
+| `--statusline` | 給 Claude Code 的 `statusLine` 用：從原生 stdin 記下額度並顯示模型、上下文、上次請求；`--statusline-view compact` 保留單行。 |
 | `--live [-n 秒]` | 終端機 live 畫面：每台機器一個面板（CPU、記憶體、每張 GPU、功耗的長條和走勢，以及推論服務），AI 用量（額度長條、14 天花費走勢），警示。寬的終端機分兩欄，視窗太矮時每台機器縮成一行。按 `q` 離開。 |
 | `--once` | 印一次 live 畫面就結束（會先讀 log、取樣機器）。 |
 | `--card --setup` | 幾個問題設定好 GitHub 個人頁卡片（找到或 clone 個人頁 repo、產生第一張卡片、加進 README）。 |
@@ -113,6 +113,8 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 | `--sample` | 讀一次每台機器，印出機器表。 |
 | `--cloud` | 列出 RunPod、Vast.ai、Lambda 的機器並記下花費。 |
 | `--proxy [--listen ... --upstream ... --machine 名稱]` | Ollama 和 OpenAI 相容服務的 token 計數 proxy。 |
+| `--tokens` | 最近 30 天的 token 精確細項、快取占比及來源／模型／專案排名；支援日期與 JSON。beta.2 開發版。 |
+| `--local-requests [筆數] [--tag test/production/benchmark]` | 今天新版 proxy 請求的耗時、HTTP 結果及輸出／全程 tok/s；支援日期／機器／模型篩選。beta.2 開發版。 |
 | `--local-history [筆數] [--machine 名稱] [--model 模型]` | 最近本地用量，預設今天最新 20 筆，最多 200 筆；支援日期範圍與 `--json`。beta.2 開發版新增。 |
 | `--mcp` | 給 agent 用的 MCP server（見下面）。 |
 | `--paths`、`--version` | |
@@ -341,7 +343,7 @@ vLLM、llama.cpp、SGLang 自己會報 token 累計數。Ollama 不會，要在�
 用戶端照樣打 `:11434`，不用改。proxy 在 `/metrics` 提供累計數，取樣時透過 SSH 讀，所以遠端機器也行。
 
 - 取樣若讀 proxy 的 Ollama 埠，或讀上游 vLLM／llama.cpp／SGLang 的 token 計數器，proxy 只交累計數。若只取樣原生 Ollama／LM Studio，proxy 仍逐筆記帳，避免漏帳。
-- 在給別台 computai 取樣的機器上，用 `--no-ledger`。
+- 給別台 computai 取樣時通常會自動避免重複記帳；明確 `--no-ledger` 只保留 `/metrics`，beta.2 開發版也會停用逐筆請求紀錄。
 
 ## 自動更新的 GitHub 個人頁卡片
 
@@ -558,3 +560,34 @@ agent 可以透過 MCP 的 `pick` 工具問同一個問題。
   再跑一次安裝腳本就會更新。
 - *想重來*：刪掉 `ledger.sqlite`，下次執行會重新匯入 log。
 - *移除*：刪掉 `computai` 檔案、`~/.config/computai` 和 `~/.local/share/computai`。
+
+
+## Token 細項與本地請求追蹤（beta.2 開發版）
+
+```sh
+computai --tokens --lang zh
+computai --tokens --month 2026-10 --json
+computai --proxy --tag test
+# 讓自己的測試程式改呼叫 127.0.0.1:11435，再開另一個終端查詢：
+computai --local-requests --lang zh
+computai --local-requests 50 --machine m1m --model qwen3:8b --tag test --json
+```
+
+`--tokens` 預設最近 30 天（含今天），與預設卡片相同；指定 `--month`／`--since`／`--until` 則改用該區間。
+列出精確整數、占總數百分比、來源／模型／專案前五名。總數 = 新輸入 + 快取讀取 + 5m／1h 快取寫入 + 輸出；
+reasoning 已含於 output，只列子集合。B 是十億（10 億），M 是百萬；每次重複讀快取都計數，不能當成不同文字的數量。
+快取讀取占總數與「輸入快取命中率」分母不同。雲端 GPU 的帳目不含 token，排除於此總數。
+網頁 AI 用量頁可展開細項，TUI 花費頁顯示查詢入口；SVG 卡片附快取占比、輸出及可存取的詳細說明，仍不公開專案／機器名稱。
+
+`--local-requests [N]` 預設今天最新 20 筆、最多 200，支援與 `--local-history` 相同的日期／機器／模型篩選。
+`--tag` 可標記新 proxy 請求或篩選查詢：test、production、benchmark，未指定則沒有標籤。
+時間是開始轉送的時間；耗時從轉送上游開始至轉送完成，包含連線、排隊、輸入處理、生成與傳輸。
+輸出 tok/s = 輸出 token / 全程耗時，**不是純生成速度或首 token 延遲**。失敗或沒有用量時速度／token 顯示 `?`。
+結果分成功、HTTP 錯誤、上游失敗、用戶端斷線、未回報用量；只依 HTTP／傳輸與用量欄位判斷，沒有檢查生成內容是否滿足任務。
+
+只記錄新版 proxy 的五種生成 endpoint；不存 query、header、提示詞、回應或錯誤內文。
+請求 metadata 獨立保存，不再加進 usage；自動改由服務計數器記帳時仍可保留逐筆紀錄，避免重複計算。
+明確 `--no-ledger` 同時停用逐筆用量及請求 metadata，只保留記憶體 `/metrics`。
+`--local-history` 繼續顯示原本的請求／取樣差值；舊紀錄無法補出耗時、結果與標籤。
+TUI 本地頁有紀錄時優先顯示請求，網頁同時保留兩種表格。既有 proxy／TUI／web 需要重啟才能載入新版。
+這些功能只在本地開發分支，已發佈 beta.1 尚未包含。

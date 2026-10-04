@@ -62,6 +62,14 @@ still fits; smart plugs (Shelly, Tasmota, Home Assistant) give measured power; `
 Telegram; `--wrapped` makes a Spotify-Wrapped-style story page and share card, `--card` a GitHub profile card (`--recap` is the older year card); `--csv` exports records; `--totals`/`--lab` combine a
 group's totals; `--lang zh` switches the dashboards to Traditional Chinese.
 
+## Features to try in local beta.2 development
+
+`computai --tokens` explains cache and output totals, also clarified on shareable cards.
+`computai --statusline` adds Claude's model, context and last request; `--statusline-view compact` keeps one line.
+`computai --proxy --tag test` records new request durations and HTTP outcomes; inspect them with `computai --local-requests`.
+Only requests through the updated proxy have this detail; no prompts or responses are stored.
+These are unreleased local development features; [usage and counting rules](docs/MANUAL.md#token-breakdown-and-local-request-tracing-beta2-development).
+
 ## Install
 
 Python 3.8 or newer, standard library only. macOS, Linux and Windows.

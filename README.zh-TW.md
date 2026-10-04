@@ -42,6 +42,14 @@
 `--weekly --send` 把週報送到 Discord 或 Telegram；`--wrapped` 像 Spotify Wrapped 的故事頁和分享卡、`--card` GitHub 個人頁卡片（`--recap` 是較早的年度回顧卡）；`--csv` 匯出明細；
 `--totals`／`--lab` 實驗室彙總；`--lang zh` 中文介面。
 
+## beta.2 本地開發版可試的新功能
+
+`computai --tokens --lang zh` 解釋總數的快取／輸出細項；卡片也附快取占比說明。
+`computai --statusline` 在 Claude Code 旁顯示模型、上下文與上次請求；`--statusline-view compact` 保留原本單行。
+`computai --proxy --tag test` 記錄新請求耗時與 HTTP 結果，`computai --local-requests --lang zh` 查看。
+只有經過新版 proxy 的新請求有詳細資訊，不保存提示詞／回應。這些仍是未發佈的本地開發功能，
+[用法與統計定義](docs/MANUAL.zh-TW.md#token-細項與本地請求追蹤beta2-開發版)。
+
 ## 安裝
 
 需要 Python 3.8 以上，只用標準函式庫；macOS、Linux、Windows 都可以。

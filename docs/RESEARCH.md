@@ -119,3 +119,12 @@
 **分享**：
 - 年度回顧卡
 - 成就系統
+
+
+## Token Monitor 參考與原生狀態列（2026-10-04）
+
+使用者確認先前提到的是 [Javis603/token-monitor](https://github.com/Javis603/token-monitor)。
+參考的是本機 token 細項與 CLI 旁的即時資訊；本次不移植程式碼或任何 credential 讀取方法。
+[Claude Code 官方 statusline](https://code.claude.com/docs/en/statusline) 驗證 current_usage 四欄，
+input 不含快取；context occupancy 只含三種輸入，不含 output。上下文總數屬目前視窗，不是 session 累計。
+null 出現在首次 API 前／compact 後；COLUMNS 由 Claude 設定。只顯示白名單欄位，從不開 transcript。
