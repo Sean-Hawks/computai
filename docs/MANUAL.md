@@ -489,12 +489,18 @@ The card shows a snapshot; run the command again (for example from cron) to refr
 
 ## Agent timeline
 
-Tab 6 (and `computai --timeline`) draws today as a Gantt chart from timestamps and token counts only: one row per
-Claude or Codex session (`@laptop` when it ran on another device) or local model, subagents indented under their
-session, darker blocks for denser tokens, dots where a session was open but idle, and `↶` for a session that
-started before midnight. Under it: the moment with the most agents at once (▲), the longest stretch (◆) and
-the longest wait (◇), and a one-line summary ("Today your agents worked 6.2 hours, up to 4 at once; the
-priciest hour was 14:00"). It fits a 60-column terminal.
+Tab 6 (and `computai --timeline`) draws the day's activity from timestamps and token counts only. The date,
+snapshot time and hourly scale appear above numbered Claude/Codex sessions and explicitly labeled local models.
+Remote sessions include `@laptop`, subagents sit below their parent, and `↶` marks continuation from yesterday.
+
+- `━` shows estimated activity, `·` shows gaps between requests, `│` marks hours, and `┃` marks now.
+- Wide terminals show accumulated activity and tokens on the right. A second line shows each row's first-to-last activity range; accumulated time excludes gaps.
+- The summary separates Claude/Codex hours from local inference hours. Both add across rows, including concurrent sessions.
+- Requests up to five minutes apart form a segment, with a one-minute minimum for isolated requests. This estimates activity rather than task content or exact runtime.
+- The footer spells out peak concurrency, the longest stretch and longest gap. Cost peaks are API-equivalent estimates, rather than subscription payments.
+
+It fits 60 columns, with durations below each row on narrow terminals. Short TUI screens use compact rows and
+show how many sessions were omitted.
 
 `computai --timeline --svg FILE` writes the same chart as an SVG without project or machine names (rows read
 "Claude 1", "Codex 2" and local model names), and Wrapped shows the busiest day's timeline.
