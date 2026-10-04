@@ -10686,6 +10686,10 @@ def history_profile(db, t=None, prices=None):
             "SELECT date(ts, 'unixepoch', 'localtime') AS day, SUM(%s) AS tokens FROM usage "
             "WHERE source != 'cloud' AND ts >= ? AND ts < ? GROUP BY day HAVING SUM(%s) > 0 ORDER BY day" %
             (cols, cols), (start, observed_end))]
+        coverage = [dict(r) for r in db.execute(
+            "SELECT source, MIN(ts) AS first, MAX(ts) AS last, COUNT(*) AS records FROM usage "
+            "WHERE source != 'cloud' AND ts >= ? AND ts < ? AND (%s) > 0 "
+            "GROUP BY source ORDER BY source" % cols, (start, observed_end))]
         s = summary(db, start, observed_end, prices=prices, plan_table={})
         models, mix, value, unpriced = {}, [], 0.0, set()
         for src in s["sources"]:
@@ -10707,7 +10711,8 @@ def history_profile(db, t=None, prices=None):
             "period_end": end, "in_progress": kind != "all" and end > end_now,
             "history_starts_late": kind != "all" and first is not None and first > start,
             "tokens": d, "active_days": len(daily), "longest_streak": longest_streak([r["day"] for r in daily]),
-            "daily": daily, "sources": sorted(mix, key=lambda r: (-r["tokens"], r["source"])),
+            "daily": daily, "coverage": coverage,
+            "sources": sorted(mix, key=lambda r: (-r["tokens"], r["source"])),
             "models": [{"model": name, "tokens": n} for name, n in sorted(models.items(), key=lambda kv: (-kv[1], kv[0]))[:5]],
             "api_equivalent_usd": round(value, 2), "unpriced_models": sorted(unpriced)})
     period("all", "all", 0, end_now, "all")
@@ -10716,6 +10721,18 @@ def history_profile(db, t=None, prices=None):
     for month in months:
         start, end, label = month_range(month)
         period("month-" + month, label, start, end, "month")
+    by_month = {p["label"]: p for p in periods if p["kind"] == "month"}
+    for p in periods:
+        p["comparison"] = None
+        if p["kind"] != "month":
+            continue
+        year, month = map(int, p["label"].split("-"))
+        previous = "%04d-%02d" % (year - 1, 12) if month == 1 else "%04d-%02d" % (year, month - 1)
+        baseline = by_month.get(previous)
+        if baseline and baseline["tokens"]["total"]:
+            p["comparison"] = {"month": previous, "tokens": baseline["tokens"]["total"],
+                "change_percent": round(100.0 * (p["tokens"]["total"] / baseline["tokens"]["total"] - 1), 1),
+                "partial": p["in_progress"] or p["history_starts_late"] or baseline["history_starts_late"]}
     return {"generated_at": int(t), "timezone": time.strftime("%Z", time.localtime(t)),
             "coverage": {"first": first, "last": last, "sources": sources}, "periods": periods}
 

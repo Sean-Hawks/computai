@@ -57,6 +57,40 @@ class HistoryProfile(unittest.TestCase):
             self.assertEqual(d['periods'][0]['tokens']['total'],0)
         finally:db.close()
 
+    def test_period_coverage_and_calendar_month_comparison(self):
+        d=self.m.history_profile(self.db,self.t,PRICES)
+        periods={p['key']:p for p in d['periods']}
+        sep=periods['month-2026-09']
+        coverage={r['source']:r for r in sep['coverage']}
+        self.assertEqual(set(coverage),{'claude','local'})
+        self.assertGreater(coverage['local']['records'],0)
+        self.assertEqual(time.strftime('%Y-%m',time.localtime(coverage['local']['first'])),'2026-09')
+        self.assertEqual(sep['comparison']['month'],'2026-08')
+        self.assertEqual(sep['comparison']['tokens'],1000000)
+        self.assertTrue(sep['comparison']['partial'])
+        self.assertIsNone(periods['all']['comparison'])
+        self.assertIsNone(periods['month-2026-08']['comparison'])
+        # A gap must not compare October with August or treat missing September as zero.
+        db=self.m.open_ledger(':memory:')
+        try:
+            self.m.add_usage(db,[dict(source='codex',uid='aug',ts=self.m.calendar_ts(2026,8,2),output=10),
+                dict(source='local',uid='oct',ts=self.t-1,output=20),
+                dict(source='local',uid='zero',ts=self.t-2,output=0)])
+            p=self.m.history_profile(db,self.t,{})['periods'][2]
+            self.assertEqual(p['key'],'month-2026-10')
+            self.assertIsNone(p['comparison'])
+            self.assertEqual(p['coverage'][0]['records'],1)
+        finally:db.close()
+
+    def test_month_comparison_crosses_year_boundary(self):
+        db=self.m.open_ledger(':memory:')
+        try:
+            self.m.add_usage(db,[dict(source='codex',uid='dec',ts=self.m.calendar_ts(2025,12,1),output=100),
+                dict(source='codex',uid='jan',ts=self.m.calendar_ts(2026,1,1),output=150)])
+            p=next(p for p in self.m.history_profile(db,self.t,{})['periods'] if p['key']=='month-2026-01')
+            self.assertEqual(p['comparison'],{'month':'2025-12','tokens':100,'change_percent':50.0,'partial':False})
+        finally:db.close()
+
     def test_profile_html_is_local_private_and_escapes_metadata(self):
         attack='</script><img src=x onerror=alert(1)>'
         self.m.add_usage(self.db,[dict(source='local',uid='html',ts=self.t-10,model=attack,output=7)])
