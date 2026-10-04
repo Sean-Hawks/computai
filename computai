@@ -4723,7 +4723,7 @@ def line_parts(db):
 def claude_statusline_limits(payload, ts):
     """Claude Code 的 statusline 會把 JSON 從 stdin 傳進來；Pro/Max 帳號裡有
     rate_limits.five_hour／seven_day 的 used_percentage 和 resets_at（epoch 秒）。
-    這是 Claude 額度百分比唯一的官方來源。其他欄位（路徑、模型、對話）一律不看。"""
+    此函式只取額度欄位；不讀路徑或對話內容。"""
     out = []
     rl = payload.get("rate_limits") if isinstance(payload, dict) else None
     if not isinstance(rl, dict):
@@ -4736,10 +4736,72 @@ def claude_statusline_limits(payload, ts):
             used = float(w["used_percentage"])
         except (TypeError, ValueError):
             continue
+        if not math.isfinite(used) or not 0 <= used <= 100:
+            continue
         out.append({"source": "claude", "name": window_label(minutes), "ts": int(ts),
                     "used_percent": used, "window_minutes": minutes,
                     "resets_at": _int(w.get("resets_at")) or None, "plan": ""})
     return out
+
+
+def statusline_metadata(payload):
+    """只取原生 stdin 的模型／上下文／最後請求數字；不讀 transcript_path。"""
+    def obj(value):
+        return value if isinstance(value, dict) else {}
+    def number(value, maximum=10 ** 12):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return value if math.isfinite(value) and 0 <= value <= maximum else None
+    payload = obj(payload)
+    model = obj(payload.get("model"))
+    name = model.get("display_name") or model.get("id")
+    name = clip_text(untrusted(name), 40) if isinstance(name, str) else None
+    context = obj(payload.get("context_window"))
+    usage = obj(context.get("current_usage"))
+    counts = {key: number(usage.get(field)) for key, field in (
+        ("input", "input_tokens"), ("output", "output_tokens"),
+        ("cache_write", "cache_creation_input_tokens"), ("cache_read", "cache_read_input_tokens"))}
+    fed = sum(counts[k] for k in ("input", "cache_write", "cache_read")) if all(
+        counts[k] is not None for k in ("input", "cache_write", "cache_read")) else None
+    size = number(context.get("context_window_size"))
+    pct = number(context.get("used_percentage"), 100)
+    if pct is None and fed is not None and size:
+        pct = min(100.0, 100.0 * fed / size)
+    return {"model": name, "context_size": size, "context_input": fed,
+            "context_used_pct": pct, "last_request": counts,
+            "last_cache_hit_pct": 100.0 * counts["cache_read"] / fed if fed else None}
+
+
+def render_statusline(info, meta, width=120, sep="｜"):
+    """舊額度列在前；當次用量與上下文獨立，缺欄位用 ?，不當成 session 累計。"""
+    width = max(20, min(240, width))
+    lines = wrap(untrusted(render_line(info, sep)), width)
+    zh = _lang == "zh"
+    if not meta["model"] and meta["context_used_pct"] is None:
+        return "\n".join(lines)
+    def token(value):
+        return fmt_tok(value) if value is not None else "?"
+    pct = meta["context_used_pct"]
+    filled = int(pct / 10) if pct is not None else 0
+    bar = "[" + "#" * filled + "-" * (10 - filled) + "]" if pct is not None else "[??????????]"
+    context = "%s %s %s %s/%s" % ("上下文" if zh else "Context", bar,
+        "%d%%" % round(pct) if pct is not None else "?", token(meta["context_input"]), token(meta["context_size"]))
+    lines += wrap((meta["model"] or "?") + " · " + context, width)
+    r = meta["last_request"]
+    detail = ("上次請求" if zh else "Last request") + " · " + " · ".join(
+        "%s %s" % (label, token(r[key])) for key, label in (
+            ("input", "新輸入" if zh else "input"), ("cache_read", "快取讀" if zh else "cache read"),
+            ("cache_write", "快取寫" if zh else "cache write"), ("output", "輸出" if zh else "output")))
+    hit = meta["last_cache_hit_pct"]
+    if hit is not None:
+        detail += " · %s %.0f%%" % ("輸入命中" if zh else "input hit", hit)
+    lines += wrap(detail, width)
+    resets = ["%s %s %s" % (p["label"], p["window"],
+              (("重置 " if zh else "reset ") + fmt_dur(p["resets_in"])) if p["resets_in"] is not None else "?")
+              for p in info["limits"]]
+    if resets:
+        lines += wrap(" · ".join(resets), width)
+    return "\n".join(lines)
 
 
 def read_statusline_stdin():
@@ -10677,7 +10739,7 @@ def card_token_caption(c, lang):
     pct = d.get("cache_share_pct")
     if pct is None:
         return ""
-    return (("快取讀取占總数 %.1f%% · 輸出 %s" if lang == "zh" else "Cache reads %.1f%% of total · Output %s") %
+    return (("快取讀取占總數 %.1f%% · 輸出 %s" if lang == "zh" else "Cache reads %.1f%% of total · Output %s") %
             (pct, fmt_tok(d["buckets"]["output"])))
 
 
@@ -12538,7 +12600,9 @@ def parse_args(argv=None):
     p.add_argument("--line", action="store_true",
                    help="one line for status bars: limits used and today's API-equivalent spend")
     p.add_argument("--statusline", action="store_true",
-                   help="Claude Code statusLine command: records Claude's limits from stdin, prints --line")
+                   help="Claude Code statusLine: quota, model, context and last request usage from stdin")
+    p.add_argument("--statusline-view", choices=("compact", "detailed"), default="detailed",
+                   help="with --statusline: compact keeps the original single quota line")
     p.add_argument("--sep", default="\uff5c", help="separator for --line (default: \uff5c)")
     p.add_argument("--theme", choices=sorted(THEMES), help="dashboard look: cyber (default) or classic")
     p.add_argument("--lang", choices=sorted(UI), help="language of the live and web dashboards (default: [general] lang)")
@@ -12829,9 +12893,19 @@ def run(args, db):
         return serve_proxy(args.listen, args.upstream, args.machine or default_machine(),
                            args.sample_every, not args.no_usage_injection, False if args.no_ledger else None)
     if args.statusline:
-        add_limits(db, claude_statusline_limits(read_statusline_stdin(), now()), only_changes=True)
+        payload = read_statusline_stdin()
+        add_limits(db, claude_statusline_limits(payload, now()), only_changes=True)
         db.commit()
-        args.line = True
+        if not args.no_sync:
+            maybe_sync(db)
+        info = line_parts(db)
+        meta = statusline_metadata(payload)
+        if args.statusline_view == "compact":
+            emit(info, render_line(info, args.sep), args.json)
+        else:
+            width = max(20, min(240, _int(os.environ.get("COLUMNS")) or 120))
+            emit(dict(info, current=meta), render_statusline(info, meta, width, args.sep), args.json)
+        return 0
     if args.wake:
         mac, addr = wake(args.wake)
         print("computai: sent a wake-up packet to %s (%s via %s)" % (args.wake, mac, addr))

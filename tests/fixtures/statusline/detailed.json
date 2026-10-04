@@ -1,0 +1,14 @@
+{
+  "model": {"id": "demo-model", "display_name": "Demo Model"},
+  "context_window": {
+    "total_input_tokens": 15000,
+    "total_output_tokens": 1000,
+    "context_window_size": 200000,
+    "used_percentage": 7.5,
+    "current_usage": {"input_tokens": 1000, "cache_read_input_tokens": 12000, "cache_creation_input_tokens": 2000, "output_tokens": 1000}
+  },
+  "rate_limits": {"five_hour": {"used_percentage": 42.4, "resets_at": 1790003600}},
+  "transcript_path": "/never-open-fake-transcript.jsonl",
+  "messages": [{"content": "FAKE_PRIVATE_CONTENT"}],
+  "session_id": "FAKE_PRIVATE_SESSION"
+}

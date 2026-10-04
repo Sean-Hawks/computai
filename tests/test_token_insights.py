@@ -46,7 +46,7 @@ class TokenInsights(unittest.TestCase):
         for layout in ('hud', 'compact', 'dashboard', 'portrait'):
             svg = self.m.render_card_svg(c, lang='zh', layout=layout)
             ET.fromstring(svg)
-            self.assertIn('快取讀取占總数', svg)
+            self.assertIn('快取讀取占總數', svg)
             self.assertIn('推理（已含於輸出）', svg)
             self.assertNotIn('fake-project', svg)
 
