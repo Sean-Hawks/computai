@@ -10742,7 +10742,7 @@ def team_file(handle):
 def parse_team_file(text):
     """讀別人的檔案：只接受預期的欄位和型別，其他一律不要。"""
     d = json.loads(text)
-    if not isinstance(d, dict) or d.get("computai_team") != 1 or not TEAM_HANDLE.match(str(d.get("handle") or "")):
+    if not isinstance(d, dict) or d.get("computai_team") != 1 or (not isinstance(d.get("handle"), str) or not TEAM_HANDLE.fullmatch(d["handle"])):
         raise ValueError("not a computai team file")
     out = {"handle": d["handle"], "updated": d.get("updated") if isinstance(d.get("updated"), int) else 0}
     for key in ("week", "prev_week"):
@@ -11034,7 +11034,7 @@ def serve_mcp(db, stdin=None, stdout=None):
         except ValueError:
             out = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
         else:
-            if msg.get("method") == "tools/call" and time.time() - last_sync > 30:
+            if isinstance(msg, dict) and msg.get("method") == "tools/call" and time.time() - last_sync > 30:
                 sync(db, quiet=True)  # 回答之前先讀新的 log（最多 30 秒一次）
                 last_sync = time.time()
             out = mcp_handle(db, msg) if isinstance(msg, dict) else None

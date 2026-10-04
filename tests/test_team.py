@@ -94,6 +94,12 @@ class Team(unittest.TestCase):
         git("pull", "-q", cwd=other)
         self.assertFalse(os.path.exists(os.path.join(other, "computai-team-neo.json")))
 
+    def test_non_string_handle_is_rejected(self):
+        for handle in (123, True, [], {}, None):
+            with self.subTest(handle=handle):
+                with self.assertRaises(ValueError):
+                    self.m.parse_team_file(json.dumps({"computai_team": 1, "handle": handle}))
+
     def test_saying_no_publishes_nothing(self):
         self.assertEqual(self.m.team_publish(self.db, ask=lambda q: "n", out=lambda s: None), 1)
         self.assertFalse(os.path.exists(os.path.join(self.repo, "computai-team-neo.json")))
