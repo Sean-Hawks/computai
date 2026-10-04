@@ -16,7 +16,7 @@ class DockerRunner(unittest.TestCase):
             "python3": '#!/bin/sh\necho "synthetic test result"\nexit "$TEST_EXIT"\n',
             "docker": ('#!' + sys.executable + '\nimport os, subprocess, sys\n'
                        'command = sys.argv[-1]\n'
-                       'command = command[command.index("test_status=0"):]\n'
+                       'command = command[command.index("test_log="):]\n'
                        'sys.exit(subprocess.call(["sh", "-c", command]))\n'),
         }.items():
             path = os.path.join(sb.root, name)
