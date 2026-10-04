@@ -10854,9 +10854,177 @@ document.getElementById("print").addEventListener("click",()=>window.print());
 SHARE_LAYOUTS = {"square": (1080, 1080), "portrait": (1080, 1350), "wide": (1200, 630)}
 
 
-def render_profile_share_svg(d, selected="all", handle=None, layout="square", style="netrunner",
+# 同 Web／TUI 的 Mission Control 語彙；色彩只標示資料狀態。
+CREATOR_LAYOUTS = dict(SHARE_LAYOUTS, readme=(900, 360))
+
+
+def render_mission_share_svg(d, selected="all", handle=None, layout="square", theme="dark", lang=None):
+    """可分享的靜態彙總；不帶專案、裝置、session 或其餘區間。"""
+    if layout not in CREATOR_LAYOUTS:
+        raise ValueError("unknown share layout: %s" % layout)
+    r = next((p for p in d["periods"] if p["key"] == selected), None)
+    if r is None:
+        raise ValueError("No observed history for %s" % selected)
+    zh = (lang or _lang) == "zh"
+    def L(z, e):
+        return z if zh else e
+    def short(n):
+        return ("%.2fB" % (n / 1e9) if n >= 1e9 else "%.1fM" % (n / 1e6) if n >= 1e6 else
+                "%.1fK" % (n / 1e3) if n >= 1e3 else str(n))
+    light = theme == "light"
+    bg, panel, line = ("#f6f6f5", "#ffffff", "#d1d1d1") if light else ("#0b0b0c", "#121214", "#3a3a3a")
+    fg, meta, warn = ("#171717", "#555555", "#925e00") if light else ("#f5f5f5", "#aaaaaa", "#fbbf24")
+    W, H = CREATOR_LAYOUTS[layout]
+    small, wide = layout == "readme", layout == "wide"
+    total, b = r["tokens"]["total"], r["tokens"]["buckets"]
+    pct = r["tokens"]["cache_share_pct"]
+    first = max(r["start"], d["coverage"]["first"] or r["end"] - 1)
+    date = lambda ts: time.strftime("%Y.%m.%d", time.localtime(ts))
+    span = date(first) + " - " + date(r["end"] - 1)
+    title = L("我的 AI 用量", "My AI usage") if r["kind"] == "all" else r["label"] + L(
+        " 年度回顧" if r["kind"] == "year" else " 月回顧", " in review" if r["kind"] == "year" else " monthly recap")
+    partial = r["in_progress"] or r["history_starts_late"]
+    stamp = L("截至目前", "So far") if r["in_progress"] else L("部分歷史", "Partial history") if r["history_starts_late"] else L("可見紀錄", "Observed usage")
+    e = svg_escape
+    o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" data-layout="%s" aria-label="%s">' %
+         (W, H, W, H, layout, e(title + " " + span + " " + short(total) + " tokens")),
+         '<title>%s</title><desc>%s</desc>' % (e(title), e("%s; %s tokens; %s" % (span, format(total, ","),
+             "; ".join("%s: %s" % (token_labels(zh)[k], format(b[k], ",")) for k in TOKEN_COLS)))),
+         '<style>text{font-family:%s}</style>' % CARD_FONT,
+         '<rect width="%d" height="%d" fill="%s"/>' % (W, H, bg)]
+    def text(x, y, value, size=28, color=None, weight="400", room=None, anchor="start", ident=None):
+        full = untrusted(str(value))
+        cap = max(1, int((room if room is not None else W - x - 48) / (size * .64)))
+        shown = full if vlen(full) <= cap else clip(full, max(0, cap - 1)) + "…"
+        item = svg_text(x, y, shown, size, color or fg, anchor=anchor, weight=weight)
+        if ident:
+            item = item.replace('<text ', '<text id="%s" ' % ident, 1)
+        o.append('<g><title>%s</title>%s</g>' % (e(full), item))
+    def rect(x, y, w, h, fill=None, radius=12):
+        o.append('<rect x="%g" y="%g" width="%g" height="%g" rx="%g" fill="%s" stroke="%s"/>' %
+                 (x, y, w, h, radius, fill or panel, line))
+    def rule(x, y, w):
+        o.append('<path d="M%g %gH%g" stroke="%s"/>' % (x, y, x + w, line))
+    def metric(x, y, val, label, room, size=48):
+        text(x, y, label, 24 if not small else 16, meta, room=room)
+        text(x, y + (60 if not small else 38), val, size, weight="700", room=room)
+    def sources(x, y, w, compact=False):
+        text(x, y, L("用量來源", "Usage sources"), 22 if compact else 28, room=w)
+        rows = [(s["source"], s["tokens"]) for s in r["sources"][:2]]
+        rest = sum(s["tokens"] for s in r["sources"][2:])
+        if rest:
+            rows.append((L("其他", "Other"), rest))
+        if not rows:
+            text(x, y + 40, L("尚無可見用量", "No observed usage"), 20 if compact else 26, meta, room=w)
+        for i, (name, n) in enumerate(rows):
+            yy = y + (38 if compact else 56) + i * (28 if compact else 60)
+            share = "<1%" if 0 < n < total / 100.0 else "%.1f%%" % (100.0 * n / total) if total else "—"
+            size = 16 if compact else 24
+            text(x, yy, name, size, room=w * .4)
+            text(x + w, yy, share, size, weight="700", anchor="end", room=110)
+            barx = x + w * .42
+            barw = w * .34
+            o.append('<rect x="%g" y="%g" width="%g" height="6" rx="3" fill="%s"/>' % (barx, yy - 10, barw, line))
+            if total:
+                o.append('<rect x="%g" y="%g" width="%g" height="6" rx="3" fill="%s"/>' % (barx, yy - 10, barw * n / total, fg))
+    def trend(x, y, w, h):
+        if r["kind"] == "month":
+            start = datetime.date.fromisoformat(time.strftime("%Y-%m-%d", time.localtime(r["start"])))
+            end = datetime.date.fromisoformat(time.strftime("%Y-%m-%d", time.localtime(r["end"] - 1)))
+            counts = {p["day"]: p["tokens"] for p in r["daily"]}
+            vals = [(str(i + 1), counts.get((start + datetime.timedelta(days=i)).isoformat(), 0)) for i in range((end - start).days + 1)]
+            label = L("每日處理量", "Daily tokens")
+        else:
+            vals = [(p["label"], p["tokens"]["total"]) for p in reversed(d["periods"]) if p["kind"] == "month" and
+                    (r["kind"] == "all" or p["label"][:4] == r["label"])][-12:]
+            label = L("每月處理量 · 最近 12 個有紀錄月份", "Monthly tokens · last 12 recorded months")
+        text(x, y, label, 24, room=w)
+        peak = max((n for _, n in vals), default=0) or 1
+        width = w / max(1, len(vals))
+        for i, (label, n) in enumerate(vals):
+            height = h * n / peak
+            o.append('<rect x="%g" y="%g" width="%g" height="%g" rx="2" fill="%s"><title>%s: %s tokens</title></rect>' %
+                     (x + i * width + 2, y + 34 + h - height, max(1, width - 4), height, fg, e(label), format(n, ",")))
+            if len(vals) <= 8 or i in (0, len(vals) - 1):
+                text(x + i * width, y + h + 65, label if r["kind"] == "month" else label[2:], 20, meta, room=width)
+        rule(x, y + 34 + h, w)
+    if small:
+        rect(1, 1, W - 2, H - 2)
+        text(26, 37, "COMPUTAI", 18, weight="700", room=170)
+        text(220, 37, handle or "", 18, room=330, ident="creator-name")
+        text(W - 26, 37, stamp, 16, warn if partial else meta, anchor="end", room=190)
+        rule(26, 56, W - 52)
+        text(26, 90, title, 22, weight="700", room=500)
+        text(26, 162, short(total), 66, weight="700", room=400)
+        text(26, 193, format(total, ",") + " tokens", 16, meta, room=420)
+        metric(26, 235, "%.1f%%" % pct if pct is not None else "—", L("快取讀取 / 總數", "Cache read / total"), 220, 30)
+        metric(268, 235, short(b["output"]), L("產生的輸出 token", "Output tokens"), 220, 30)
+        sources(535, 94, 335, True)
+        text(535, 225, L("有用量天數", "Active days") + "  " + str(r["active_days"]), 18, room=335)
+        rule(26, 296, W - 52)
+        text(26, 322, span, 16, meta, room=420)
+        text(535, 322, L("含重複快取；推理已含於輸出", "Cache included; reasoning within output"), 14, meta, room=335)
+    elif wide:
+        text(48, 59, "COMPUTAI", 24, weight="700", room=230)
+        text(340, 59, handle or "", 24, room=480, ident="creator-name")
+        text(W - 48, 59, stamp, 22, warn if partial else meta, anchor="end", room=240)
+        rect(48, 90, 510, 420)
+        text(80, 142, title, 28, weight="700", room=446)
+        text(80, 202, L("TOKEN 處理量", "Tokens processed"), 22, meta, room=446)
+        text(76, 312, short(total), 112, weight="700", room=446)
+        text(80, 353, format(total, ",") + " tokens", 22, meta, room=446)
+        rule(80, 390, 446)
+        text(80, 442, span, 22, room=446)
+        rect(582, 90, 570, 240)
+        metric(614, 139, "%.1f%%" % pct if pct is not None else "—", L("快取讀取 / 總數", "Cache read / total"), 238, 44)
+        metric(888, 139, short(b["output"]), L("產生的輸出 token", "Output tokens"), 232, 44)
+        text(614, 285, L("有用量天數", "Active days") + "  " + str(r["active_days"]), 24, room=238)
+        text(888, 285, L("最長連續", "Longest streak") + "  " + str(r["longest_streak"]), 24, room=232)
+        rect(582, 354, 570, 156)
+        sources(614, 391, 506, True)
+        text(48, 564, L("B＝十億，含重複快取讀取；推理已含於輸出。", "B = billion. Repeated cache reads count; reasoning is within output."), 22, meta, room=1104)
+        text(48, 602, L("依可見用量紀錄彙總", "Aggregated from observed usage records"), 20, meta, room=1104)
+    else:
+        portrait = layout == "portrait"
+        text(48, 69, "COMPUTAI", 28, weight="700", room=240)
+        text(W - 48, 69, handle or "", 28, anchor="end", room=670, ident="creator-name")
+        text(48, 139, title, 44, weight="700", room=984)
+        text(48, 185, span, 26, meta, room=680)
+        text(W - 48, 185, stamp, 26, warn if partial else meta, anchor="end", room=280)
+        rect(48, 224, 984, 282)
+        text(80, 282, L("TOKEN 處理量", "Tokens processed"), 28, meta)
+        text(75, 421, short(total), 150, weight="700", room=920)
+        text(80, 472, format(total, ",") + " tokens", 26, meta)
+        rect(48, 530, 984, 236)
+        metric(80, 580, "%.1f%%" % pct if pct is not None else "—", L("快取讀取 / 總數", "Cache read / total"), 420)
+        metric(568, 580, short(b["output"]), L("產生的輸出 token", "Output tokens"), 432)
+        rule(80, 670, 920)
+        text(80, 724, L("有用量天數", "Active days") + "  " + str(r["active_days"]), 28, room=420)
+        text(568, 724, L("最長連續天數", "Longest streak") + "  " + str(r["longest_streak"]), 28, room=432)
+        if portrait:
+            rect(48, 790, 984, 234)
+            sources(80, 841, 430)
+            rule(540, 822, 1)
+            text(588, 841, L("處理量最高模型", "Top model by tokens"), 26, meta, room=410)
+            text(588, 903, r["models"][0]["model"] if r["models"] else "—", 28, weight="700", room=410)
+            rect(48, 1048, 984, 170)
+            trend(80, 1088, 920, 62)
+        else:
+            rect(48, 790, 984, 174)
+            sources(80, 838, 430, True)
+            text(588, 838, L("處理量最高模型", "Top model by tokens"), 24, meta, room=410)
+            text(588, 902, r["models"][0]["model"] if r["models"] else "—", 28, weight="700", room=410)
+        text(48, H - 63, L("B＝十億，含重複快取讀取。推理已含於輸出。", "B = billion. Cache included; reasoning within output."), 26, meta, room=984)
+        text(48, H - 25, L("依可見用量紀錄彙總", "Aggregated from observed usage records"), 22, meta, room=984)
+    o.append("</svg>\n")
+    return "".join(o)
+
+
+def render_profile_share_svg(d, selected="all", handle=None, layout="square", style=None,
                              colors=None, lang=None):
-    """一頁式社群圖卡；只放選定區間，沿用原有 HUD 配色，不附完整歷史。"""
+    """社群圖卡預設沿用 Web／TUI；明確指定舊 card style 才使用 HUD。"""
+    if style is None:
+        return render_mission_share_svg(d, selected, handle, layout, lang=lang)
     if layout not in SHARE_LAYOUTS:
         raise ValueError("unknown share layout: %s" % layout)
     report = next((p for p in d["periods"] if p["key"] == selected), None)
@@ -13131,8 +13299,8 @@ def parse_args(argv=None):
                    help="personal usage profile with selectable monthly and annual reports; imports local usage logs only; "
                         "use --html FILE for a private page, or --json for aggregate data")
     p.add_argument("--share-layout", choices=sorted(SHARE_LAYOUTS),
-                   help="with --profile: a one-page HUD share card; square 1080x1080 (SVG default), portrait 1080x1350 or wide 1200x630; "
-                        "use --svg FILE and/or --html FILE; follows card style settings")
+                   help="with --profile: a one-page Web/TUI-style share card; square 1080x1080 (SVG default), portrait 1080x1350 or wide 1200x630; "
+                        "use --svg FILE and/or --html FILE; --card-style explicitly selects a legacy style")
     p.add_argument("--weekly", action="store_true", help="the last 7 days as a short report")
     p.add_argument("--send", action="store_true",
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
@@ -13568,7 +13736,7 @@ def run(args, db):
         if args.svg or args.share_layout:
             cs = card_settings()
             share = render_profile_share_svg(d, key, args.who or cs["handle"], args.share_layout or "square",
-                                             args.card_style or cs["style"], cs["colors"], args.lang or _lang)
+                                             args.card_style, cs["colors"], args.lang or _lang)
         if args.svg:
             with open(args.svg, "w", encoding="utf-8") as f:
                 f.write(share)

@@ -73,7 +73,7 @@ class ProfileShare(unittest.TestCase):
         self.m.add_usage(self.db, [dict(source='local', uid='html', ts=self.data['generated_at'] - 10,
                                      model=attack, output=9000000000)])
         self.data = self.m.history_profile(self.db, self.data['generated_at'], PRICES)
-        svg = self.render(handle=attack, colors=('#123456', '#abcdef'), layout='wide')
+        svg = self.render(handle=attack, style='amber', colors=('#123456', '#abcdef'), layout='wide')
         root = ET.fromstring(svg)
         self.assertNotIn('<script>', svg)
         self.assertIn('#123456', svg)
@@ -95,7 +95,7 @@ class ProfileShare(unittest.TestCase):
         finally:
             db.close()
 
-    def test_cli_uses_saved_palette_and_exports_only_selected_report(self):
+    def test_cli_defaults_to_web_style_and_exports_only_selected_report(self):
         box = helpers.Sandbox()
         self.addCleanup(box.close)
         os.makedirs(box.data, exist_ok=True)
@@ -117,7 +117,8 @@ class ProfileShare(unittest.TestCase):
                 svg = f.read()
             with open(html_path, encoding='utf-8') as f:
                 page = f.read()
-            self.assertIn('#a78bfa', svg)
+            self.assertIn('#0b0b0c', svg)
+            self.assertNotIn('#a78bfa', svg)
             self.assertIn('width="1080" height="1080"', svg)
             self.assertNotIn('2026.08', svg)
             self.assertNotIn('year-2026', page)
