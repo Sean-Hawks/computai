@@ -217,7 +217,9 @@ computer or homelab boxes ([details](MULTI-DEVICE.md)):
 
 - **Shared folder** (recommended): on every computer, `computai --set devices.folder=PATH` with a folder they all
   sync (iCloud Drive, Dropbox, Syncthing, a private git repo). Each writes its own usage there (usage numbers only:
-  no prompts, paths or session ids) and reads the others'. `devices.name` sets the name shown.
+  no prompts or full paths; session IDs are replaced by device- and source-scoped one-way hashes) and reads the others'.
+  `devices.name` sets the name shown. The session export fix is available in beta.2 development checkouts;
+  see the [upgrade steps](MULTI-DEVICE.md#從沒有-session-的舊格式升級) to recover grouping for previously imported usage.
 - **SSH pull**: `[machine.X] usage = pull` for a machine in `[machines]`. ComputAI copies itself to
   `~/.cache/computai` there (only `python3` is needed) and runs `computai --export-usage`.
 

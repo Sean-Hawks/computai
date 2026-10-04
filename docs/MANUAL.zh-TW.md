@@ -196,8 +196,9 @@ OPENAI_ADMIN_KEY = ...
 額度是整個帳號的，但 token 和花費來自這台的 log。要把筆電、公司電腦或 homelab 加進來（[細節](MULTI-DEVICE.md)）：
 
 - **共用資料夾**（推薦）：每台都 `computai --set devices.folder=路徑`，指向一個它們都會同步的資料夾（iCloud Drive、
-  Dropbox、Syncthing、私人 git repo）。每台把自己的用量寫進去（只有用量數字，沒有 prompt、路徑和 session id），
+  Dropbox、Syncthing、私人 git repo）。每台把自己的用量寫進去（沒有 prompt 或完整路徑，session id 只留裝置／來源範圍內的單向雜湊），
   再讀別台的。`devices.name` 設定顯示的名字。
+  匿名 session 修正目前在 beta.2 開發版；已匯入的舊資料可依[升級步驟](MULTI-DEVICE.md#從沒有-session-的舊格式升級)補回分組。
 - **SSH 拉取**：`[machines]` 裡的機器加上 `[machine.X] usage = pull`。ComputAI 會把自己複製到對方的
   `~/.cache/computai`（對方只需要 `python3`），再執行 `computai --export-usage`。
 
