@@ -461,6 +461,36 @@ price in `prices.ini`; hardware is not counted. Only usage fields are read from 
 
 Macs need `idle_watts` / `max_watts` (or a smart plug) for the power columns.
 
+## Personal history profile (beta.2 development)
+
+```sh
+computai --profile --html profile.html --who hawks
+computai --profile 2026-09 --html september.html
+computai --profile 2026 --html annual.html --no-sync
+computai --profile --json --no-sync
+```
+
+The self-contained page offers an all-time profile, monthly and annual reports, light/dark themes and
+browser printing. JavaScript-free readers see every period. Daily bars preserve calendar gaps; mobile
+readers can scroll the chart and expand an exact-count table. Monthly rows link to their reports.
+
+Active days count positive tokens, including zero-cost local inference. Total adds uncached input,
+cache reads, both cache-write buckets and output; it excludes reasoning already within output and GPU
+rental rows. Model/source shares use total tokens, with the top five models shown. Cache reads / total
+and cache reads / input have different denominators.
+
+Source coverage lists first/latest records and record counts, not request counts. Counter samples may
+span multiple requests. In-progress and late-starting periods are marked; coverage does not guarantee
+complete account history. Sources identify record formats, not GUI applications. Unavailable GUI or
+remote history cannot be reconstructed, nor can tokens establish what you worked on or your ability.
+
+API equivalents recalculate priced models using current `prices.ini` rates and list unpriced models.
+They are not bills or historical subscription payments. By default only local Claude, Codex, Gemini,
+OpenCode and saved Cursor usage is imported; no device/SSH or cloud API sync. Other token sources already
+in the ledger still count. `--no-sync` skips imports. Both HTML and JSON include every observed period;
+the date selects the initial HTML view, not an export filter. No prompts, responses, projects, machines
+or sessions enter the profile, and nothing is uploaded automatically.
+
 ## Wrapped
 
 `computai --wrapped [YYYY-MM|YYYY]` is the shareable version of the numbers: tokens, API-equivalent value,

@@ -106,6 +106,7 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 | `--totals 檔名 [--who 名字]`／`--lab 資料夾` | 實驗室彙總：每個人把自己這個月的總額（每個來源、模型的花費和 token、度數；不含專案名稱）寫到共用資料夾，`--lab` 把整個資料夾合成一張表。 |
 | `--csv 檔名` | 範圍內每一筆用量（時間、來源、模型、專案、token、金額）輸出成 CSV；`= + - @` 開頭的文字前面會加 `'`，避免試算表把它當公式執行。 |
 | `--report [--html 檔名]` | 月報，文字版或一個獨立的 HTML 檔（含每日花費圖）。 |
+| `--profile [all\|YYYY-MM\|YYYY] [--html 檔名]` | beta.2 開發版：個人用量頁，切換累計、月報、年報，附涵蓋日期與精確 token 細項。 |
 | `--analyze` | 月底預測、方案檢查、快取效率、電費分析。 |
 | `--payback 美元 [--gpu-watts W --hours-per-day H --rent-per-hour 美元]` | 買一張卡跟租雲端比，多久回本。 |
 | `--discover` | 從 `~/.ssh/config` 和 Tailscale 找機器，逐台試 SSH，說明連不上的原因，並印出可以貼進 `[machines]` 的設定。 |
@@ -410,6 +411,33 @@ TUI 分頁 **4 本地模型** 與網頁會顯示今天最新 8 筆；終端視�
 - 只讀回應裡的用量欄位。
 
 Mac 要設定 `idle_watts`／`max_watts`（或接智慧插座）才有功耗欄位。
+
+## 個人歷史 Profile（beta.2 開發版）
+
+```sh
+computai --profile --html profile.html --who hawks --lang zh
+computai --profile 2026-09 --html september.html --lang zh
+computai --profile 2026 --html annual.html --lang zh --no-sync
+computai --profile --json --no-sync
+```
+
+打開 HTML，用「累計 Profile／月報／年報」或下拉選單切換；每月一覽也能直接點進月份。
+停用 JavaScript 時會顯示全部區間。深淺色切換只影響這個頁面，列印可使用瀏覽器的「存成 PDF」。
+每日長條依實際日期排列，不會把缺紀錄的日子壓縮；手機可橫向捲動，精確數字表可展開。
+
+有用量天數按正數 token 計算，零花費的本地推論也算。總數為新輸入、快取讀取、兩種快取寫入與輸出相加，
+不再加推理子集合、不含 GPU 租用紀錄。來源／模型占比的分母是這個區間的 token，模型只列前五名。
+快取讀取占總數與輸入的快取讀取比例分開，後者的分母不含輸出。
+
+最早／最新紀錄與筆數按來源列出；筆數不是請求數，本地計數器取樣可能涵蓋多次推論。
+月份／年份未結束會標示「截至目前」，較早日期缺紀錄也會明示，不把有日期的報告當成完整帳號歷史。
+來源名稱不代表使用哪個 GUI，無法補回未保存的 GUI／遠端紀錄，也不從 token 推測你的工作內容或能力。
+
+API 等值按 `prices.ini` 的目前價格重算已定價部分，列出未定價模型，不使用訂閱月費推算歷史付款。
+預設只匯入 Claude／Codex／Gemini／OpenCode／已保存的 Cursor 本機用量，不同步遠端裝置或雲端 API；
+`--no-sync` 停止匯入。帳本既有其他來源的 token 仍會納入彙總。
+`--json` 與 HTML 都含所有可見區間；日期參數只選擇 HTML 開啟時的報告，不裁切匯出資料。
+只有日期、用量、來源、模型與衍生統計，不含 prompt、回應、專案、機器或 session；不會自動上傳。
 
 ## Wrapped 回顧
 
