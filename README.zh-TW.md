@@ -1,5 +1,7 @@
 # ComputAI
 
+**朋友試用 beta：** [v0.1.0-beta.1](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1) · [安裝、限制與回報方式](docs/RELEASE-v0.1.0-beta.md)。下載安裝器會固定此測試版本。
+
 **一眼看完你的算力和 AI 花費。** Claude、ChatGPT 訂閱，homelab 上的本地模型和機器，
 租的雲端 GPU，放在同一本帳裡：token、GPU 小時、度電和錢。
 

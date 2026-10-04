@@ -1,5 +1,7 @@
 # ComputAI
 
+**Friends beta:** [v0.1.0-beta.1](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.1) · [installation, limits and feedback](docs/RELEASE-v0.1.0-beta.md). The downloaded installer pins this tested version.
+
 **Where your compute and AI money goes.** One ledger for your Claude and ChatGPT
 subscriptions, the local models on your homelab, the machines they run on and the cloud
 GPUs you rent: tokens, GPU hours, kWh and money, side by side.

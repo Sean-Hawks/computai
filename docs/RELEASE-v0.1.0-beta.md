@@ -1,56 +1,76 @@
-# ComputAI v0.1.0-beta（草稿，等作者確認後才發佈）
+# ComputAI v0.1.0-beta.1
 
-> **一眼看完你的算力和 AI 花費。** Claude、ChatGPT 訂閱、本地模型、homelab 機器和租用的雲端 GPU，
-> 放在同一本帳裡。
+**一眼看完你的算力和 AI 花費。** Claude、Codex、本地模型、homelab 與雲端 GPU，放在同一本帳裡。
 
-這是 ComputAI 的第一個公開測試版。整個程式只有一個 Python 檔案，支援 Python 3.8 以上，
-只用標準函式庫，可在 macOS、Linux 和 Windows 執行。被監控的機器只需要 SSH 和 `sh`。
+這是第一個供朋友試用的 beta。程式只有一個 Python 檔，只用標準函式庫，需要 Python 3.8 以上。
 
-## 安裝
+## 安裝固定版本
+
+macOS／Linux：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh
-computai            # 即時總帳畫面；第一次執行會詢問你的訂閱方案
-computai --doctor   # 偵測到什麼、缺什麼，以及每一項要下的指令
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.1/install.sh | sh
+computai --version       # computai 0.1.0-beta.1
+computai --lang zh       # 即時總帳；第一次會詢問訂閱方案
+computai --doctor --redact
 ```
 
-Windows：`powershell -ExecutionPolicy Bypass -File install.ps1`。
+若找不到指令，將 `~/.local/bin` 加入 PATH。也可以下載 release 的 `computai-v0.1.0-beta.1.zip`，解壓後執行 `sh install.sh`。
 
-## 能做什麼
+Windows：下載並解壓同一份 ZIP，於資料夾內執行：
 
-- **訂閱用量**：從 Claude Code 和 Codex 的 log 統計各模型、各專案的 token，快取與推理用量分開顯示，
-  並把照 API 價格換算的等值花費和訂閱月費比較。整個帳號的額度由官方 `claude`、`codex` 指令查詢，
-  不讀取登入憑證、不消耗額度。查詢頻率跟著消耗速度調整：平常每 10 分鐘一次，消耗快時最短每分鐘一次，
-  重置後 30 秒再查一次。
-- **本地模型**：支援 Ollama、llama.cpp、vLLM、SGLang、LM Studio；可選的 `--proxy` 統計 Ollama 的 token，
-  並提醒「模型已載入卻沒在用」。
-- **機器監控**：透過 SSH 讀取 CPU、GPU、功耗、度數與電費；提供台電時間電價預設值，也支援智慧插座。
-- **雲端 GPU**：支援 RunPod、Vast.ai、Lambda，只呼叫唯讀 API，提醒「閒著卻還在計費」的 GPU。
-- **分析**：快取效率、月底花費預測與預算、方案模擬器、GPU 回本計算機。
-- **呈現與整合**：終端機總帳畫面、`--web` 網頁版（含手機排版）、`/metrics`、`--html` 報告、
-  Claude Code／tmux／SwiftBar 一行狀態列、`--wrapped` 回顧、GitHub 個人頁卡片，以及 MCP server。
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
 
-## 這次公測新增
+重新開啟終端機後執行 `computai --version`。Release 附有 `SHA256SUMS`；ZIP 包含程式、兩個安裝腳本和繁中試用說明。
 
-- **首次執行引導**：沒有資料的地方會說明去哪裡找過 log、怎麼接上額度；每個訂閱只問一個方案問題，
-  並先根據 log 推測方案供你確認。
-- **適合回報問題的診斷**：`computai --doctor --redact` 會將機器名稱、主機位址、IP、專案名稱和家目錄路徑
-  換成代號。
-- **更新檢查**：每天最多一次，可用 `[general] update_check = no` 關閉。只讀取 GitHub 上 `computai` 的版本行，
-  不傳送你的個人資料或用量。
-- **多台電腦的用量合併**：透過共用資料夾（iCloud、Dropbox、Syncthing）或 SSH 拉取，只交換用量數字，
-  詳見[多裝置設定](MULTI-DEVICE.md)。
-- **自適應額度查詢**：查詢頻率跟著消耗速度調整（`[limits] refresh = adaptive|fixed`）；`--doctor` 會顯示
-  下次查詢時間和原因。
+## 可以試什麼
 
-## 隱私
+- **訂閱與其他工具用量**：Claude Code、Codex、Gemini CLI、OpenCode，以及手動匯入 Cursor 用量 CSV。
+  可看各模型／專案的 token、快取、推理用量、API 等值與訂閱月費。Claude／Codex 額度透過官方 CLI 查詢，查詢間隔跟著消耗速度調整。
+- **本地推論與機器**：Ollama、llama.cpp、vLLM、SGLang、LM Studio；可選的 token proxy；SSH 讀取 GPU、CPU、功耗與電費。
+- **雲端與成本分析**：RunPod、Vast.ai、Lambda 唯讀查詢、閒置計費警示、預算與月底預測、方案與本地模型成本比較。
+- **總帳與時間軸**：TUI 六個分頁、手機網頁、SVG 時間軸、HTML 報告、Wrapped、GitHub 個人頁卡片。
+  時間軸明示起迄時間、累計活動與 token，Claude/Codex 時數與本地推論分開顯示。
+- **多裝置與整合**：共用資料夾／SSH 合併 Claude、Codex 用量、Tailscale 網頁存取、`--pick` 工具建議、可選額度 hook、小隊總數排行榜、MCP、Prometheus。
 
-只取用 log 裡的用量欄位，不儲存、不傳送提示詞與回應內容。不讀取 `~/.codex/auth.json` 或 Claude 的 OAuth token。
-網頁伺服器和 proxy 預設只監聽 `127.0.0.1`。
+```sh
+computai --summary --month --lang zh
+computai --timeline --lang zh
+computai --pick
+computai --local-cost --lang zh
+computai --web --tailscale --lang zh     # 已安裝並登入 Tailscale 才使用
+```
+
+細節見[繁中手冊](https://github.com/Sean-Hawks/computai/blob/v0.1.0-beta.1/docs/MANUAL.zh-TW.md)、[多裝置設定](https://github.com/Sean-Hawks/computai/blob/v0.1.0-beta.1/docs/MULTI-DEVICE.md)。
+
+## 這次發佈前的修正
+
+- 修正只監控原生 Ollama 時 proxy 停止逐筆記帳的漏帳；實機四種請求的 token 與帳本一致。
+- 過時的機器取樣標成「太久沒回報」，不再沿用舊的推論狀態、即時速度與功耗。
+- OpenCode 用唯讀交易讀取用量與 WAL，不複製含對話內容的資料庫、不查詢 `part` 表。
+- 修正時間軸 ANSI 色碼殘留與可讀性；新增時間刻度、圖例及每列時間／token 欄位。
+- Tailscale 設定讀不到時停止，保留既有服務；可用埠會避開其他服務。
+- 外部小隊資料與非物件 MCP 輸入不再使讀取程序中斷。
+- 安裝器固定 beta 版本，更新比較支援 beta 序號；Docker 測試保留真實失敗退出碼。
+
+## 隱私與數字的意思
+
+只取用量欄位，不儲存、不傳送 prompt 與回應內容；不讀取 `~/.codex/auth.json` 或 Claude OAuth token。
+網頁與 proxy 預設只監聽 `127.0.0.1`。API 等值不是訂閱實際帳單，本地成本比較也不代表一定省下同額現金或具有相同模型品質。
 
 ## 已知限制
 
-- Windows 的測試覆蓋較 macOS、Linux 少。
-- 無法從本機資料直接讀出 Claude 的訂閱方案，首次執行時會先推測，再請你確認。
+- Windows 尚未實機驗證。雲端供應商與 Cursor 的資料解析有 fixture 測試，真實帳號／匯出仍待朋友驗證。
+- 手機加入主畫面、兩台真實電腦的共用資料夾合併，尚未完整實機驗收。
+- 不一定能從 log 判定訂閱方案，首次執行會推測再詢問；官方 CLI 版本變更可能影響額度查詢。
+- 舊 `prices.ini` 不會被安裝器覆寫；`--doctor` 會提示缺價格的模型，需自行補上有查價日期的價格。
+- 本地 token 完整度取決於是否經過 proxy／服務是否提供 metrics；無法從用量帳本還原任務內容。
+- 時間軸依請求間隔推估活動，各列時數相加；不是精確執行時間。
 
-遇到問題時，請開一則 issue，附上 `computai --doctor --redact` 的輸出。
+## 回報問題
+
+先確認安裝與第一次執行是否順利、數字是否看得懂，以及你使用的來源是否有被記錄。
+請在 [GitHub issues](https://github.com/Sean-Hawks/computai/issues) 附上版本、作業系統、重現指令與 `computai --doctor --redact` 的輸出。
+請勿附上登入憑證或原始對話 log。
