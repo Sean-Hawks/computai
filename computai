@@ -8204,6 +8204,186 @@ def spend_summary(st):
             "missing_plans": [row["source"] for row in providers if row["fee_usd"] is None]}
 
 
+def spend_panels(st, width, height=None):
+    """花費頁先看支出與預估，再看付款組成和訂閱價值；窄視窗改為上下排。"""
+    text = lambda zh, en: zh if _lang == "zh" else en
+    money = lambda value: "$" + format(value, ",.2f")
+    data = spend_summary(st)
+    forecast_ = st["forecast"]
+    out = []
+
+    def paragraph(value, columns):
+        if _ascii:
+            value = value.replace("·", "|").replace("→", ">")
+        return [" " + line for line in wrap_colored(value, max(20, columns - 5))]
+
+    def right_cell(value, columns):
+        return " " * max(0, columns - vlen(value)) + value
+
+    cards = [
+        (text("本月已知支出", "KNOWN MONTHLY COST"), data["known_usd"],
+         text("設定月費＋已記錄變動費", "Configured fees + recorded costs")),
+        (text("月底預估", "MONTH-END FORECAST"), data["projected_usd"],
+         text("剩餘 %.0f 天預估再花 %s", "Next %.0f days: +%s") %
+         (forecast_["days_left"], money(data["remaining_usd"]))),
+        (text("訂閱用量 API 等值", "SUBSCRIPTION API VALUE"), data["value_usd"],
+         text("比較用的價值，不是額外帳單", "Comparison value, not an extra bill"))]
+    if height and height <= 36:
+        room = max(6, height - 7)
+        details = paragraph(dim(text("明細：加高視窗或 computai --summary",
+                                     "Details: enlarge window or computai --summary")), width)
+        warning = paragraph(rgb(AMBER, text("月費／價格未完整設定，金額可能低估。",
+                                            "Missing fees/prices may understate amounts.")), width) \
+            if data["missing_plans"] or st.get("unpriced_models") else []
+        for title, amount, note in cards:
+            out += paragraph(bold(title) + "  " + bold(money(amount)), width)
+        out += paragraph(dim(text("設定月費＋已記錄變動費；API 等值不是帳單。",
+                                  "Configured fees + recorded costs; API value is not a bill.")), width)
+        for provider in data["providers"]:
+            ratio = "%.2fx" % provider["ratio"] if provider["ratio"] is not None else sym("—", "n/a")
+            fee = money(provider["fee_usd"]) if provider["fee_usd"] is not None else text("未設定", "not set")
+            provider_rows = paragraph(bold(T("src").get(provider["source"], provider["source"])), width)
+            provider_rows += paragraph(text("月費 %s · 等值 %s · %s", "Fee %s · value %s · %s") %
+                                       (fee, money(provider["value_usd"]), ratio), width)
+            if len(out) + len(provider_rows) > room - len(details) - len(warning):
+                break
+            out += provider_rows
+        out += warning
+        budget = forecast_.get("budget_usd")
+        if budget:
+            note = text("預算 %s · 預估%s %s", "Budget %s · projected %s %s") % (
+                money(budget), text("超出", "over") if data["projected_usd"] > budget else text("餘裕", "headroom"),
+                money(abs(budget - data["projected_usd"])))
+            budget_rows = paragraph(rgb(RED if data["projected_usd"] > budget else GREEN, note), width)
+            if len(out) + len(budget_rows) <= room - len(details):
+                out += budget_rows
+        out += details
+        return out
+    if width >= 108:
+        card_width = (width - 4) // 3
+        blocks = []
+        for title, amount, note in cards:
+            rows = [" " + bold(money(amount)), ""] + paragraph(note, card_width)
+            blocks.append(panel(bold(title), "", rows, card_width, foot=dim("USD")))
+        out += side_by_side_many(blocks, 2)
+    else:
+        rows = []
+        for title, amount, note in cards:
+            rows += paragraph(bold(title) + "  " + bold(money(amount)), width)
+            rows += paragraph(dim(note), width)
+        out += panel(bold(text("花費摘要", "SPEND SUMMARY")), dim(st["month"]), rows, width,
+                     foot=dim("USD"))
+
+    budget = forecast_.get("budget_usd")
+    if budget:
+        over = data["projected_usd"] > budget
+        budget_note = text("預算 %s · %s %s", "Budget %s · %s %s") % (
+            money(budget), text("預估超出", "projected over") if over else text("預估餘裕", "projected headroom"),
+            money(abs(budget - data["projected_usd"])))
+        out += paragraph(rgb(RED if over else GREEN, budget_note), width)
+    else:
+        out += paragraph(dim(text("未設定預算 · computai --set budget.monthly_usd=金額",
+                                  "No budget set · computai --set budget.monthly_usd=AMOUNT")), width)
+
+    two_columns = width >= 140
+    cash_width = max(60, (width - 2) * 2 // 5) if two_columns else width
+    value_width = width - cash_width - 2 if two_columns else width
+    rows = []
+    for payment in data["payments"]:
+        source = payment["source"]
+        name = text("電費", "Electricity") if source == "electricity" else T("src").get(source, source)
+        name += sym(" · ", " | ") + payment["name"] if payment["name"] else ""
+        amount = money(payment["usd"])
+        name_width = cash_width - max(13, vlen(amount)) - 6
+        if vlen(name) > name_width:
+            rows += paragraph(name, cash_width)
+            rows.append(" " + right_cell(bold(amount), cash_width - 5))
+        else:
+            rows.append(" " + cell(name, name_width) + " " + bold(right_cell(amount, max(13, vlen(amount)))))
+    if not rows:
+        rows += paragraph(dim(text("尚無已知支出", "No known expenses yet")), cash_width)
+    rows.append("")
+    rows += paragraph(text("固定月費 %s · 變動費 %s", "Fixed fees %s · variable %s") %
+                      (money(forecast_["subscriptions_usd"]), money(forecast_["variable_so_far_usd"])), cash_width)
+    rows += paragraph(text("合計", "Total") + "  " + bold(money(data["known_usd"])), cash_width)
+    rows += paragraph(dim(text("月費來自設定；雲端／API／電費來自帳本。不是付款憑證。",
+                               "Fees from config; cloud/API/power from ledger. Not a payment receipt.")), cash_width)
+    if data["missing_plans"]:
+        rows += paragraph(rgb(AMBER, text("月費未設定，支出尚未含：", "Missing fees; excluded from costs: ") +
+                              ", ".join(T("src").get(source, source) for source in data["missing_plans"])), cash_width)
+    cash = panel(bold(text("支出明細", "COST BREAKDOWN")), dim(st["month"]), rows, cash_width)
+
+    rows = []
+    table = value_width >= 78 and all(vlen(money(provider["value_usd"])) <= 15 and
+                                    (provider["fee_usd"] is None or vlen(money(provider["fee_usd"])) <= 13)
+                                    for provider in data["providers"])
+    name_width = value_width - 51
+    if table:
+        rows.append(" " + dim(cell(text("訂閱", "Subscription"), name_width) +
+                            right_cell(text("月費", "Fee"), 14) +
+                            right_cell(text("API 等值", "API value"), 16) +
+                            right_cell(text("等值／月費", "Value/fee"), 15)))
+    daily = st.get("daily") or {"days": [], "sources": {}}
+    for provider in data["providers"]:
+        name = T("src").get(provider["source"], provider["source"])
+        fee = money(provider["fee_usd"]) if provider["fee_usd"] is not None else text("未設定", "Not set")
+        ratio = provider["ratio"]
+        multiple = "%.2fx" % ratio if ratio is not None else sym("—", "n/a")
+        comparison = rgb(GREEN if ratio >= 1 else AMBER, multiple) if ratio is not None else dim(multiple)
+        if table:
+            rows.append(" " + bold(cell(name, name_width)) + right_cell(fee, 14) +
+                        bold(right_cell(money(provider["value_usd"]), 16)) + right_cell(comparison, 15))
+        else:
+            rows += paragraph(bold(name) + " · " + dim(provider["name"]), value_width)
+            rows += paragraph(text("月費 %s · API 等值 %s · %s", "Fee %s · API value %s · %s") %
+                              (fee, money(provider["value_usd"]), comparison), value_width)
+        if provider["name"] and table:
+            rows += paragraph(dim(provider["name"]), value_width)
+        series = daily.get("sources", {}).get(provider["source"], [])
+        today = money(series[-1]) if series else sym("—", "n/a")
+        trend = spark(series, min(len(series), 20), top=max(series), color=GREY) if series and any(series) else ""
+        if daily.get("days"):
+            rows += paragraph(dim(text("近 %d 天", "Last %d days") % len(daily["days"])) + " " + trend + "  " +
+                              text("今日等值 %s · 本月 %s token", "Today value %s · month %s tokens") %
+                              (today, fmt_tok(provider["tokens"])), value_width)
+        else:
+            rows += paragraph(dim(text("尚無每日用量紀錄", "No daily usage records yet")), value_width)
+        rows.append("")
+    if not data["providers"]:
+        rows += paragraph(dim(T("no_usage")), value_width)
+    local = next((row for row in st["sources"] if row["source"] == "local"), None)
+    if local:
+        rows += paragraph(text("本地模型 %s token · 不收 token 費；電費請見支出明細",
+                               "Local models: %s tokens · no token fee; see costs for power") %
+                          fmt_tok(local.get("tokens", 0)), value_width)
+    rows += paragraph(dim(text("倍率＝已匯入的本月 API 等值 ÷ 整月月費；不是省下的現金。",
+                               "Ratio = imported month-to-date API value / full monthly fee; not cash savings.")), value_width)
+    if st.get("unpriced_models"):
+        rows += paragraph(rgb(AMBER, text("部分模型未定價，金額可能低估；請更新 prices.ini。",
+                                         "Unpriced models may understate amounts; update prices.ini.")), value_width)
+    value = panel(bold(text("訂閱值得嗎？", "SUBSCRIPTION COMPARISON")), "", rows, value_width,
+                  foot=dim("prices.ini" + sym(" · ", " | ") + text("API 等值，非帳單", "API value, not a bill")))
+    out += side_by_side(cash, value) if two_columns else cash + value
+    if daily.get("days"):
+        out += paragraph(dim(text("趨勢日期", "Trend dates") + " " + daily["days"][0] + " → " + daily["days"][-1]), width)
+    if st.get("devices"):
+        out += paragraph(dim(T("dev_title")) + " " + device_line(st["devices"]), width)
+    if st.get("token_insights"):
+        out += paragraph(dim(T("ti_title") + ": " + fmt_tok(st["token_insights"]["total"]) +
+                             " · computai --tokens"), width)
+    attention = attention_lines(st, width - 4)
+    if len(st.get("insights") or []) > 3:
+        attention += paragraph(dim(text("更多建議：computai --insights", "More: computai --insights")), width)
+    room = height - len(out) - 9 if height else None
+    if room is None or room >= 4:
+        if room is not None and len(attention) > room - 3:
+            attention = attention[:room - 4] + [" " + dim(text("更多建議：computai --insights", "More: computai --insights"))]
+        out += panel(bold(text("需要注意與調整", "ATTENTION & NEXT STEPS")), "", attention, width)
+    else:
+        out += paragraph(dim(text("警示與建議：computai --insights", "Alerts and advice: computai --insights")), width)
+    return out
+
+
 def spend_lines(st, width):
     """花費摘要：每個訂閱值多少、回本幾倍，本地模型的價值，這個月實際要付多少。"""
     out = []
@@ -8315,9 +8495,7 @@ def render_hud(st, width, height, frame, view):
         elif history and history["rows"]:
             body += [" " + dim(clip("computai --local-history", width - 2))]
     elif view == "spend":
-        if st.get("token_insights"):
-            body += [" " + clip(T("ti_title") + ": " + fmt_tok(st["token_insights"]["total"]) + " · computai --tokens", width - 2)]
-        body += usage_panel(st, width) + alerts_panel(st, width) + advice_panel(st, width)
+        body += spend_panels(st, width, height)
         if st.get("team"):   # 小隊排行榜（只讀本機的 clone，不連網）
             body += panel(ptitle(5, T("tm_title")), "", [" " + clip(ln, width - 6) for ln in render_team(st["team"]).splitlines()[1:]], width, 0)
     elif view == "timeline":

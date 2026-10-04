@@ -1,0 +1,27 @@
+╭─ KNOWN MONTHLY COST ─────────────────────────────╮  ╭─ MONTH-END FORECAST ─────────────────────────────╮  ╭─ SUBSCRIPTION API VALUE ─────────────────────────╮
+│  $315.79                                         │  │  $425.63                                         │  │  $274.67                                         │
+│                                                  │  │                                                  │  │                                                  │
+│  Configured fees + recorded costs                │  │  Next 28 days: +$109.84                          │  │  Comparison value, not an extra bill             │
+├──────────────────────────────────────────────────┤  ├──────────────────────────────────────────────────┤  ├──────────────────────────────────────────────────┤
+│ USD                                              │  │ USD                                              │  │ USD                                              │
+╰──────────────────────────────────────────────────╯  ╰──────────────────────────────────────────────────╯  ╰──────────────────────────────────────────────────╯
+ Budget $500.00 · projected headroom $74.37
+╭─ COST BREAKDOWN ─────────────────────────────────── 2026-10 ╮  ╭─ SUBSCRIPTION COMPARISON ───────────────────────────────────────────────────────────────────╮
+│  Claude Code · Example Max                          $100.00 │  │  Subscription                                           Fee       API value      Value/fee  │
+│  Codex · Example Pro                                $200.00 │  │  Claude Code                                        $100.00         $228.49          2.28x  │
+│  Cloud GPUs                                          $10.00 │  │  Example Max                                                                                │
+│  Electricity                                          $0.79 │  │  Last 5 days ⣀⣤⣿⣿⣶  Today value $60.48 · month 800M tokens                                  │
+│  openai                                               $5.00 │  │                                                                                             │
+│                                                             │  │  Codex                                              $200.00          $46.18          0.23x  │
+│  Fixed fees $300.00 · variable $15.79                       │  │  Example Pro                                                                                │
+│  Total  $315.79                                             │  │  Last 5 days ⠀⣿⣤⣶⣀  Today value $1.68 · month 61.0M tokens                                  │
+│  Fees from config; cloud/API/power from ledger. Not a       │  │                                                                                             │
+│  payment receipt.                                           │  │  Local models: 7.3M tokens · no token fee; see costs for power                              │
+╰─────────────────────────────────────────────────────────────╯  │  Ratio = imported month-to-date API value / full monthly fee; not cash savings.             │
+                                                                 ├─────────────────────────────────────────────────────────────────────────────────────────────┤
+                                                                 │ prices.ini · API value, not a bill                                                          │
+                                                                 ╰─────────────────────────────────────────────────────────────────────────────────────────────╯
+ Trend dates 2026-09-30 → 2026-10-04
+╭─ ATTENTION & NEXT STEPS ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  ● all clear                                                                                                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
