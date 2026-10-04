@@ -24,11 +24,14 @@ A 也讓每台都看到全部的用量。B 留給本來就用 SSH 監看的 home
 
 ```
 {"computai_export": 1, "device": "a1b2c3d4e5f6", "name": "laptop", "written": 1790000000, "version": "0.1.0", "cols": [...]}
-["claude","msg_A:req_A",1790000000,"claude-opus-5-5","alpha",3,1000,0,200,377,0,1,0]
+["claude","msg_A:req_A",1790000000,"claude-opus-5-5","alpha",3,1000,0,200,377,0,1,0,"3f1c2a9e8b7d6054"]
 ```
 
-- 欄位是白名單：`source, uid, ts, model, project, input, cache_read, cache_write_5m, cache_write_1h, output, reasoning, requests, subagent`。
-- `project` 只留資料夾名稱（`alpha`，不是 `/Users/me/work/alpha`）；session id、prompt、回應、路徑都不會出去。
+- 欄位是白名單：`source, uid, ts, model, project, input, cache_read, cache_write_5m, cache_write_1h, output, reasoning, requests, subagent, session`。
+- `project` 只留資料夾名稱（`alpha`，不是 `/Users/me/work/alpha`）；`session` 只是 session id 的單向雜湊（sha256 前 16 個字元），
+  讓別台分得出哪幾筆是同一個 session（時間軸、同時數、最長連續執行），原始 session id、prompt、回應、路徑都不會出去。
+- 舊版的匯出檔沒有 `session` 欄，照樣讀得進來；舊版讀新檔會略過多的欄位。之前併進來、還沒有 session 的資料，
+  下次合併時補上；SSH 拉取的機器升級後第一次會從頭拉一次。
 - 只交換 `claude` 和 `codex`。本地模型（proxy）和組織 API 的用量每台各自記，交換會重複計算；額度樣本也不交換
   （不同電腦可能登入不同帳號，各自問官方 CLI 就好）。
 

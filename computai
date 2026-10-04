@@ -1387,6 +1387,10 @@ EXPORT_SOURCES = ("claude", "codex")   # 本地模型和 API 用量在每台各�
 EXPORT_COLS = ("source", "uid", "ts", "model", "project", "input", "cache_read", "cache_write_5m",
                "cache_write_1h", "output", "reasoning", "requests", "subagent")
 EXPORT_INT_COLS = EXPORT_COLS[2:3] + EXPORT_COLS[5:]
+# session 不直接送，只送單向雜湊：別台分得出哪幾筆是同一個 session（時間軸、同時數、最長連續執行），
+# 原始 session id 還是不會離開這台。舊版匯出檔沒有這欄，讀的時候當成空字串。
+EXPORT_EXTRA_COLS = ("session",)
+SESSION_HASH = re.compile(r"^[0-9a-f]{16}$")
 DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
 DEVICE_STALE = 600   # 超過 10 分鐘沒回報就標成過時
 # 背景每 30 秒同步一次，但共用資料夾和 SSH 不用那麼勤：心跳 1 分鐘、用量檔 2 分鐘、SSH 拉取 5 分鐘。
@@ -1425,18 +1429,25 @@ def local_device(db):
     return dev, device_settings()["name"]
 
 
+def session_hash(session):
+    """session id 的單向雜湊（sha256 前 16 個十六進位字元）；沒有 session 就是空字串。"""
+    import hashlib
+    return hashlib.sha256(session.encode("utf-8")).hexdigest()[:16] if session else ""
+
+
 def export_usage(db, since=0, t=None):
-    """這台自己的 Claude、Codex 用量，寫成 JSONL：第一行是標頭，之後每行一筆，只有 EXPORT_COLS 這些欄位。
-    專案只留資料夾名稱，session、prompt、回應、路徑都不會出去。回傳 (文字, 筆數)。"""
+    """這台自己的 Claude、Codex 用量，寫成 JSONL：第一行是標頭，之後每行一筆，只有 EXPORT_COLS 和
+    EXPORT_EXTRA_COLS 這些欄位。專案只留資料夾名稱，session 只留雜湊，prompt、回應、路徑都不會出去。
+    回傳 (文字, 筆數)。"""
     dev, name = local_device(db)
     t = now() if t is None else t
     head = {"computai_export": 1, "device": dev, "name": name, "written": int(t), "version": __version__,
-            "cols": list(EXPORT_COLS)}
+            "cols": list(EXPORT_COLS + EXPORT_EXTRA_COLS)}
     lines = [json.dumps(head, ensure_ascii=False)]
-    q = ("SELECT %s FROM usage WHERE device = '' AND source IN (%s) AND ts >= ? ORDER BY ts"
+    q = ("SELECT %s, session FROM usage WHERE device = '' AND source IN (%s) AND ts >= ? ORDER BY ts"
          % (", ".join(EXPORT_COLS), ",".join("?" * len(EXPORT_SOURCES))))
     for r in db.execute(q, EXPORT_SOURCES + (int(since),)):
-        row = [r[c] for c in EXPORT_COLS]
+        row = [r[c] for c in EXPORT_COLS] + [session_hash(r["session"])]
         row[4] = os.path.basename((row[4] or "").rstrip("/\\"))[:120]
         lines.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
     return "\n".join(lines) + "\n", len(lines) - 1
@@ -1460,6 +1471,7 @@ def parse_export(text):
     if not isinstance(cols, list) or any(c not in cols for c in EXPORT_COLS):
         raise ValueError("missing columns")
     idx = [cols.index(c) for c in EXPORT_COLS]
+    at_session = cols.index("session") if "session" in cols else None
     rows = []
     for n, ln in enumerate(lines[1:], 2):
         try:
@@ -1478,6 +1490,10 @@ def parse_export(text):
         for c in EXPORT_INT_COLS:
             if not isinstance(r[c], int) or isinstance(r[c], bool) or not 0 <= r[c] < 10 ** 13:
                 raise ValueError("line %d: bad %s" % (n, c))
+        session = arr[at_session] if at_session is not None else ""
+        if not isinstance(session, str) or (session and not SESSION_HASH.match(session)):
+            raise ValueError("line %d: bad session" % n)
+        r["session"] = session
         r["device"] = dev
         rows.append(r)
     name = head.get("name") if isinstance(head.get("name"), str) else ""
@@ -1498,6 +1514,11 @@ def merge_export(db, head, rows, via):
     if head["device"] == local_device(db)[0]:
         return 0
     added = add_usage(db, rows)
+    # 以前（還沒有 session 欄的版本）併進來的同一筆：補上 session，其他欄位不動
+    before = db.total_changes
+    db.executemany("UPDATE usage SET session = ? WHERE source = ? AND uid = ? AND session = ''",
+                   [(r["session"], r["source"], r["uid"]) for r in rows if r.get("session")])
+    added += db.total_changes - before
     note_device(db, head["device"], name=head["name"] or head["device"], seen=head["written"], via=via, error="",
                 rows=db.execute("SELECT COUNT(*) FROM usage WHERE device = ?", (head["device"],)).fetchone()[0])
     return added
@@ -1639,6 +1660,10 @@ def pull_device(db, m, body=None, t=None):
             return 0, "could not copy computai there"
     row = db.execute("SELECT value FROM meta WHERE key = ?", ("pull_since:" + name,)).fetchone()
     since = int(_float(row["value"], 0)) if row else 0
+    # 以前拉的資料沒有 session：這台第一次拉到有 session 的匯出檔時從頭拉一次，把舊資料補齊
+    sessions = db.execute("SELECT value FROM meta WHERE key = ?", ("pull_sessions:" + name,)).fetchone()
+    if not sessions:
+        since = 0
     text = run_script(m["host"], pull_export_script(since), timeout=180)
     try:
         head, rows = parse_export(text)
@@ -1649,6 +1674,8 @@ def pull_device(db, m, body=None, t=None):
     # 下次從這次寫出的時間往前一天開始拉：中途變長的串流紀錄也會更新到
     db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                ("pull_since:" + name, str(max(0, (head["written"] or int(t)) - 86400))))
+    # 拉取前已經把這台的 computai 送過去，所以這份匯出檔一定帶 session 欄
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, '1')", ("pull_sessions:" + name,))
     return added, ""
 
 

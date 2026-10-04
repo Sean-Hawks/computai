@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -80,6 +82,13 @@ class SharedFolder(unittest.TestCase):
                 dump += f.read()
         for secret in ("FAKE PROMPT", "FAKE ASSISTANT", "/home/demo", "sess-1"):
             self.assertNotIn(secret, dump)
+        # session 只留雜湊，但 B 還是分得出 A 的每個 session
+        a_sessions = self.ledger(self.a).execute("SELECT COUNT(DISTINCT session) FROM usage WHERE source IN ('claude', 'codex') "
+                                                 "AND session != ''").fetchone()[0]
+        b_sessions = [r[0] for r in db.execute("SELECT DISTINCT session FROM usage WHERE device != ''")]
+        self.assertGreater(a_sessions, 1)
+        self.assertEqual(len([s for s in b_sessions if s]), a_sessions)
+        self.assertTrue(all(re.match(r"^[0-9a-f]{16}$", s) for s in b_sessions if s), b_sessions)
         # 總覽照機器分組；超過 10 分鐘沒回報就標成 stale
         r = self.b.run("--summary", "--month", "2026-09", "--no-sync")
         self.assertIn("alpha-mac", r.stdout)
@@ -120,6 +129,40 @@ class ExportCommand(unittest.TestCase):
             with self.assertRaises(ValueError):
                 m.parse_export(bad)
 
+    def test_sessions_travel_as_hashes_and_old_files_still_merge(self):
+        sb = helpers.Sandbox()
+        self.addCleanup(sb.close)
+        env = dict(CLAUDE_CONFIG_DIR=helpers.fixture("claude"), CODEX_HOME=helpers.fixture("codex"))
+        text = sb.run("--export-usage", **env).stdout
+        m = helpers.load()
+        head, rows = m.parse_export(text)
+        self.assertTrue(all(re.match(r"^[0-9a-f]{16}$", r["session"]) for r in rows if r["session"]))
+        self.assertNotIn("sess-1", text)
+        # 舊版的匯出檔（沒有 session 欄）照樣讀得進來，session 當成空字串
+        lines = [json.loads(ln) for ln in text.splitlines()]
+        lines[0]["cols"] = lines[0]["cols"][:-1]
+        old = "\n".join(json.dumps(ln[:-1] if isinstance(ln, list) else ln) for ln in lines)
+        old_head, old_rows = m.parse_export(old)
+        self.assertEqual([r["session"] for r in old_rows], [""] * len(rows))
+        with self.assertRaises(ValueError):
+            m.parse_export(text.replace(rows[0]["session"], "not-a-hash", 1) if rows[0]["session"] else text + '["x"]')
+        # 舊版併進來的資料：新的匯出檔再併一次時補上 session，不會多出新的列
+        sb2 = helpers.Sandbox()
+        self.addCleanup(sb2.close)
+        old_env = dict(os.environ)
+        self.addCleanup(lambda: (os.environ.clear(), os.environ.update(old_env)))
+        os.environ.update(sb2.env())
+        m2 = helpers.load()
+        db = m2.open_ledger()
+        self.addCleanup(db.close)
+        m2.merge_export(db, old_head, old_rows, "folder")
+        count = db.execute("SELECT COUNT(*) FROM usage").fetchone()[0]
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM usage WHERE session != ''").fetchone()[0], 0)
+        m2.merge_export(db, head, rows, "folder")
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM usage").fetchone()[0], count)
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM usage WHERE session != ''").fetchone()[0],
+                         len([r for r in rows if r["session"]]))
+
 
 @unittest.skipIf(os.name == "nt", "runs the remote side through sh")
 class SshPull(unittest.TestCase):
@@ -154,6 +197,16 @@ class SshPull(unittest.TestCase):
         self.assertEqual(self.m.pull_device(self.db, box), (0, ""))       # 已經有了：不重送、不重複計算
         self.assertEqual(len(calls) - n, 2)                                 # 只有檢查和匯出
         self.assertNotIn("FAKE", "\n".join(self.db.iterdump()))
+
+    def test_first_pull_with_sessions_starts_over(self):
+        box = {"name": "box", "host": "local", "usage": "pull"}
+        # 舊版拉過、游標在很後面：升級後第一次從頭拉一次，把 session 補齊；之後照游標
+        self.db.execute("INSERT INTO meta (key, value) VALUES ('pull_since:box', ?)", (str(2 ** 31),))
+        added, err = self.m.pull_device(self.db, box)
+        self.assertEqual(err, "")
+        self.assertGreater(added, 0)
+        self.assertGreater(self.db.execute("SELECT COUNT(*) FROM usage WHERE device != '' AND session != ''").fetchone()[0], 0)
+        self.assertEqual(self.m.pull_device(self.db, box), (0, ""))
 
     def test_no_python_on_the_other_side(self):
         self.m.run_script = lambda host, script, timeout=25: "NOPY\n"
