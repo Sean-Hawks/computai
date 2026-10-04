@@ -50,6 +50,19 @@ from templates; after that ComputAI only reads them, so your edits stay. Deletin
 is safe: the next `--sync` rebuilds subscription history from the logs (machine samples and
 cloud history are lost).
 
+Account labels come from folder names: `.claude` and `.codex` use the default label,
+while `.claude-work` and `.codex-work` use `work`. Different accounts of the same tool
+need distinct labels. Existing limit history moves to the default account once when the
+ledger opens; old account ownership cannot be reconstructed. A status line with a single
+configured folder shows only that account, and leaves missing limits unknown.
+Token totals, spending and plan simulations still combine accounts by tool.
+
+The live and web dashboards reuse their last snapshot when the ledger has not changed,
+with a 60-second refresh limit for time-dependent fields. Sync and sampling continue on
+their own schedules; even an empty sync writes metadata and can trigger an earlier refresh.
+Three consecutive empty account-limit queries pause that folder's queries for an hour,
+tracked separately for Claude and Codex.
+
 ## Subscriptions: Claude Code and Codex
 
 Nothing to set up. `computai --sync` (and every report, which syncs first unless you pass
