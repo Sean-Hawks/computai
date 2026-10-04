@@ -8,8 +8,9 @@ GPUs you rent: tokens, GPU hours, kWh and money, side by side.
 
 [繁體中文說明](README.zh-TW.md) · [Manual](docs/MANUAL.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Where ComputAI shows up](docs/SURFACES.md)
 
-> **Just want the AI ops card for your GitHub profile?**
-> `curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh && computai --card --setup` · [what it shows](#your-ai-ops-card-for-your-github-profile)
+> **Want to share your AI usage on Threads or in a README?**
+> beta.2 development: `computai --create` → choose a period/layout → download PNG or SVG. No GitHub setup needed.
+> From this development checkout, `sh install.sh --create` installs and opens the creator in one step. Released beta.1 does not include it yet. [First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
 
 ```
 $ computai --summary --month 2026-09
@@ -154,7 +155,8 @@ addresses or sessions. It imports local logs only, with no API, SSH or model cal
 alone. The single HTML includes all observed periods and stays local; nothing is published automatically.
 The published beta.1 does not include this feature.
 
-For a one-page social image, retain your configured card style and colours:
+Use `computai --create` for a preview, period/layout selection and PNG/SVG downloads, including a README banner.
+The default follows the calm Web/TUI design. For scripted single-image exports:
 
 ```sh
 computai --profile --share-layout square --html share.html --svg share.svg
@@ -166,7 +168,8 @@ Sizes are square 1080×1080, portrait 1080×1350 and wide 1200×630. The share p
 PNG locally in your browser, or the SVG. Images show dates, cache share, output and activity days; portrait
 also shows usage trends. Share HTML/SVG contain only the selected period, with no billing or ability claims.
 `--svg` also enables this mode; a simultaneous HTML export becomes a single-card preview. Plain HTML remains
-the full history page. Override the palette with `--card-style` without changing saved settings.
+the full history page. Explicit `--card-style amber` or another existing style selects a legacy HUD without changing saved settings.
+The creator HTML is a private tool containing aggregates for selectable periods; share its downloaded PNG/SVG files.
 
 ## Your AI ops card for your GitHub profile
 

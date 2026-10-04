@@ -499,8 +499,11 @@ computai --profile 2026-09 --share-layout portrait --html month-share.html --no-
 computai --profile 2026 --share-layout wide --svg year-share.svg --no-sync
 ```
 
-Square is 1080×1080, portrait 1080×1350 and wide 1200×630. Static HUD artwork reuses `[card] style` and `colors`;
-`--card-style` overrides temporarily. Names use `--who` or saved card.handle; language follows --lang or general.lang.
+Use `computai --create` for the local creator: select a period/layout/theme, then download PNG or SVG or copy a README snippet.
+The Web header and TUI `c` key open the same tool. `--no-open` writes it without launching a browser; `--no-sync` skips local imports.
+
+Square is 1080×1080, portrait 1080×1350 and wide 1200×630. The default uses the calm Web/TUI design, independent of saved legacy card settings.
+Explicit `--card-style amber` or another existing style selects the legacy HUD. Names use `--who` or saved card.handle; language follows --lang or general.lang.
 Cards show dates/partial periods, total and exact tokens, cache share, output, active days, longest streak,
 up to two sources plus Other, and the top model by tokens including cache. Portrait adds calendar-day or
 monthly bars, marking in-progress months with *. Long histories show the last 12 recorded months.

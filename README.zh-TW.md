@@ -7,8 +7,9 @@
 
 [English](README.md) · [使用手冊](docs/MANUAL.zh-TW.md) · [Manual](docs/MANUAL.md) · [ComputAI 出現在哪裡](docs/SURFACES.md)
 
-> **只想要 GitHub 個人頁的 AI 作戰卡？**
-> `curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/main/install.sh | sh && computai --card --setup` · [卡片上有什麼](#github-個人頁的-ai-作戰卡)
+> **想把自己的 AI 用量貼到 Threads 或 README？**
+> beta.2 開發版：`computai --create --lang zh` → 選範圍／版型 → 下載 PNG／SVG。[做第一張圖卡](docs/MAKE-A-CARD.zh-TW.md)。
+> 尚未安裝這份開發版，在資料夾裡執行 `sh install.sh --create`；已釋出的 beta.1 尚未包含製卡頁。
 
 ![終端機 live 畫面：開機檢查，接著是 HUD](docs/images/live.svg)
 
@@ -136,7 +137,10 @@ computai --card --publish ~/Documents/me   # 把卡片 commit 進你的個人頁
 API 等值只按目前設定的價格估算已定價部分，不是實際帳單。預設只更新本機 log，不呼叫 API、SSH 或模型；
 加 `--no-sync` 可只讀帳本。單一 HTML 包含所有可見區間，留在本機，沒有自動發佈；已釋出的 beta.1 尚未包含此功能。
 
-要做一頁式社群圖卡，會沿用你設定的卡片風格與配色：
+最簡單的做法是 `computai --create --lang zh`：同頁預覽、切換範圍和下載，也能做 README 橫幅。
+圖卡採用 Web／TUI 的黑白圓角面板，有深淺色；第一張圖不需要設定 GitHub 或常駐更新。
+
+需要腳本匯出單張時：
 
 ```sh
 computai --profile --share-layout square --html share.html --svg share.svg --lang zh
@@ -148,7 +152,8 @@ computai --profile 2026 --share-layout wide --svg year-share.svg --lang zh
 也可下載 SVG。圖上有精確日期、快取占比、輸出與活動天數；直式另有用量趨勢。
 分享 SVG／HTML **只包含選定區間**，沒有嵌入其他月份；不顯示帳單或推測工作能力。
 `--svg` 也會啟用圖卡模式；同時輸出 HTML 時會是單張分享頁。沒加這兩個選項的 HTML 仍是完整歷史頁。
-`--card-style` 可臨時換風格，原本的卡片設定不會被改動。
+分享圖預設採用 Web／TUI 的克制風格；`--card-style amber` 等明確選項才使用既有 HUD 風格，
+不自動繼承舊 card.style／colors，也不修改原本設定。製卡頁 HTML 是私人工具，請只分享下載的 PNG／SVG。
 
 ## GitHub 個人頁的 AI 作戰卡
 
