@@ -6,6 +6,7 @@ import re
 import shutil
 import stat
 import subprocess
+import time
 import unittest
 from unittest import mock
 from tests import helpers
@@ -14,6 +15,8 @@ from tests.test_wrapped import seed, PRICES, SECRET, SESSION
 
 class Creator(unittest.TestCase):
     def setUp(self):
+        if hasattr(time, 'tzset'):
+            os.environ['TZ']='UTC';time.tzset()
         self.m = helpers.load()
         self.db = self.m.open_ledger(':memory:')
         self.addCleanup(self.db.close)
@@ -51,6 +54,25 @@ class Creator(unittest.TestCase):
             for body in re.findall(r'<%s(?:\s[^>]*)?>(.*?)</%s>' % (tag, tag), page, re.S):
                 digest = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
                 self.assertIn("'sha256-%s'" % digest, csp)
+
+    def test_monthly_readiness_and_selected_export_are_aggregate_only(self):
+        periods={p['key']:p for p in self.data['periods']}
+        details=self.m.creator_period_details(periods['month-2026-09'],'zh')
+        self.assertIn('尚無 Codex',details['guidance']['codex'])
+        self.assertNotIn('尚無本地',details['guidance']['mixed'])
+        self.assertIn('2026-08',details['comparisonText'])
+        export=details['export']
+        self.assertEqual(export['total_tokens'],12904000)
+        self.assertEqual(export['period'],'2026-09')
+        self.assertEqual(export['token_buckets']['reasoning'],0)
+        # Neither extra metadata nor current prices / payments may enter this download.
+        periods['month-2026-09']['models'][0]['project']=SECRET
+        periods['month-2026-09']['coverage'][0]['session']=SESSION
+        raw=json.dumps(self.m.creator_period_details(periods['month-2026-09'],'zh')['export'])
+        for forbidden in (SECRET,SESSION,'cost','api_equivalent','project','session','machine','2026-08'):
+            self.assertNotIn(forbidden,raw)
+        self.assertIn('無紀錄的過去無法補算',self.m.creator_period_details(periods['month-2026-08'],'zh')['guidance']['local'])
+        self.assertFalse(self.m.creator_period_details(dict(periods['all'],tokens=dict(periods['all']['tokens'],total=0)),'en')['hasUsage'])
 
     def test_create_only_imports_local_metadata_and_does_not_start_services(self):
         with mock.patch('sys.stdout'), mock.patch.object(self.m, 'sync') as sync, mock.patch.object(self.m, 'open_creator', return_value=('creator.html', False)) as create:
