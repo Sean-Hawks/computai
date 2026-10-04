@@ -403,6 +403,9 @@ push = yes
 Once a day, `computai`, `--web` or `--watch` rewrites the two card SVGs there and commits them.
 
 - `style` picks the look: `netrunner` (default), `arasaka`, `militech`, `amber`, `matrix` or `synthwave`. `colors = #from, #to` sets your own gradient.
+- Beta.2 development also adds `minimal`, `paper`, `github` and `terminal`: a monochrome banner, paper portrait, statistic dashboard and plain console.
+- `layout = auto` follows the style; choose `hud`, `compact`, `dashboard` or `portrait`, or override with `--card-layout`. Existing styles and the `mono`/`computai` aliases retain the HUD.
+- `computai --card --html styles.html` writes a local comparison of ten styles, both themes and four layouts, with SVG commands. The gallery uses preset colours; individual SVGs and daily updates use your settings.
 - `handle` sets the title; it defaults to the repo's GitHub account.
 - `lang` sets the card's language.
 - `--setup` asks for all of this and finds the profile repo on disk. Before pushing it rebases onto any commit a bot pushed in the meantime.

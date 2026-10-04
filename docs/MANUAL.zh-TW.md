@@ -358,6 +358,9 @@ push = yes
 `computai`、`--web` 或 `--watch` 每天會重寫一次那兩張卡片並 commit。
 
 - `style` 選外觀：`netrunner`（預設）、`arasaka`、`militech`、`amber`、`matrix`、`synthwave`；`colors = #起, #迄` 可以自訂漸層。
+- beta.2 開發版另有 `minimal`、`paper`、`github`、`terminal`，分別為灰階橫幅、紙張直式、統計面板及等寬字終端風格。
+- `layout = auto` 跟隨風格預設；可改成 `hud`、`compact`、`dashboard`、`portrait`，或用 `--card-layout` 暫時覆蓋。原本的 style 與 `mono`／`computai` 別名維持 HUD。
+- `computai --card --html styles.html --lang zh` 產生本機比較頁：10 種風格的深淺色與 4 種版型。比較頁採各風格預設配色，附上產生 SVG 的指令；單張 SVG 與每日更新則使用自己的設定。
 - `handle` 是標題上的名字，預設用 repo 的 GitHub 帳號。
 - `lang` 是卡片的語言。
 - `--setup` 會一項一項問，也會自動找到本機的個人頁 repo。推之前會先接上機器人推的 commit。

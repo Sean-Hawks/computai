@@ -172,6 +172,30 @@ Claude Code 和 Codex 不用任何設定，只要在這台電腦上用過，卡�
 
 ### 主題
 
+beta.2 開發版新增四種風格，可搭配不同版型；已發佈的 beta.1 尚未包含。
+
+| 風格 | 視覺與預設版型 |
+|---|---|
+| `minimal` | 灰階、留白、簡潔橫幅（`compact`） |
+| `paper` | 暖色紙張、襯線字體、直式摘要（`portrait`） |
+| `github` | 統計方塊、活動圖、模型比例（`dashboard`） |
+| `terminal` | 等寬字、平直邊框、靜態橫幅（`compact`） |
+
+![四種新卡片風格的示範資料預覽](docs/images/card-styles-preview.png)
+
+```sh
+computai --card --html styles.html --lang zh            # 本機比較 10 種風格的深／淺色與各版型
+computai --card --card-style minimal --svg card.svg
+computai --card --card-style paper --card-theme light --svg card.svg
+computai --card --card-style github --card-layout compact --svg card.svg
+computai --set card.style=paper --set card.layout=portrait  # 每日更新也沿用
+```
+
+`--card-layout` 可選 `auto`（跟隨風格）、`hud`（900×390）、`compact`（720×230）、`dashboard`（900×360）、`portrait`（420×610）。
+風格決定配色與字體，版型決定尺寸和資訊安排；CLI 選項優先於 `[card]` 設定。
+橫幅只顯示 token、API 等值、活躍天數、來源比例和常用模型；統計面板與直式另含活動圖及活動時數。
+新風格預設靜態；原本六種風格保留 HUD 與裝飾動畫：
+
 | `arasaka` | `militech` |
 |---|---|
 | ![arasaka](docs/images/card-arasaka.svg) | ![militech](docs/images/card-militech.svg) |
@@ -182,7 +206,7 @@ Claude Code 和 Codex 不用任何設定，只要在這台電腦上用過，卡�
 
 ```sh
 computai --set card.style=arasaka                 # netrunner（預設）、arasaka、militech、amber、matrix、synthwave
-computai --set 'card.colors=#ff6b6b, #ffd93d'     # 自訂兩個霓虹色
+computai --set 'card.colors=#ff6b6b, #ffd93d'     # 自訂兩個強調色
 computai --set card.handle=NEO                    # SYS. 後面的名字（預設是你的 GitHub 帳號）
 computai --set card.lang=zh                       # 卡片語言（en、zh）
 computai --set card.credit=no                     # 拿掉右下角的 GEN BY COMPUTAI

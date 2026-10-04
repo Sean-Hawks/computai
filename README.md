@@ -173,6 +173,31 @@ Claude Code and Codex need no setup. If you have used them on this computer, the
 
 ### Styles
 
+Beta.2 development adds four styles with different default layouts; the published beta.1 does not include them.
+
+| Style | Appearance and default layout |
+|---|---|
+| `minimal` | Quiet monochrome banner (`compact`) |
+| `paper` | Warm paper, serif typography, vertical summary (`portrait`) |
+| `github` | Statistic panels, activity grid and model shares (`dashboard`) |
+| `terminal` | Plain monospace console, square frame (`compact`) |
+
+![Four new card styles using demo data](docs/images/card-styles-preview.png)
+
+```sh
+computai --card --html styles.html                     # compare all ten styles, light/dark and layouts locally
+computai --card --card-style minimal --svg card.svg
+computai --card --card-style paper --card-theme light --svg card.svg
+computai --card --card-style github --card-layout compact --svg card.svg
+computai --set card.style=paper --set card.layout=portrait  # also used by daily updates
+```
+
+`--card-layout` accepts `auto` (follow the style), `hud` (900×390), `compact` (720×230),
+`dashboard` (900×360) or `portrait` (420×610). Style selects colours and fonts; layout selects dimensions and content.
+CLI options override `[card]` settings. Compact banners show tokens, API equivalent, active days, usage mix and top model;
+the dashboard and portrait also show activity grids and hours. New styles are static by default.
+The original six styles retain their HUD layout and decorative animation:
+
 | `arasaka` | `militech` |
 |---|---|
 | ![arasaka](docs/images/card-arasaka.svg) | ![militech](docs/images/card-militech.svg) |
@@ -183,7 +208,7 @@ Claude Code and Codex need no setup. If you have used them on this computer, the
 
 ```sh
 computai --set card.style=arasaka                 # netrunner (default), arasaka, militech, amber, matrix, synthwave
-computai --set 'card.colors=#ff6b6b, #ffd93d'     # your own neon pair
+computai --set 'card.colors=#ff6b6b, #ffd93d'     # your own accent pair
 computai --set card.handle=NEO                    # the name after SYS. (default: your GitHub account)
 computai --set card.lang=zh                       # card language (en, zh)
 computai --set card.credit=no                     # drop the small GEN BY COMPUTAI
