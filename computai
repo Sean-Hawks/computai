@@ -15,7 +15,7 @@ tokens, GPU hours, kWh and money, side by side.
 Python 3.8+, standard library only. Remote machines only need SSH and sh.
 """
 
-__version__ = "0.1.0-beta.1"
+__version__ = "0.1.0-beta.2-dev"
 
 import argparse
 import datetime
@@ -5491,6 +5491,77 @@ def local_overview(db, machines_state, energy, t=None):
             "api_usd": round(sum(r["api_usd"] or 0 for r in out), 2), "power_usd": round(power, 2)}
 
 
+def local_history(db, start=None, end=None, limit=20, machine=None, model=None):
+    """只讀本地用量白名單；proxy 是逐筆請求，服務計數器只是取樣間的差值。"""
+    if not 1 <= limit <= 200:
+        raise ValueError("local history limit must be between 1 and 200")
+    if start is None:
+        day = datetime.date(*time.localtime(now())[:3])
+        tomorrow = day + datetime.timedelta(days=1)
+        start = local_ts(day.year, day.month, day.day)
+        end = local_ts(tomorrow.year, tomorrow.month, tomorrow.day) if end is None else end
+    if end is None:
+        end = now() + 1
+    where, params = ["source = 'local'", "ts >= ?", "ts < ?"], [start, end]
+    if machine is not None:
+        where.append("project = ?")
+        params.append(machine)
+    if model is not None:
+        where.append("model = ?")
+        params.append(normalize_model(model))
+    q = ("SELECT ts, project AS machine, model, input + cache_read AS input, output, "
+         "CASE WHEN session = 'proxy' THEN 'proxy' ELSE 'counter' END AS kind, "
+         "CASE WHEN session = 'proxy' THEN requests ELSE NULL END AS requests "
+         "FROM usage WHERE %s ORDER BY ts DESC, rowid DESC LIMIT ?" % " AND ".join(where))
+    rows = [dict(r) for r in db.execute(q, params + [limit])]
+    return {"start": int(start), "end": int(end), "rows": rows}
+
+
+def render_local_history(history, width=100, height=None):
+    """清楚區分請求與差值，不臆測內容、耗時或未知的請求數。"""
+    width = max(40, width)
+    rows = clean_strings(history["rows"])
+    lines = [" " + bold(T("lh_title")), " " + dim(T("lh_range") % (
+        time.strftime("%Y-%m-%d", time.localtime(history["start"])),
+        time.strftime("%Y-%m-%d", time.localtime(max(history["start"], history["end"] - 1))))), ""]
+    if not rows:
+        lines += [" " + ln for ln in wrap(T("lh_none"), width - 2)]
+        return lines[:height] if height else lines
+    wide = width >= 90
+    mw = min(32, width - 65)
+    def right(s, size):
+        s = cell(s, size, tail=True).rstrip()
+        return " " * (size - vlen(s)) + s
+    def table_row(tm, model, machine, kind, inp, out, req):
+        return " %s %s %s %s %s %s %s" % (cell(tm, 14), cell(model, mw), cell(machine, 14), cell(kind, 8),
+                                           right(inp, 8), right(out, 8), right(req, 6))
+    if wide:
+        lines.append(dim(table_row(T("lh_time"), T("lc_model"), T("b_machine"), T("lh_via"), T("lh_input"), T("lh_output"), T("lh_requests"))))
+        lines.append(dim(" " + sym("─", "-") * (width - 2)))
+    foot = [" " + dim(ln) for ln in wrap(T("lh_note"), width - 2)]
+    shown = 0
+    for r in rows:
+        stamp = time.strftime("%m-%d %H:%M:%S", time.localtime(r["ts"]))
+        kind = T("lh_proxy") if r["kind"] == "proxy" else T("lh_counter")
+        req = str(r["requests"]) if r["requests"] is not None else "-"
+        if wide:
+            block = [table_row(stamp, r["model"], r["machine"], kind, fmt_tok(r["input"]), fmt_tok(r["output"]), req)]
+        else:
+            title = stamp + "  " + r["model"] + " @" + r["machine"]
+            meta = "%s · %s %s · %s %s · %s %s" % (kind, T("lh_input"), fmt_tok(r["input"]),
+                                                     T("lh_output"), fmt_tok(r["output"]), T("lh_requests"), req)
+            block = [" " + ln for ln in wrap(title, width - 2)] + ["   " + dim(ln) for ln in wrap(meta, width - 4)]
+        if height and len(lines) + len(block) + len(foot) + 2 > height:
+            break
+        lines += block
+        shown += 1
+    if shown < len(rows):
+        lines += [" " + dim(clip(T("lh_more") % (len(rows) - shown), width - 2))]
+    lines.append("")
+    lines += foot
+    return lines[:height] if height else lines
+
+
 # ---- agent 時間軸：今天每個 session 什麼時候在工作（只用時間戳和 token，不碰內容）
 
 TL_GAP = 300        # 同一列的請求相隔不到 5 分鐘就算同一段連續工作
@@ -6251,6 +6322,11 @@ UI = {
         "gd_strict": "Strict mode: no new subagents until it resets. Finish in this session or check with the user.",
         "tl_sum": "Accumulated today · Claude/Codex %.1fh · local inference %.1fh",
         "tl_sum_day": "Accumulated · Claude/Codex %.1fh · local inference %.1fh", "tl_top": "Peak API-equivalent hour: %s (%s)",
+        "lh_title": "Recent local inference", "lh_range": "%s to %s · newest first",
+        "lh_time": "TIME", "lh_via": "SOURCE", "lh_input": "INPUT", "lh_output": "OUTPUT", "lh_requests": "REQ",
+        "lh_proxy": "proxy", "lh_counter": "counter", "lh_more": "+%d rows · computai --local-history",
+        "lh_none": "No local usage in this range. Requests must pass through --proxy, or a service must provide token metrics.",
+        "lh_note": "proxy = requests; counter = sample deltas, request count unknown. Usage only; no conversation content.",
         "tl_local": "Local", "tl_asof": "as of %s", "tl_session": "SESSION / MODEL",
         "tl_columns": "ACTIVE / TOKENS", "tl_legend": "━ activity   · gaps   │ hour   ┃ now   ↶ from yesterday",
         "tl_estimate": "Estimated from requests ≤5m apart; durations add across sessions.",
@@ -6500,6 +6576,11 @@ UI = {
         "gd_strict": "嚴格模式：重置前不再派新的 subagent。在這個 session 裡做完，或先問使用者。",
         "tl_sum": "今日累計 · Claude/Codex %.1f 小時 · 本地推論 %.1f 小時",
         "tl_sum_day": "當日累計 · Claude/Codex %.1f 小時 · 本地推論 %.1f 小時", "tl_top": "API 等值最高時段：%s（%s）",
+        "lh_title": "最近本地推論紀錄", "lh_range": "%s 至 %s · 最新在上",
+        "lh_time": "時間", "lh_via": "來源", "lh_input": "輸入", "lh_output": "輸出", "lh_requests": "請求數",
+        "lh_proxy": "proxy", "lh_counter": "取樣差值", "lh_more": "另 %d 筆 · computai --local-history",
+        "lh_none": "這個區間沒有本地用量。請求需經過 --proxy，或由推論服務提供 token metrics。",
+        "lh_note": "proxy 為逐筆請求；取樣差值的請求數未知。僅顯示用量，不含對話內容。",
         "tl_local": "本地", "tl_asof": "截至 %s", "tl_session": "SESSION / 模型",
         "tl_columns": "累計 / TOKEN", "tl_legend": "━ 活動區段   · 請求空檔   │ 整點   ┃ 現在   ↶ 跨日",
         "tl_estimate": "依相隔 ≤5 分鐘的請求推估活動；時數為各列相加。",
@@ -11985,7 +12066,7 @@ def parse_args(argv=None):
     p.add_argument("--upstream", metavar="URL", default="http://127.0.0.1:11434",
                    help="where --proxy forwards to (default http://127.0.0.1:11434)")
     p.add_argument("--machine", metavar="NAME", default=None,
-                   help="which machine the proxied tokens belong to (default: the first local one)")
+                   help="which machine the proxied tokens belong to; with --local-history, filter by machine")
     p.add_argument("--sample-every", type=float, default=60, metavar="SEC",
                    help="while --proxy, --live or --web run, sample machines this often (0 = never)")
     p.add_argument("--no-ledger", action="store_true",
@@ -12018,6 +12099,9 @@ def parse_args(argv=None):
     p.add_argument("--team", nargs="?", const="show", choices=["show", "publish", "leave"],
                    help="leaderboard with friends, totals only: show (default), publish (shows the JSON first), leave")
     p.add_argument("--yes", action="store_true", help="with --team publish/leave: don't ask")
+    p.add_argument("--local-history", nargs="?", const=20, type=int, metavar="N",
+                   help="read the latest N local usage rows from the ledger (default 20, max 200); defaults to today")
+    p.add_argument("--model", metavar="NAME", help="with --local-history: filter by exact model name")
     p.add_argument("--local-cost", action="store_true",
                    help="what local models really cost (power, hardware, carbon) versus small cloud models, and what "
                         "this month's light requests would save if they ran locally")
@@ -12091,7 +12175,10 @@ def parse_args(argv=None):
                    help="with --doctor: replace machine names, hosts, IPs, project names and your user name with codes")
     p.add_argument("--no-sync", action="store_true", help="don't import new usage before reporting")
     group_help(p)
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.local_history is not None and not 1 <= args.local_history <= 200:
+        p.error("--local-history must be between 1 and 200")
+    return args
 
 
 def pick_range(args):
@@ -12126,7 +12213,7 @@ def main(argv=None):
                          "(plans, machines, power), or `computai --doctor` to see what is detected.\n" % config_dir())
     db = open_ledger()
     # 給人看的指令才查新版（背景、一天一次）；給程式讀的輸出（--json、statusline、MCP）不碰網路也不多印字
-    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp)
+    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp or args.local_history is not None)
     if human:
         check_update_in_background()
     try:
@@ -12158,7 +12245,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("local_history", "import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -12240,6 +12327,15 @@ def run(args, db):
             repo_git(ts["repo"])("pull", "-q", "--ff-only")   # 拿別人最新的總數；失敗就用手上的
         rows = team_board(ts["repo"], ts["handle"])
         emit(rows, render_team(rows), args.json)
+        return 0
+    if args.local_history is not None:  # 只讀已入帳的用量，不同步或取樣
+        start, end = pick_range(args)[:2] if args.month or args.since or args.until else (None, None)
+        history = local_history(db, start, end, args.local_history, args.machine, args.model)
+        if args.json:
+            print(json.dumps(history, ensure_ascii=False, indent=2))
+        else:
+            set_style(use_color(), not can_draw_blocks())
+            print("\n".join(render_local_history(history, shutil.get_terminal_size((100, 40)).columns)))
         return 0
     if args.local_cost:
         if not args.no_sync:
