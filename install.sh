@@ -27,11 +27,11 @@ fi
 
 PREFIX="${PREFIX:-$HOME/.local}"
 BIN="$PREFIX/bin"
-REF="${COMPUTAI_REF:-v0.1.0-beta.1}"
+REF="${COMPUTAI_REF:-v0.1.0-beta.2}"
 URL="${COMPUTAI_URL:-https://raw.githubusercontent.com/Sean-Hawks/computai/$REF/computai}"
 HERE=$(cd "$(dirname "$0")" && pwd)
-if [ "$CREATE" = 1 ] && [ ! -f "$HERE/computai" ] && [ "$REF" = "v0.1.0-beta.1" ]; then
-    echo "Monthly recaps need the beta.2 development folder; released beta.1 does not include the creator yet." >&2
+if [ "$CREATE" = 1 ] && [ ! -f "$HERE/computai" ] && { [ "$REF" = "v0.1.0-beta.1" ] || [ "$REF" = "v0.1.0-beta.2" ]; }; then
+    echo "Monthly recaps need the development folder; released beta.1 and beta.2 do not include the creator yet." >&2
     echo "Run this installer with --recap from that folder. Nothing has been installed." >&2
     exit 2
 fi

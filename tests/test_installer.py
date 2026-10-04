@@ -46,7 +46,7 @@ class Installer(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             with open(log, encoding="utf-8") as f:
                 url = f.read().strip()
-            self.assertEqual(url, "https://raw.githubusercontent.com/Sean-Hawks/computai/%s/computai" % (ref or "v0.1.0-beta.1"))
+            self.assertEqual(url, "https://raw.githubusercontent.com/Sean-Hawks/computai/%s/computai" % (ref or "v0.1.0-beta.2"))
 
     def test_install_and_create_runs_without_path_refresh_or_configuration_wizard(self):
         sb = helpers.Sandbox()
@@ -93,12 +93,14 @@ class Installer(unittest.TestCase):
         env = sb.env(PREFIX=prefix)
         env.pop('COMPUTAI_REF', None)
         env.pop('COMPUTAI_URL', None)
-        for entry in ('--recap', '--create'):
-            result = subprocess.run(['sh', installer, entry], env=env, capture_output=True, text=True, timeout=10)
-            self.assertEqual(result.returncode, 2)
-            self.assertIn('beta.1 does not include', result.stderr)
-            self.assertFalse(os.path.exists(prefix))
-            self.assertFalse(os.path.exists(sb.data))
+        for ref in ('v0.1.0-beta.1', 'v0.1.0-beta.2'):
+            for entry in ('--recap', '--create'):
+                result = subprocess.run(['sh', installer, entry], env=dict(env, COMPUTAI_REF=ref),
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn('beta.1 and beta.2 do not include', result.stderr)
+                self.assertFalse(os.path.exists(prefix))
+                self.assertFalse(os.path.exists(sb.data))
 
     def test_mac_launcher_uses_its_own_folder_and_skips_installation(self):
         from unittest import mock
