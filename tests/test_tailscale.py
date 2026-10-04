@@ -15,7 +15,9 @@ FAKE = r"""#!/bin/sh
 echo "$*" >> "$TS_LOG"
 case "$1" in
   status) echo '{"BackendState": "Running", "Self": {"DNSName": "box.tail1234.ts.net."}}' ;;
-  serve) [ "$2" = status ] && echo "${TS_SERVE:-{\}}"; exit 0 ;;
+  serve) if [ "$2" = status ]; then
+           if [ "${TS_SERVE+x}" = x ]; then printf '%s\n' "$TS_SERVE"; else echo '{}'; fi
+         fi; exit 0 ;;
 esac
 """
 
@@ -93,6 +95,14 @@ class Tailscale(unittest.TestCase):
         r = self.sb.run("--web", "0.0.0.0:0", "--tailscale", **self.env())
         self.assertIn("keeps the dashboard on 127.0.0.1", r.stderr)
         self.assertEqual(self.calls(), [])                            # 連 tailscale 都沒叫
+
+    def test_bad_serve_status_never_overwrites_existing_services(self):
+        for status in ("not-json", "[]", '{"TCP": []}', ""):
+            with self.subTest(status=status):
+                r = self.sb.run("--web", "127.0.0.1:0", "--tailscale", **self.env(TS_SERVE=status))
+                self.assertNotEqual(r.returncode, 0)
+                self.assertIn("existing services were left unchanged", r.stderr)
+                self.assertFalse(any(c.startswith("serve --bg") or c.endswith(" off") for c in self.calls()))
 
     def test_bare_tailscale_means_web(self):
         m = helpers.load()

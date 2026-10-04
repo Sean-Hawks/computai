@@ -8804,10 +8804,16 @@ def tailscale_open(port):
     if not name:
         raise SystemExit("computai: " + TAILSCALE_HELP)
     # 已經有東西在用的 HTTPS 埠不碰（tailscale serve 會直接蓋掉別人的設定）；tailnet 的 HTTPS 只能用這三個埠
+    err = []
+    raw = run_cmd([exe, "serve", "status", "--json"], timeout=10, errors=err)
     try:
-        used = set((json.loads(run_cmd([exe, "serve", "status", "--json"], timeout=10) or "{}").get("TCP") or {}).keys())
-    except (ValueError, AttributeError):
-        used = set()
+        status = json.loads(raw)
+        if err or not isinstance(status, dict) or not isinstance(status.get("TCP", {}), dict):
+            raise ValueError("unknown serve configuration")
+        used = set(status.get("TCP", {}))
+    except (ValueError, TypeError):
+        raise SystemExit("computai: cannot read tailscale serve configuration; existing services were left unchanged. "
+                         "Check `tailscale serve status --json` and try again.")
     free = [p for p in (443, 8443, 10000) if str(p) not in used]
     if not free:
         raise SystemExit("computai: tailscale serve already uses ports 443, 8443 and 10000 on this machine; "
