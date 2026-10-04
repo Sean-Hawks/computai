@@ -53,13 +53,13 @@ class Creator(unittest.TestCase):
                 self.assertIn("'sha256-%s'" % digest, csp)
 
     def test_create_only_imports_local_metadata_and_does_not_start_services(self):
-        with mock.patch.object(self.m, 'sync') as sync, mock.patch.object(self.m, 'open_creator', return_value=('creator.html', False)) as create:
+        with mock.patch('sys.stdout'), mock.patch.object(self.m, 'sync') as sync, mock.patch.object(self.m, 'open_creator', return_value=('creator.html', False)) as create:
             result = self.m.run(self.m.parse_args(['--create', '--profile', '2026-09', '--no-open']), self.db)
         self.assertEqual(result, 0)
         self.assertEqual(sync.call_args.kwargs['only'], ('claude', 'codex', 'gemini', 'opencode', 'cursor'))
         self.assertEqual(create.call_args.args[3], 'month-2026-09')
         self.assertFalse(create.call_args.args[-1])
-        with mock.patch.object(self.m, 'sync') as sync, mock.patch.object(self.m, 'open_creator', return_value=('creator.html', False)):
+        with mock.patch('sys.stdout'), mock.patch.object(self.m, 'sync') as sync, mock.patch.object(self.m, 'open_creator', return_value=('creator.html', False)):
             self.m.run(self.m.parse_args(['--create', '--no-sync', '--no-open']), self.db)
         sync.assert_not_called()
 
