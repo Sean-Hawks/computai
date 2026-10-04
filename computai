@@ -1940,6 +1940,57 @@ def summary(db, start, end, prices=None, plan_table=None, label=""):
             "unpriced_models": sorted(unpriced)}
 
 
+def token_insights(db, start, end, rankings=True):
+    """互不重疊的用量桶；reasoning 是 output 子集合，不再加進總數。"""
+    cols = "input + cache_read + cache_write_5m + cache_write_1h + output"
+    where = "source != 'cloud' AND ts >= ? AND ts < ?"
+    r = db.execute("SELECT %s FROM usage WHERE %s" % (
+        ", ".join("COALESCE(SUM(%s), 0) AS %s" % (c, c) for c in TOKEN_COLS), where), (start, end)).fetchone()
+    buckets = dict(r)
+    total = sum(buckets[c] for c in TOKEN_COLS if c != "reasoning")
+    fed = total - buckets["output"]
+    out = {"start": int(start), "end": int(end), "total": total, "buckets": buckets,
+           "cache_share_pct": round(100.0 * buckets["cache_read"] / total, 2) if total else None,
+           "cache_hit_pct": round(100.0 * buckets["cache_read"] / fed, 2) if fed else None}
+    if rankings:
+        for group in ("source", "model", "project"):
+            out[group + "s"] = [dict(r) for r in db.execute(
+                "SELECT %s AS name, SUM(%s) AS tokens FROM usage WHERE %s "
+                "GROUP BY %s HAVING SUM(%s) > 0 ORDER BY tokens DESC, name LIMIT 5" %
+                (group, cols, where, group, cols), (start, end))]
+    return out
+
+
+def token_labels(zh=None):
+    zh = _lang == "zh" if zh is None else zh
+    return ({"input": "新輸入", "cache_read": "快取讀取", "cache_write_5m": "快取寫入（5 分鐘）",
+             "cache_write_1h": "快取寫入（1 小時）", "output": "輸出", "reasoning": "推理（已含於輸出）"} if zh else
+            {"input": "Uncached input", "cache_read": "Cache read", "cache_write_5m": "Cache write (5m)",
+             "cache_write_1h": "Cache write (1h)", "output": "Output", "reasoning": "Reasoning (within output)"})
+
+
+def render_token_insights(d):
+    zh = _lang == "zh"
+    labels = token_labels()
+    lines = [("Token 用量細項" if zh else "Token breakdown") + " · " +
+             time.strftime("%Y-%m-%d", time.localtime(d["start"])) + " .. " +
+             time.strftime("%Y-%m-%d", time.localtime(d["end"] - 1)),
+             ("總計" if zh else "Total") + ": {:,} ({})".format(d["total"], fmt_tok(d["total"])), ""]
+    for c in TOKEN_COLS:
+        n = d["buckets"][c]
+        pct = "%.2f%%" % (100.0 * n / d["total"]) if d["total"] and c != "reasoning" else "-"
+        lines.append("  %s: %s  %s" % (labels[c], format(n, ","), pct))
+    lines += ["", ("B = 十億，M = 百萬；快取可在多次請求中重複讀取，總數不是不同文字的數量。" if zh else
+                   "B = billion, M = million. Repeated cache reads count again; totals are not unique text."),
+              ("推理 token 已包含在輸出；快取讀取占總數與輸入命中率的分母不同。" if zh else
+               "Reasoning is included in output. Cache share uses total tokens; hit rate uses input tokens.")]
+    for group, title in (("sources", "來源" if zh else "Sources"), ("models", "模型" if zh else "Models"),
+                         ("projects", "專案／機器" if zh else "Projects / machines")):
+        lines += ["", title + ":"]
+        lines += ["  %s  %s" % (r["name"] or "-", format(r["tokens"], ",")) for r in d.get(group, [])]
+    return "\n".join(lines)
+
+
 def fmt_dur(sec):
     sec = max(int(sec), 0)
     d, h, m = sec // 86400, sec % 86400 // 3600, sec % 3600 // 60
@@ -12314,6 +12365,7 @@ def parse_args(argv=None):
     p.add_argument("--until", metavar="YYYY-MM-DD", help="end of the range (inclusive)")
     p.add_argument("--by", choices=["model"] + sorted(BREAKDOWNS), default="model",
                    help="break the summary down by model (default), project, session or day")
+    p.add_argument("--tokens", action="store_true", help="explain token totals, cache and reasoning; default last 30 days")
     p.add_argument("--sample", action="store_true",
                    help="read every machine in [machines] once (CPU, GPU, power, loaded models)")
     p.add_argument("--setup", action="store_true",
@@ -12518,7 +12570,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("local_history", "import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("tokens", "local_history", "import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -12600,6 +12652,19 @@ def run(args, db):
             repo_git(ts["repo"])("pull", "-q", "--ff-only")   # 拿別人最新的總數；失敗就用手上的
         rows = team_board(ts["repo"], ts["handle"])
         emit(rows, render_team(rows), args.json)
+        return 0
+    if args.tokens:
+        if not args.no_sync:
+            sync(db, quiet=True)
+        if args.month is not None or args.since or args.until:
+            start, end, _ = pick_range(args)
+        else:
+            today = datetime.date(*time.localtime(now())[:3])
+            tomorrow = today + datetime.timedelta(days=1)
+            first = tomorrow - datetime.timedelta(days=30)
+            start, end = local_ts(first.year, first.month, first.day), local_ts(tomorrow.year, tomorrow.month, tomorrow.day)
+        d = token_insights(db, start, end)
+        emit(d, render_token_insights(d), args.json)
         return 0
     if args.local_history is not None:  # 只讀已入帳的用量，不同步或取樣
         start, end = pick_range(args)[:2] if args.month or args.since or args.until else (None, None)
