@@ -1,0 +1,11 @@
+ KNOWN MONTHLY COST  $315.79
+ MONTH-END FORECAST  $425.63
+ SUBSCRIPTION API VALUE  $274.67
+ Configured fees + recorded costs; API value is not a
+ bill.
+ Claude Code
+ Fee $100.00 · value $228.49 · 2.28x
+ Codex
+ Fee $200.00 · value $46.18 · 0.23x
+ Budget $500.00 · projected headroom $74.37
+ Details: enlarge window or computai --summary

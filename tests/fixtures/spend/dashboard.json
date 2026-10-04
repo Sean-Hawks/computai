@@ -1,0 +1,33 @@
+{
+  "month": "2026-10",
+  "sources": [
+    {"source": "claude", "cost_usd": 228.49, "tokens": 800000000},
+    {"source": "codex", "cost_usd": 46.18, "tokens": 61000000},
+    {"source": "local", "cost_usd": 0, "tokens": 7300000},
+    {"source": "cloud", "cost_usd": 10, "tokens": 0},
+    {"source": "openai", "cost_usd": 5, "tokens": 1000000}
+  ],
+  "forecast": {
+    "subscriptions_usd": 300,
+    "subscription_by_source": {
+      "claude": {"name": "Example Max", "usd": 100, "checked": "2026-10-04"},
+      "codex": {"name": "Example Pro", "usd": 200, "checked": "2026-10-04"}
+    },
+    "variable_so_far_usd": 15.79,
+    "variable_by_source": {"cloud": 10, "openai": 5, "electricity": 0.79},
+    "projected_usd": 425.63,
+    "daily_rate_usd": 3.93,
+    "days_left": 28,
+    "budget_usd": 500,
+    "over_budget": false
+  },
+  "daily": {
+    "days": ["2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"],
+    "sources": {"claude": [20, 32, 70, 66.01, 60.48], "codex": [0, 20, 10, 14.5, 1.68]}
+  },
+  "unpriced_models": [],
+  "limits": [],
+  "local": {},
+  "alerts": [],
+  "insights": []
+}

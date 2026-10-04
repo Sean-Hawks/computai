@@ -1,0 +1,45 @@
+╭─ SPEND SUMMARY ───────────────────────────────── 2026-10 ╮
+│  KNOWN MONTHLY COST  $315.79                             │
+│  Configured fees + recorded costs                        │
+│  MONTH-END FORECAST  $425.63                             │
+│  Next 28 days: +$109.84                                  │
+│  SUBSCRIPTION API VALUE  $274.67                         │
+│  Comparison value, not an extra bill                     │
+├──────────────────────────────────────────────────────────┤
+│ USD                                                      │
+╰──────────────────────────────────────────────────────────╯
+ Budget $500.00 · projected headroom $74.37
+╭─ COST BREAKDOWN ──────────────────────────────── 2026-10 ╮
+│  Claude Code · Example Max                       $100.00 │
+│  Codex · Example Pro                             $200.00 │
+│  Cloud GPUs                                       $10.00 │
+│  Electricity                                       $0.79 │
+│  openai                                            $5.00 │
+│                                                          │
+│  Fixed fees $300.00 · variable $15.79                    │
+│  Total  $315.79                                          │
+│  Fees from config; cloud/API/power from ledger. Not a    │
+│  payment receipt.                                        │
+╰──────────────────────────────────────────────────────────╯
+╭─ SUBSCRIPTION COMPARISON ────────────────────────────────╮
+│  Claude Code · Example Max                               │
+│  Fee $100.00 · API value $228.49 · 2.28x                 │
+│  Last 5 days ⣀⣤⣿⣿⣶  Today value $60.48 · month 800M      │
+│  tokens                                                  │
+│                                                          │
+│  Codex · Example Pro                                     │
+│  Fee $200.00 · API value $46.18 · 0.23x                  │
+│  Last 5 days ⠀⣿⣤⣶⣀  Today value $1.68 · month 61.0M      │
+│  tokens                                                  │
+│                                                          │
+│  Local models: 7.3M tokens · no token fee; see costs for │
+│  power                                                   │
+│  Ratio = imported month-to-date API value / full monthly │
+│  fee; not cash savings.                                  │
+├──────────────────────────────────────────────────────────┤
+│ prices.ini · API value, not a bill                       │
+╰──────────────────────────────────────────────────────────╯
+ Trend dates 2026-09-30 → 2026-10-04
+╭─ ATTENTION & NEXT STEPS ─────────────────────────────────╮
+│  ● all clear                                             │
+╰──────────────────────────────────────────────────────────╯

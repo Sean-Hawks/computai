@@ -331,8 +331,21 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
     in 1h20m" or "about 65% by the reset". A subscription with usage but no limit data says how to connect it.
   - **COMPUTE**: a panel per machine (CPU, memory, each GPU, power, inference servers and their models).
     Its data source and age are on the bottom border.
-  - **AI subscriptions & spend**: value at API prices versus the monthly fee, and what you actually pay.
+  - **AI subscriptions & spend**: value at API prices versus the monthly fee, and projected month-end costs.
   - **ALERTS** and **ADVICE**.
+
+  Development: **5 spend** separates **known monthly cost** (configured full-month fees plus recorded
+  cloud/API/electricity costs), **month-end forecast** (recent variable-cost pace, with remaining days
+  and projected additional costs), and **subscription API value** (imported Claude/Codex usage, not an
+  extra bill). Cost breakdown and subscription comparison sit side by side on wide terminals and stack
+  on narrow ones. Comparison includes monthly fees, API value, value/fee ratio, daily trends and
+  month-to-date tokens; the ratio is not cash payback or savings. Configured subscriptions remain in
+  costs even without usage. Missing fees or prices warn of possible underestimates. The budget line
+  shows projected headroom or overage. At 36 rows or fewer, primary amounts and subscription comparisons
+  take priority; enlarge the window or run `computai --summary` for details, and `computai --insights`
+  for full advice. Costs are configuration/ledger estimates, not payment receipts. Local-model tokens
+  have no token fee; electricity appears separately in costs. This unreleased layout does not change
+  the web dashboard or other tabs.
 
   It refreshes every `-n` seconds. `--once` prints it once; it falls back to ASCII when the terminal
   can't draw block characters.
