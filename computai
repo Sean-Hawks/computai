@@ -10686,6 +10686,171 @@ def history_profile(db, t=None, prices=None):
             "coverage": {"first": first, "last": last, "sources": sources}, "periods": periods}
 
 
+def render_history_profile_html(d, handle="", selected="all", lang=None):
+    """獨立 HTML；伺服器先渲染全部區間，停用 JS 仍能讀；不嵌入個人帳本。"""
+    import html
+    zh = (lang or _lang) == "zh"
+    def L(z, e):
+        return z if zh else e
+    esc = html.escape
+    def day(ts):
+        return time.strftime("%Y-%m-%d", time.localtime(ts)) if ts is not None else L("沒有紀錄", "No records")
+    def name(p):
+        return L("累計 Profile", "All-time profile") if p["kind"] == "all" else p["label"] + L(
+            " 年報" if p["kind"] == "year" else " 月報", " annual report" if p["kind"] == "year" else " monthly report")
+    if selected not in {p["key"] for p in d["periods"]}:
+        raise ValueError("No observed history for %s" % selected)
+    coverage = d["coverage"]
+    title = (handle + " · " if handle else "") + L("AI 用量檔案", "AI usage profile")
+    css = """
+:root{color-scheme:light;--bg:#f4f6f9;--surface:#fff;--ink:#182536;--dim:#526276;--line:#dfe5ed;--blue:#245cce;--teal:#087e83;--gold:#ad5c08;--soft:#edf3ff;--warn:#fff6df}
+:root[data-theme=dark]{color-scheme:dark;--bg:#101722;--surface:#182231;--ink:#edf3fb;--dim:#aab8cd;--line:#344357;--blue:#84acff;--teal:#64d6cf;--gold:#ffbf74;--soft:#202f48;--warn:#352d20}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif}main{max-width:1180px;margin:auto;padding:38px 28px 60px}h1{font-size:clamp(28px,4vw,44px);line-height:1.25;letter-spacing:-1px;margin:10px 0 12px}h2{font-size:24px;margin:0 0 6px}h3{font-size:17px;margin:0 0 16px}p{margin:8px 0}.muted,small{color:var(--dim)}.eyebrow{font-size:12px;letter-spacing:3px;color:var(--blue);font-weight:750}.top,.controls,.section-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.tools{display:flex;gap:8px}button,select{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:9px 13px;cursor:pointer}button:focus-visible,select:focus-visible,a:focus-visible{outline:3px solid var(--blue);outline-offset:3px}.controls{margin:28px 0 24px;border-top:1px solid var(--line);padding-top:22px}.controls label{font-weight:650}.controls select{margin-left:12px;min-width:250px}.tabs{display:flex;gap:6px;flex-wrap:wrap}.tabs button[aria-pressed=true]{background:var(--ink);color:var(--surface);border-color:var(--ink)}.period{margin-bottom:36px}.notice{background:var(--warn);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:14px 0 20px;color:var(--ink)}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:20px 0}.stat,.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px}.stat strong{display:block;font-size:clamp(25px,3vw,37px);line-height:1.35;font-variant-numeric:tabular-nums;letter-spacing:-.7px;margin:8px 0 3px}.stat small{display:block;font-size:12px;overflow-wrap:anywhere}.stat-label{font-size:13px;font-weight:650;color:var(--dim)}.explain{background:var(--soft);border-left:3px solid var(--blue);padding:14px 18px;border-radius:0 10px 10px 0;margin:20px 0 22px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:18px 0}.panel{min-width:0}.chart{overflow:auto;margin-top:18px}.chart svg{display:block;width:100%;height:auto;min-width:600px}.chart text{fill:var(--dim);font-size:12px;font-family:inherit}.chart .bar{fill:var(--blue)}.chart .axis{stroke:var(--line)}.rank{margin:16px 0}.rank-label{display:flex;justify-content:space-between;gap:16px;font-size:14px;overflow-wrap:anywhere}.rank-label span:first-child{min-width:0}.rank-label span:last-child{white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--dim)}.track{height:8px;background:var(--bg);border-radius:5px;overflow:hidden;margin-top:7px}.track i{display:block;height:100%;background:var(--teal);border-radius:5px}.table-scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}th,td{padding:11px 8px;border-bottom:1px solid var(--line);text-align:left}th{color:var(--dim);font-weight:600}td.num,th.num{text-align:right;white-space:nowrap}td:first-child{overflow-wrap:anywhere}.reasoning{color:var(--dim)}.badge{display:inline-block;border:1px solid var(--line);border-radius:100px;font-size:12px;padding:3px 10px;color:var(--dim)}details{margin-top:18px}summary{cursor:pointer;color:var(--blue);font-weight:650}a{color:var(--blue)}footer{margin-top:26px;font-size:12px;color:var(--dim)}[hidden]{display:none!important}.js-only{display:none}.js .js-only{display:flex}.js .controls label.js-only{display:block}.coverage{margin-top:28px}.empty{padding:24px;color:var(--dim)}
+@media(max-width:760px){main{padding:24px 16px 40px}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:1fr}.stat,.panel{padding:17px}.controls{align-items:flex-start}.controls label{width:100%}.controls select{display:block;margin:8px 0 0;width:100%;min-width:0}.rank-label{font-size:13px}.top{align-items:flex-start}.tools button{padding:7px 10px;font-size:13px}.chart svg{min-width:560px}.stat strong{font-size:28px}}
+@media print{body{background:#fff}.tools,.controls,.js-only,footer{display:none!important}main{max-width:none;padding:0}.stat,.panel{break-inside:avoid}.chart{overflow:visible}.chart svg{min-width:0}.stats{gap:8px}.coverage{break-before:page}details .table-scroll{display:block}h1{font-size:30px}a{color:inherit}.period{margin-bottom:0}}
+"""
+    out = ['<!doctype html><html lang="%s"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>%s · ComputAI</title><style>%s</style></head><body><main>' %
+           ("zh-Hant" if zh else "en", esc(title), css)]
+    a = out.append
+    a('<header><div class="top"><span class="eyebrow">COMPUTAI / PERSONAL HISTORY</span><div class="tools js-only"><button id="theme">%s</button><button id="print">%s</button></div></div><h1>%s</h1><p class="muted">%s</p><small>%s · %s %s</small></header>' %
+      (L("切換深／淺色", "Switch theme"), L("列印／存成 PDF", "Print / save PDF"), esc(title),
+       L("從你留下的用量紀錄，看看 AI 在每個月扮演多少角色。", "Explore your AI usage month by month, from available records."),
+       L("可見歷史", "Observed history") + " " + day(coverage["first"]) + " — " + day(coverage["last"]),
+       L("產生於", "Generated"), esc(time.strftime("%Y-%m-%d %H:%M", time.localtime(d["generated_at"])) + " " + d["timezone"])))
+    a('<nav class="controls" aria-label="%s"><div class="tabs js-only">' % L("報告區間", "Report period"))
+    for kind, z, e in (("all", "累計 Profile", "Profile"), ("month", "月報", "Monthly"), ("year", "年報", "Annual")):
+        if any(p["kind"] == kind for p in d["periods"]):
+            a('<button data-kind="%s" aria-pressed="false">%s</button>' % (kind, L(z, e)))
+    a('</div><label class="js-only" for="period">%s<select id="period">' % L("選擇報告", "Choose report"))
+    for p in d["periods"]:
+        a('<option value="%s" data-kind="%s"%s>%s</option>' % (esc(p["key"]), p["kind"],
+          ' selected' if p["key"] == selected else '', esc(name(p))))
+    a('</select></label></nav><noscript><p>%s</p></noscript>' % L("目前顯示所有報告；啟用 JavaScript 後可以切換區間。", "All reports are shown. Enable JavaScript to select a period."))
+    labels = token_labels(zh)
+    def ranks(rows, field, total):
+        if not rows:
+            return '<p class="empty">%s</p>' % L("沒有可見用量", "No observed usage")
+        parts = []
+        for r in rows:
+            pct = 100.0 * r["tokens"] / total if total else 0
+            parts.append('<div class="rank"><div class="rank-label"><span>%s</span><span>%s · %.1f%%</span></div><div class="track"><i style="width:%.3f%%"></i></div></div>' %
+                         (esc(r[field]), fmt_tok(r["tokens"]), pct, min(100, max(0, pct))))
+        return "".join(parts)
+    for p in d["periods"]:
+        tok, total = p["tokens"], p["tokens"]["total"]
+        start = coverage["first"] if p["kind"] == "all" else p["start"]
+        a('<section class="period" id="%s" data-kind="%s"><div class="section-head"><div><h2>%s</h2><p class="muted">%s — %s</p></div><span class="badge">%s</span></div>' %
+          (esc(p["key"]), p["kind"], esc(name(p)), day(start), day(p["end"] - 1),
+           L("截至目前" if p["in_progress"] else "已記錄的用量", "So far" if p["in_progress"] else "Recorded usage")))
+        notices = []
+        if p["in_progress"]:
+            notices.append(L("這個區間仍在進行中，數字截至產生報告的時間。", "This period is in progress; figures stop at generation time."))
+        if p["history_starts_late"]:
+            notices.append(L("最早的紀錄從 %s 才開始，較早日期沒有資料。", "History begins on %s; earlier dates have no data.") % day(coverage["first"]))
+        if notices:
+            a('<p class="notice">%s</p>' % " ".join(notices))
+        cache = tok["cache_share_pct"]
+        stats = [(L("處理過的 token", "Tokens processed"), fmt_tok(total), format(total, ",") + " tokens"),
+                 (L("產生的輸出", "Output generated"), fmt_tok(tok["buckets"]["output"]), format(tok["buckets"]["output"], ",") + " tokens"),
+                 (L("快取讀取占總數", "Cache read / total"), "%.1f%%" % cache if cache is not None else "—", L("重複使用上下文也會計入", "Repeated context reads count again")),
+                 (L("有用量的天數", "Days with usage"), str(p["active_days"]), L("最長連續 %d 天", "Longest streak: %d days") % p["longest_streak"])]
+        a('<div class="stats">')
+        for label, value, detail in stats:
+            a('<div class="stat"><span class="stat-label">%s</span><strong>%s</strong><small>%s</small></div>' % (label, value, detail))
+        a('</div><div class="explain">%s</div>' % L(
+          "<b>B = 十億，M = 百萬。</b>總數是新輸入＋快取讀取＋快取寫入＋輸出；同一段上下文可能被讀取很多次。這是處理量，不是你打了多少字，也不是不同文字的數量。推理已包含在輸出中。",
+          "<b>B = billion, M = million.</b>Total = uncached input + cache reads + cache writes + output. The same context may be read repeatedly. This measures processing, not how much you typed or unique text. Reasoning is already within output."))
+        a('<div class="panel"><div class="section-head"><div><h3>%s</h3><small>%s</small></div><span class="badge">%s</span></div>' %
+          (L("每日處理量", "Daily tokens"), L("依實際日期排列；柱高代表 token，滑鼠移上可看精確數字。", "Bars follow calendar dates; hover for exact token counts."), L("單位：token", "Unit: tokens")))
+        if p["daily"]:
+            first_day = datetime.date.fromisoformat(day(start))
+            last_day = datetime.date.fromisoformat(day(p["end"] - 1))
+            span = max(1, (last_day - first_day).days + 1)
+            peak = max(r["tokens"] for r in p["daily"])
+            chart = ['<div class="chart"><svg viewBox="0 0 1080 240" role="img" aria-label="%s">' % L("每日 token 長條圖", "Daily token bar chart")]
+            for fraction in (0, .5, 1):
+                y = 190 - fraction * 155
+                chart.append('<line class="axis" x1="66" y1="%.1f" x2="1060" y2="%.1f"/><text x="56" y="%.1f" text-anchor="end">%s</text>' % (y, y, y + 4, fmt_tok(int(peak * fraction))))
+            width = 994.0 / span
+            for r in p["daily"]:
+                index = (datetime.date.fromisoformat(r["day"]) - first_day).days
+                height = max(1, 155.0 * r["tokens"] / peak)
+                chart.append('<rect class="bar" x="%.2f" y="%.2f" width="%.2f" height="%.2f" rx="1"><title>%s · %s tokens</title></rect>' %
+                             (66 + index * width, 190 - height, max(.7, width * .78), height, r["day"], format(r["tokens"], ",")))
+            for i in sorted({int((span - 1) * k / min(5, max(1, span - 1))) for k in range(min(5, max(1, span - 1)) + 1)}):
+                date = first_day + datetime.timedelta(days=i)
+                chart.append('<text x="%.2f" y="218" text-anchor="middle">%s</text>' % (66 + (i + .5) * width, date.strftime("%m/%d")))
+            a("".join(chart) + '</svg></div>')
+        else:
+            a('<p class="empty">%s</p>' % L("目前沒有可見紀錄", "No records available"))
+        a('<p class="muted"><small>%s</small></p>' % L("空白表示這份歷史沒有紀錄，不代表帳號當天一定沒有使用。手機可橫向捲動圖表。", "Blank dates have no records here; they do not prove no account usage. Scroll the chart horizontally on mobile."))
+        a('<details><summary>%s</summary><div class="table-scroll"><table><thead><tr><th>%s</th><th class="num">Tokens</th></tr></thead><tbody>' %
+          (L("查看每日精確數字", "Exact daily counts"), L("日期", "Date")))
+        for r in p["daily"]:
+            a('<tr><td>%s</td><td class="num">%s</td></tr>' % (r["day"], format(r["tokens"], ",")))
+        a('</tbody></table></div></details></div><div class="grid"><div class="panel"><h3>%s</h3><div class="table-scroll"><table><thead><tr><th>%s</th><th class="num">Tokens</th><th class="num">%s</th></tr></thead><tbody>' %
+          (L("Token 組成", "Token composition"), L("種類", "Type"), L("占總數", "Share")))
+        for c in TOKEN_COLS:
+            n = tok["buckets"][c]
+            share = "%.1f%%" % (100.0 * n / total) if total and c != "reasoning" else "—"
+            a('<tr%s><td>%s</td><td class="num">%s</td><td class="num">%s</td></tr>' %
+              (' class="reasoning"' if c == "reasoning" else '', labels[c], format(n, ","), share))
+        hit = tok["cache_hit_pct"]
+        a('</tbody></table></div><p><small>%s</small></p></div><div class="panel"><h3>%s</h3>%s<p><small>%s</small></p></div></div>' %
+          (L("輸入的快取讀取比例：", "Cache reads / input: ") + ("%.1f%%" % hit if hit is not None else "—") + L("（分母不含輸出）", " (excludes output)"),
+           L("常用模型 · 前五名", "Top five models"), ranks(p["models"], "model", total),
+           L("依處理量排序，包含快取；不代表各模型的對話次數。", "Ranked by tokens including cache; not conversation counts.")))
+        a('<div class="grid"><div class="panel"><h3>%s</h3>%s<p><small>%s</small></p></div><div class="panel"><h3>%s</h3><p style="font-size:30px;font-weight:750;margin:6px 0">%s</p><p class="muted">%s</p>' %
+          (L("用量來源", "Usage sources"), ranks(p["sources"], "source", total),
+           L("這是紀錄來源，不區分你透過 T3、Codex GUI 或其他介面操作。", "These are record sources, not a breakdown of T3, Codex GUI, or other interfaces."),
+           L("API 等值 · 已定價部分", "API equivalent · priced portion"), fmt_usd(p["api_equivalent_usd"]),
+           L("按目前設定的單價換算，供用量比較。不是帳單、訂閱月費或實際付出的金額。", "Calculated from currently configured rates for comparison. Not a bill, subscription fee, or amount paid.")))
+        if p["unpriced_models"]:
+            a('<p><small>%s</small></p>' % (L("尚未定價，未算入等值：", "Unpriced; excluded from equivalent: ") + esc(", ".join(p["unpriced_models"]))))
+        a('</div></div>')
+        if p["kind"] in ("all", "year"):
+            month_rows = [m for m in d["periods"] if m["kind"] == "month" and (p["kind"] == "all" or m["label"][:4] == p["label"])]
+            a('<div class="panel"><h3>%s</h3><div class="table-scroll"><table><thead><tr><th>%s</th><th class="num">Tokens</th><th class="num">%s</th><th class="num">%s</th></tr></thead><tbody>' %
+              (L("每月一覽", "Months at a glance"), L("月份", "Month"), L("輸出", "Output"), L("有用量天數", "Active days")))
+            for m in reversed(month_rows):
+                a('<tr><td><a href="#%s" data-report="%s">%s</a>%s</td><td class="num">%s</td><td class="num">%s</td><td class="num">%d</td></tr>' %
+                  (m["key"], m["key"], m["label"], L(" · 截至目前", " · so far") if m["in_progress"] else '', format(m["tokens"]["total"], ","), format(m["tokens"]["buckets"]["output"], ","), m["active_days"]))
+            a('</tbody></table></div></div>')
+        a('</section>')
+    a('<section class="panel coverage"><h2>%s</h2><p class="muted">%s</p><div class="table-scroll"><table><thead><tr><th>%s</th><th>%s</th><th>%s</th><th class="num">%s</th></tr></thead><tbody>' %
+      (L("這份報告看得到什麼", "Report coverage"), L("各來源的可見範圍不同。只列有 token 的紀錄；完整日期不保證帳號全部歷史都已匯入。", "Coverage varies by source. Only token-bearing records are listed; date coverage does not guarantee complete account history."),
+       L("來源", "Source"), L("最早紀錄", "First record"), L("最新紀錄", "Latest record"), L("用量紀錄筆數", "Usage records")))
+    for r in coverage["sources"]:
+        a('<tr><td>%s</td><td>%s</td><td>%s</td><td class="num">%s</td></tr>' % (esc(r["source"]), day(r["first"]), day(r["last"]), format(r["records"], ",")))
+    a('</tbody></table></div><p><small>%s</small></p><p><small>%s</small></p></section>' %
+      (L("用量紀錄筆數不等於請求次數；本地服務可能以累計計數器取樣入帳。GPU 租用／耗電紀錄不算入 token。", "Usage records are not request counts; local services may use counter samples. GPU rental and electricity rows are excluded from tokens."),
+       L("這份 profile 只含日期、用量、來源與模型；不含 prompt、回應、專案路徑、機器位址或 session。未載入的 GUI／遠端歷史無法補算。", "This profile contains dates, usage, sources, and models; no prompts, responses, project paths, machine addresses, or sessions. Unavailable GUI or remote history cannot be reconstructed.")))
+    a('<footer>ComputAI · %s</footer></main>' % L("本機報告 · 無外部字型、圖片或網路請求", "Local report · no external fonts, images, or network requests"))
+    a('''<script>
+"use strict";
+const picker=document.getElementById("period");
+const reports=Array.from(document.querySelectorAll(".period"));
+const buttons=Array.from(document.querySelectorAll("[data-kind]")).filter(el=>el.tagName==="BUTTON");
+function show(key){
+  const option=Array.from(picker.options).find(el=>el.value===key);
+  if(!option)return;
+  picker.value=key;
+  reports.forEach(el=>{el.hidden=el.id!==key;});
+  buttons.forEach(el=>el.setAttribute("aria-pressed",String(el.dataset.kind===option.dataset.kind)));
+  if(location.hash!=="#"+key)history.replaceState(null,"","#"+key);
+}
+document.documentElement.classList.add("js");
+show(Array.from(picker.options).some(el=>el.value===location.hash.slice(1))?location.hash.slice(1):picker.value);
+picker.addEventListener("change",()=>show(picker.value));
+buttons.forEach(el=>el.addEventListener("click",()=>{const option=Array.from(picker.options).find(o=>o.dataset.kind===el.dataset.kind);if(option)show(option.value);}));
+document.querySelectorAll("[data-report]").forEach(el=>el.addEventListener("click",event=>{event.preventDefault();show(el.dataset.report);document.querySelector(".controls").scrollIntoView({block:"start",behavior:"smooth"});}));
+window.addEventListener("hashchange",()=>show(location.hash.slice(1)));
+document.getElementById("theme").addEventListener("click",()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==="dark"?"light":"dark";});
+document.getElementById("print").addEventListener("click",()=>window.print());
+</script></body></html>''')
+    return "".join(out)
+
+
 # ---- GitHub 個人頁卡片（--card）
 #
 # 495x195 的小 SVG，像 github-readme-stats 的卡片，貼在個人 README 裡。純 SVG、行內樣式、
@@ -12638,7 +12803,7 @@ def shlex_quote(s):
 # ---------------------------------------------------------------- 指令
 
 HELP_GROUPS = (
-    ("reports", ("sync", "summary", "month", "since", "until", "by", "analyze", "report", "html", "weekly", "send",
+    ("reports", ("sync", "summary", "month", "since", "until", "by", "analyze", "profile", "report", "html", "weekly", "send",
                  "recap", "csv", "totals", "who", "lab", "payback", "gpu_watts", "hours_per_day", "rent_per_hour")),
     ("dashboards", ("live", "once", "interval", "web", "line", "statusline", "sep", "lang", "theme")),
     ("machines and cloud", ("sample", "discover", "add", "wake", "cloud", "proxy", "listen", "upstream", "machine",
@@ -12770,7 +12935,10 @@ def parse_args(argv=None):
     p.add_argument("--uninstall-watch", action="store_true", help="undo --install-watch")
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
-    p.add_argument("--html", metavar="FILE", help="with --report, --recap or --wrapped: write an HTML page; with --card: a style gallery")
+    p.add_argument("--html", metavar="FILE", help="with --profile, --report, --recap or --wrapped: write an HTML page; with --card: a style gallery")
+    p.add_argument("--profile", nargs="?", const="all", metavar="all|YYYY-MM|YYYY",
+                   help="personal usage profile with selectable monthly and annual reports; imports local usage logs only; "
+                        "use --html FILE for a private page, or --json for aggregate data")
     p.add_argument("--weekly", action="store_true", help="the last 7 days as a short report")
     p.add_argument("--send", action="store_true",
                    help="with --weekly: post it to DISCORD_WEBHOOK_URL and/or Telegram (TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)")
@@ -12794,7 +12962,7 @@ def parse_args(argv=None):
     p.add_argument("--card-layout", choices=CARD_LAYOUTS,
                    help="with --card: auto follows the style, or choose hud, compact, dashboard or portrait")
     p.add_argument("--totals", metavar="FILE", help="write this month's totals (no project names) as JSON for --lab")
-    p.add_argument("--who", metavar="NAME", help="with --totals: the name to show in the lab table (default: login name)")
+    p.add_argument("--who", metavar="NAME", help="with --profile: a display name; with --totals: the lab table name (default: login name)")
     p.add_argument("--lab", metavar="DIR", help="combine everyone's --totals files in a shared folder into one table")
     p.add_argument("--csv", metavar="FILE", help="write every usage record in the range to a CSV file")
     p.add_argument("--line", action="store_true",
@@ -12857,7 +13025,7 @@ def main(argv=None):
                          "(plans, machines, power), or `computai --doctor` to see what is detected.\n" % config_dir())
     db = open_ledger()
     # 給人看的指令才查新版（背景、一天一次）；給程式讀的輸出（--json、statusline、MCP）不碰網路也不多印字
-    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp or args.local_history is not None or args.local_requests is not None)
+    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp or args.profile is not None or args.local_history is not None or args.local_requests is not None)
     if human:
         check_update_in_background()
     try:
@@ -12891,7 +13059,7 @@ def local_hostname():
 
 ACTIONS = ("tokens", "local_requests", "local_history", "import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
-           "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
+           "profile", "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
 
 def config_theme(cp=None):
@@ -13194,6 +13362,26 @@ def run(args, db):
             for name, ok_, msg in res:
                 print("computai: %s %s (%s)" % (name, "sent" if ok_ else "failed", msg))
             return 0 if all(r[1] for r in res) else 1
+        return 0
+    if args.profile is not None:
+        if not args.no_sync:
+            sync(db, only=("claude", "codex", "gemini", "opencode", "cursor"), quiet=True)
+        d = history_profile(db)
+        key = "all" if args.profile == "all" else ("month-" if len(args.profile) == 7 else "year-") + args.profile
+        if key not in {p["key"] for p in d["periods"]}:
+            raise SystemExit("computai: no observed usage for %r; use --profile all to view available periods" % args.profile)
+        if args.html:
+            with open(args.html, "w", encoding="utf-8") as f:
+                f.write(render_history_profile_html(d, args.who or "", key))
+            print("computai: wrote %s" % args.html)
+        elif args.json:
+            emit(d, "", True)
+        else:
+            p = next(p for p in d["periods"] if p["key"] == key)
+            display = dict(p["tokens"], start=p["start"] or d["coverage"]["first"] or d["generated_at"])
+            emit(d, render_token_insights(display) + "\n\n" + (
+                "用 --profile --html profile.html 產生可切換月報／年報的個人頁。" if _lang == "zh" else
+                "Use --profile --html profile.html for a page with monthly and annual reports."), False)
         return 0
     if args.wrapped is not None:
         if not args.no_sync:
