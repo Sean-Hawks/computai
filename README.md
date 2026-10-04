@@ -114,6 +114,7 @@ computai --line                   # Claude 42%｜Codex 100% (1d0h)｜today $6.9
 computai --analyze                # forecast, plan check, cache waste, energy
 computai --web                    # http://127.0.0.1:8765/ (phone layout) and /metrics
 computai --report --month 2026-09 --html september.html
+computai --profile --html profile.html --who hawks  # beta.2: profile with monthly and annual reports
 computai --sample                 # read every machine in [machines] once
 computai --cloud                  # RunPod / Vast.ai / Lambda
 computai --proxy                  # count Ollama tokens on 127.0.0.1:11435 -> :11434
@@ -135,6 +136,23 @@ electricity price and API prices. Every price carries the date it was checked.
 Status bars: `computai --line` for tmux and SwiftBar, `computai --statusline` as Claude Code's
 status line. See [docs/one-line.md](docs/one-line.md). Claude's limit percentages come from the
 `claude` CLI on their own (no status line needed), so T3 Code and other machines count too.
+
+## Personal history profile and reports (beta.2 development)
+
+`computai --profile --html profile.html` writes a local page with selectable monthly and annual reports:
+exact token buckets, daily activity, top models, source shares and active days. Switch light/dark themes or print.
+Use `--profile 2026-09` or `--profile 2026` to choose the initial report, `--who NAME` for a display name,
+and `--json` for aggregate data. `--lang zh` renders Traditional Chinese.
+
+GUI users can use existing backend usage logs; no Claude Code status line is needed. Record sources do not
+identify T3 or Codex GUI, and unavailable history cannot be recovered. Source coverage and partial periods
+are explicit. B means billion, including repeated cache reads; reasoning is already within output.
+API-equivalent values use current configured rates for priced models and are not bills.
+
+Only dates, usage, sources and models enter the page: no conversation contents, project paths, machine
+addresses or sessions. It imports local logs only, with no API, SSH or model calls; `--no-sync` uses the ledger
+alone. The single HTML includes all observed periods and stays local; nothing is published automatically.
+The published beta.1 does not include this feature.
 
 ## Your AI ops card for your GitHub profile
 

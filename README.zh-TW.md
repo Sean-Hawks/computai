@@ -94,6 +94,7 @@ computai --analyze                # 預測、方案建議、快取浪費、電�
 computai --web                    # http://127.0.0.1:8765/（手機排版）和 /metrics
 computai --tailscale              # 同一個網頁，用 Tailscale 安全地開到你自己的手機和電腦（HTTPS）
 computai --report --month 2026-09 --html september.html
+computai --profile --html profile.html --who hawks --lang zh  # beta.2：累計用量、可切換月報／年報
 computai --sample                 # 讀一次 [machines] 裡的每台機器
 computai --cloud                  # RunPod / Vast.ai / Lambda
 computai --proxy                  # 統計 Ollama 的 token：127.0.0.1:11435 -> :11434
@@ -120,6 +121,20 @@ computai --card --publish ~/Documents/me   # 把卡片 commit 進你的個人頁
 狀態列：tmux、SwiftBar 用 `computai --line`；Claude Code 的 statusLine 可以設成 `computai --statusline`。
 見 [docs/one-line.md](docs/one-line.md)。Claude 的額度百分比會自己從 `claude` 程式讀（不用設 statusLine），
 所以在 T3 Code、別台電腦用的也算得到。
+
+## 個人用量 Profile、月報與年報（beta.2 開發版）
+
+`computai --profile --html profile.html --lang zh` 把已匯入的歷史做成一份本機網頁。用滑鼠切換月份或年份，
+查看精確 token 組成、每日處理量、常用模型、來源占比與有用量的天數；可切換深／淺色或列印。
+`--profile 2026-09`、`--profile 2026` 指定開啟時的報告，`--who NAME` 加上顯示名稱，`--json` 匯出彙總。
+
+適合以 GUI 使用 agent 的人：報告讀既有帳本與本機用量 log，不需要 Claude Code CLI 的狀態列。
+來源代表紀錄格式，無法區分 T3、Codex GUI 等操作介面；未留下或未匯入的歷史不會補算。
+每個來源都有涵蓋日期，進行中的月份／年份與較晚才開始的歷史會標示。**B 是十億，包含重複快取讀取；推理已含在輸出。**
+
+頁面只有日期、用量、來源與模型，不含對話內容、專案路徑、機器位址或 session。
+API 等值只按目前設定的價格估算已定價部分，不是實際帳單。預設只更新本機 log，不呼叫 API、SSH 或模型；
+加 `--no-sync` 可只讀帳本。單一 HTML 包含所有可見區間，留在本機，沒有自動發佈；已釋出的 beta.1 尚未包含此功能。
 
 ## GitHub 個人頁的 AI 作戰卡
 

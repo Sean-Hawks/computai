@@ -128,3 +128,13 @@
 [Claude Code 官方 statusline](https://code.claude.com/docs/en/statusline) 驗證 current_usage 四欄，
 input 不含快取；context occupancy 只含三種輸入，不含 output。上下文總數屬目前視窗，不是 session 累計。
 null 出現在首次 API 前／compact 後；COLUMNS 由 Claude 設定。只顯示白名單欄位，從不開 transcript。
+
+## 個人歷史 Profile 驗證（2026-10-04）
+
+`--profile` 以既有 usage 表建立累計／實際有紀錄的曆月／曆年區間，依本機時區分日，排除未來與 cloud GPU 列。
+reasoning 是 output 子集合；零成本的本地 token 也列入活躍日。每個來源另列可見日期與筆數，不冒充完整 GUI／帳號歷史。
+來源依 backend 格式歸類，不能據此區分 T3 Code 與 Codex GUI，也不從 token 量推論工作內容或能力。
+價格只用現行設定的已定價部分重算 API 等值，不採歷史訂閱付款假設。原帳本保留，本機報告從快照產生。
+合成測試覆蓋跨年、曆日間距、cache write、reasoning 不重算、本地零成本、未定價、空歷史、HTML 注入與彙總隱私；
+另以 Node DOM harness 驗證區間／雜湊連結／深淺色／列印，CLI 同步白名單不包含 API 或遠端裝置。
+本次未新增資料來源，沿用現有 parser fixtures；真實個人報告只留本機、不進 git。
