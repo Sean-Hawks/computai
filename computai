@@ -16,7 +16,7 @@ tokens, GPU hours, kWh and money, side by side.
 Python 3.8+, standard library only. Remote machines only need SSH and sh.
 """
 
-__version__ = "0.1.0-beta.3"
+__version__ = "0.1.0-beta.4-dev"
 
 import argparse
 import datetime
