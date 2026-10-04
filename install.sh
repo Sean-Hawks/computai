@@ -11,7 +11,7 @@ set -eu
 
 PREFIX="${PREFIX:-$HOME/.local}"
 BIN="$PREFIX/bin"
-REF="${COMPUTAI_REF:-v0.1.0-beta.1}"
+REF="${COMPUTAI_REF:-v0.1.0-beta.2}"
 URL="${COMPUTAI_URL:-https://raw.githubusercontent.com/Sean-Hawks/computai/$REF/computai}"
 HERE=$(cd "$(dirname "$0")" && pwd)
 

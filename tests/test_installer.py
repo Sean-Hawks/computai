@@ -46,4 +46,4 @@ class Installer(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             with open(log, encoding="utf-8") as f:
                 url = f.read().strip()
-            self.assertEqual(url, "https://raw.githubusercontent.com/Sean-Hawks/computai/%s/computai" % (ref or "v0.1.0-beta.1"))
+            self.assertEqual(url, "https://raw.githubusercontent.com/Sean-Hawks/computai/%s/computai" % (ref or "v" + helpers.load().__version__))
