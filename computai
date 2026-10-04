@@ -2191,7 +2191,7 @@ def claude_account_limits(timeout=60, t=None, home=None):
     try:
         out = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                              universal_newlines=True, timeout=timeout, cwd=tempfile.gettempdir(),
-                             env=dict(os.environ, CLAUDE_CONFIG_DIR=home) if home else None).stdout
+                             env=claude_home_env(home) if home else None).stdout
     except (OSError, subprocess.SubprocessError):
         return []
     rows = []
@@ -2217,6 +2217,16 @@ def claude_account_limits(timeout=60, t=None, home=None):
                          "window_minutes": mins, "resets_at": int(reset) if reset else None, "plan": ""})
         break
     return rows
+
+
+# 這些會蓋過設定資料夾裡的 claude.ai 登入（例如在走 proxy 的 Claude Code 裡跑），問的就不是那個帳號了
+CLAUDE_AUTH_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN")
+
+
+def claude_home_env(home):
+    env = {k: v for k, v in os.environ.items() if k not in CLAUDE_AUTH_ENV}
+    env["CLAUDE_CONFIG_DIR"] = home
+    return env
 
 
 def claude_account_poll(db, t=None):

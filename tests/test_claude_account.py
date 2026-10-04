@@ -10,6 +10,7 @@ from tests import helpers
 # 文字報告裡放一段不該被存下來的內容。
 FAKE = r"""#!/usr/bin/env python3
 import json, os, sys
+assert os.environ.get("ANTHROPIC_AUTH_TOKEN") != "proxy-token"   # 指定帳號時不能被 token 蓋過
 assert sys.argv[1:3] == ["-p", "/usage"], sys.argv
 print(json.dumps({"type": "system", "subtype": "init", "cwd": "/tmp"}))
 print(json.dumps({"type": "assistant", "local_command_source": "SECRET-REPORT top skills /private-thing",
@@ -61,6 +62,7 @@ class ClaudeAccount(unittest.TestCase):
         for h in homes:
             os.mkdir(h)
         os.environ["CLAUDE_CONFIG_DIR"] = ",".join(homes)
+        os.environ["ANTHROPIC_AUTH_TOKEN"] = "proxy-token"
         db = self.m.open_ledger(":memory:")
         self.addCleanup(db.close)
         self.m.claude_account_poll(db, t=1790000000)
