@@ -52,6 +52,12 @@ class SpendDashboard(unittest.TestCase):
                 row["plan"] = plans[row["source"]]
         self.assertAlmostEqual(self.module.spend_summary(self.state)["providers"][0]["ratio"], 2.2849)
 
+    def test_older_snapshot_with_unpriced_models_cannot_claim_complete_ratios(self):
+        self.state["unpriced_models"] = ["example-unpriced"]
+        result = self.module.spend_summary(self.state)
+        self.assertFalse(result["value_complete"])
+        self.assertTrue(all(row["ratio"] is None for row in result["providers"]))
+
     def test_forecast_includes_configured_plans_without_usage(self):
         os.makedirs(self.sandbox.config)
         with open(os.path.join(self.sandbox.config, "config.ini"), "w") as config:
@@ -63,6 +69,80 @@ class SpendDashboard(unittest.TestCase):
             database.close()
         self.assertEqual(result["subscription_by_source"]["claude"]["usd"], 100)
         self.assertEqual(result["subscriptions_usd"], 100)
+
+    def ledger_state(self, rows, plans="claude = Example, 100, test\ncodex = Example, 10, test\n"):
+        os.makedirs(self.sandbox.config)
+        with open(os.path.join(self.sandbox.config, "config.ini"), "w") as config:
+            config.write("[plans]\n" + plans)
+        os.environ["COMPUTAI_FAKE_NOW"] = "1791100800"
+        self.module.load_prices = lambda: {"example-priced": dict(input=1, output=2, cache_read=0,
+                                                                 cache_write_5m=0, cache_write_1h=0)}
+        database = self.module.open_ledger(":memory:")
+        try:
+            self.module.add_usage(database, [dict(row, uid=str(i), ts=1791100000)
+                                             for i, row in enumerate(rows)])
+            self.state = self.module.dashboard_state(database)
+        finally:
+            database.close()
+        return self.module.spend_summary(self.state)
+
+    def test_unpriced_subscription_is_not_zero_value_or_a_zero_ratio(self):
+        result = self.ledger_state([dict(source="claude", model="example-unpriced", output=1000)])
+        self.assertEqual(self.state["sources"][0]["unpriced_models"], ["example-unpriced"])
+        self.assertFalse(result["value_complete"])
+        self.assertIsNone(result["providers"][0]["ratio"])
+        self.assertTrue(result["providers"][1]["value_complete"])  # unused configured plan
+        for lang in ("zh", "en"):
+            for width in (60, 90, 160):
+                for height in (20, 36, 60):
+                    with self.subTest(lang=lang, width=width, height=height):
+                        text = self.render(width=width, height=height, lang=lang)
+                        self.assertIn("$0.00+", text)
+                        self.assertIn("僅已定價部分" if lang == "zh" else "Priced portion only", text)
+                        self.assertLessEqual(len(text.splitlines()), height - 7)
+                        self.assertTrue(all(self.module.vlen(line) <= width for line in text.splitlines()))
+                        for ascii_ in (False, True):
+                            screen = self.module.render_live(self.state, width, height=height, theme_name="cyber",
+                                                             view="spend", ascii_=ascii_)
+                            self.assertIn("$0.00+", screen)
+                            self.assertLessEqual(len(screen.splitlines()), height)
+
+    def test_partial_prices_suppress_only_the_affected_source_ratio(self):
+        result = self.ledger_state([
+            dict(source="claude", model="example-unpriced", output=1000),
+            dict(source="claude", model="example-priced", output=1000000),
+            dict(source="codex", model="example-priced", output=1000000)])
+        self.assertEqual(result["value_usd"], 4)
+        claude, codex = result["providers"]
+        self.assertEqual(claude["value_usd"], 2)
+        self.assertIsNone(claude["ratio"])
+        self.assertFalse(claude["value_complete"])
+        self.assertTrue(codex["value_complete"])
+        self.assertEqual(codex["ratio"], 0.2)
+        self.assertIn("$4.00+", self.render())
+        self.assertIn("0.20x", self.render())
+
+    def test_unpriced_api_does_not_hide_a_complete_subscription_comparison(self):
+        result = self.ledger_state([
+            dict(source="openai", model="example-unpriced", output=1000),
+            dict(source="claude", model="example-priced", output=1000000)])
+        self.assertTrue(result["value_complete"])
+        self.assertEqual(result["providers"][0]["ratio"], 0.02)
+        self.assertIn("Unpriced models", self.render())
+        self.assertNotIn("$2.00+", self.render())
+
+    def test_missing_and_zero_fees_survive_real_snapshot_aggregation(self):
+        result = self.ledger_state([
+            dict(source="claude", model="example-priced", output=1000000),
+            dict(source="codex", model="example-priced", output=1000000)],
+            plans="codex = Free, 0, test\n")
+        self.assertEqual(result["known_usd"], 0)
+        self.assertEqual(result["value_usd"], 4)
+        self.assertEqual(result["missing_plans"], ["claude"])
+        self.assertTrue(all(row["ratio"] is None for row in result["providers"]))
+        text = self.render()
+        self.assertIn("Not set", text)
+        self.assertNotIn("0.00x", text)
 
     def render(self, width=160, height=60, lang="en", color=False, ascii_=False):
         self.module.set_lang(lang)
