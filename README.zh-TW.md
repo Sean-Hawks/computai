@@ -153,10 +153,26 @@ beta.2 製卡頁（`computai --create --lang zh`）可選範圍、下載社群�
 把自己的 AI 用量做成 Threads 貼文、每月回顧，或 GitHub README 裡的一張卡片。
 可以從 Web／TUI 風格開始，也能挑下方 10 種個人頁風格。所有預覽都使用示範資料。
 
-| Web／TUI 分享卡 | 個人頁卡片：minimal、paper、github、terminal |
+#### 四種新版個人頁風格（beta.2 開發版）
+
+這四種風格也改變字體和資訊排版，於 `feature-card-layouts` 加入（commit `4f50a5c`），
+這份開發分支已包含。
+
+| `minimal` · 灰階橫幅 | `github` · 活動統計面板 |
 |---|---|
-| <img src="docs/images/share-preview.png" width="270" alt="Web／TUI 分享卡：黑底白色用量數字與每日活動圖"> | <img src="docs/images/card-styles-preview.png" width="660" alt="四種個人頁風格：灰階橫幅、紙張直式、GitHub 統計面板與終端機橫幅"> |
-| 黑白、清楚的總量與活動趨勢。方形、直式、橫式或 README 版型，用 `--create` 下載 PNG／SVG。 | 簡潔橫幅、暖色紙張摘要或活動面板，用 `--card` 匯出 SVG。 |
+| ![Minimal 淺色個人頁卡片](docs/images/card-minimal.svg) | ![GitHub 深色個人頁卡片](docs/images/card-github.svg) |
+| **`paper` · 暖色紙張直式** | **`terminal` · 等寬字橫幅** |
+| <img src="docs/images/card-paper.svg" width="280" alt="Paper 淺色個人頁卡片，使用襯線字體與直式活動圖"> | ![Terminal 深色個人頁卡片](docs/images/card-terminal.svg) |
+
+#### Web／TUI 分享卡（beta.2 開發版）
+
+獨立製卡頁採用 Web／TUI 的黑白設計，呈現清楚的總量與活動趨勢。
+可選方形、直式、橫式或 README 版型，用 `--create` 下載 PNG／SVG。
+此版本於 `feature-card-creator` 加入（commit `d556665`）。
+
+<img src="docs/images/share-preview.png" width="270" alt="Web／TUI 分享卡：黑底白色用量數字與每日活動圖">
+
+#### 霓虹 HUD 個人頁風格（beta.1）
 
 喜歡霓虹？這六種風格採用切角 HUD、活動格與裝飾動畫：
 
@@ -186,6 +202,7 @@ beta.2 製卡頁（`computai --create --lang zh`）可選範圍、下載社群�
 每種個人頁風格都有深／淺色版，標籤可選英文或繁中。
 Web／TUI 分享卡、四種新風格、版型選項與本機比較頁需要這份 beta.2 開發版；已釋出的 beta.1 有六種霓虹風格。
 製卡頁使用 Web／TUI 風格；個人頁風格透過 `--card` 選擇。
+舊版的 `computai`、`mono` 名稱現在是 `netrunner` 的別名，不另外計為目前版本的風格。
 
 #### 做第一張圖卡
 

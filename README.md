@@ -155,10 +155,26 @@ Both use local usage aggregates. [First-card guide (繁中)](docs/MAKE-A-CARD.zh
 Turn your AI usage into a card for Threads, a monthly recap or your GitHub README.
 Start with the Web/TUI look, or choose one of ten profile styles below. All previews use demo data.
 
-| Web/TUI sharing card | Profile cards: minimal, paper, github, terminal |
+#### Four new profile styles (beta.2 development)
+
+These change the typography and layout as well as the palette. They were added in
+`feature-card-layouts` (commit `4f50a5c`), and are included in this development branch.
+
+| `minimal` · monochrome banner | `github` · activity dashboard |
 |---|---|
-| <img src="docs/images/share-preview.png" width="270" alt="Web/TUI sharing card: white usage totals and a daily activity chart on black"> | <img src="docs/images/card-styles-preview.png" width="660" alt="Four profile styles: minimal monochrome banner, paper portrait, GitHub dashboard and terminal banner"> |
-| Black and white, clear totals and activity trends. Square, portrait, wide or README formats; download PNG or SVG with `--create`. | Quiet banners, a warm paper summary or an activity dashboard. Export SVG with `--card`. |
+| ![Minimal light profile card](docs/images/card-minimal.svg) | ![GitHub dark profile card](docs/images/card-github.svg) |
+| **`paper` · warm paper portrait** | **`terminal` · monospace banner** |
+| <img src="docs/images/card-paper.svg" width="280" alt="Paper light profile card with serif type and a vertical activity grid"> | ![Terminal dark profile card](docs/images/card-terminal.svg) |
+
+#### Web/TUI sharing card (beta.2 development)
+
+The separate creator uses the black and white Web/TUI design with clear totals and activity trends.
+Choose square, portrait, wide or README formats, then download PNG or SVG with `--create`.
+This version was added in `feature-card-creator` (commit `d556665`).
+
+<img src="docs/images/share-preview.png" width="270" alt="Web/TUI sharing card: white usage totals and a daily activity chart on black">
+
+#### Neon HUD profile styles (beta.1)
 
 Prefer neon? These six styles use a HUD with cut corners, activity grids and decorative animation:
 
@@ -188,6 +204,7 @@ Prefer neon? These six styles use a HUD with cut corners, activity grids and dec
 Every profile style has dark and light versions, with English or Traditional Chinese labels.
 The Web/TUI sharing card, four new styles, layout overrides and local gallery need this beta.2 development checkout;
 the released beta.1 has the six neon styles. The creator uses the Web/TUI look; choose profile styles through `--card`.
+The older `computai` and `mono` names now alias `netrunner`; they are not additional styles in the current version.
 
 #### Make your first card
 
