@@ -4887,8 +4887,9 @@ def line_parts(db):
     parts = []
     for src, label in LINE_SOURCES:
         rows = [r for r in limits if r["source"] == src]
-        mine = [r for r in rows if (r.get("account") or "") == current_account(src)]   # 在某個帳號底下跑：只看那個帳號
-        rows = mine or rows
+        account = current_account(src)
+        if account is not None:   # 指定帳號沒有紀錄時保持未知，不能冒用別的帳號的額度
+            rows = [r for r in rows if (r.get("account") or "") == account]
         if not rows:
             continue
         top = max(rows, key=lambda r: r["used_percent"])

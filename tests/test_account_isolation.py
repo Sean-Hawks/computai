@@ -37,3 +37,20 @@ class AccountIsolation(unittest.TestCase):
                 self.m.codex_account_poll(self.db)
         self.assertEqual(claude.call_count, self.m.NO_LIMITS_TRIES)
         self.assertEqual(codex.call_count, 5)
+
+    def test_statusline_does_not_borrow_another_accounts_limits(self):
+        self.m.add_limits(self.db, [{"source": "claude", "account": "work", "name": "5h",
+                                    "ts": 1790000000, "used_percent": 80}])
+        os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(self.sb.root, ".claude-personal")
+        self.assertEqual(self.m.line_parts(self.db)["limits"], [])
+        os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(self.sb.root, ".claude")
+        self.assertEqual(self.m.line_parts(self.db)["limits"], [])
+        os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(self.sb.root, ".claude-work")
+        self.assertEqual(self.m.line_parts(self.db)["limits"][0]["used_percent"], 80)
+
+    def test_general_line_can_show_worst_of_listed_accounts(self):
+        self.m.add_limits(self.db, [{"source": "codex", "account": account, "name": "week",
+                                    "ts": 1790000000, "used_percent": pct}
+                                   for account, pct in (("work", 80), ("personal", 20))])
+        os.environ["CODEX_HOME"] = "/fake/.codex-work,/fake/.codex-personal"
+        self.assertEqual(self.m.line_parts(self.db)["limits"][0]["used_percent"], 80)
