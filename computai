@@ -661,6 +661,21 @@ CREATE TABLE IF NOT EXISTS usage (
     PRIMARY KEY (source, uid)
 );
 CREATE INDEX IF NOT EXISTS usage_ts ON usage (ts);
+CREATE TABLE IF NOT EXISTS proxy_requests (
+    uid TEXT PRIMARY KEY,
+    ts INTEGER NOT NULL,
+    machine TEXT NOT NULL,
+    model TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    tag TEXT,
+    http_status INTEGER,
+    result TEXT NOT NULL,
+    elapsed_s REAL NOT NULL,
+    input INTEGER,
+    output INTEGER,
+    usage_recorded INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS proxy_requests_ts ON proxy_requests (ts);
 CREATE TABLE IF NOT EXISTS limits (
     source TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -3808,7 +3823,11 @@ def prepare_request(body, path, inject=True):
     return body, model
 
 
-def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1", ledger=True):
+PROXY_ENDPOINTS = frozenset(("/api/chat", "/api/generate", "/v1/chat/completions", "/v1/completions", "/v1/responses"))
+PROXY_TAGS = ("test", "production", "benchmark")
+
+
+def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1", ledger=True, trace=None, tag=None):
     import http.client
     import http.server
     import urllib.parse
@@ -3816,26 +3835,34 @@ def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1", l
     if up.scheme not in ("http", "https") or not up.hostname:
         raise SystemExit("computai: bad --upstream %r" % upstream)
     up_port = up.port or (443 if up.scheme == "https" else 80)
+    trace = bool(ledger) if trace is None else bool(trace)
+    if tag is not None and tag not in PROXY_TAGS:
+        raise ValueError("unknown proxy tag")
     lock = threading.Lock()
     db_holder = {"db": open_ledger(db_path, shared=True)}
     # 累計計數（像 vLLM 的 /metrics）：取樣時透過 SSH 讀，遠端機器上的 Ollama 也算得到
     totals = db_holder["totals"] = {}
 
-    def record(model, meter):
+    def record(model, meter, metadata=None):
         name = normalize_model(model or "?")
-        with lock:
-            t = totals.setdefault(name, [0, 0])
-            t[0] += meter.prompt
-            t[1] += meter.completion
-        if not ledger:  # 這台機器有被 ComputAI 取樣：交給取樣用計數算，這裡不記，免得算兩次
-            return
-        row = {"source": "local", "uid": "proxy:%s:%d:%s" % (machine, time.time() * 1e6, os.urandom(4).hex()),
-               "ts": int(now()), "model": normalize_model(model or "?"), "project": machine,
-               "session": "proxy", "input": max(meter.prompt - meter.cached, 0),
-               "cache_read": meter.cached, "output": meter.completion, "cost_usd": 0.0}
-        with lock:
-            add_usage(db_holder["db"], [row])
-            db_holder["db"].commit()
+        uid = "proxy:%s:%d:%s" % (machine, time.time() * 1e6, os.urandom(4).hex())
+        with lock, db_holder["db"]:
+            if meter is not None:
+                t = totals.setdefault(name, [0, 0])
+                t[0] += meter.prompt
+                t[1] += meter.completion
+            if meter is not None and ledger:
+                add_usage(db_holder["db"], [{"source": "local", "uid": uid,
+                    "ts": metadata["ts"] if metadata else int(now()), "model": name, "project": machine,
+                    "session": "proxy", "input": max(meter.prompt - meter.cached, 0),
+                    "cache_read": meter.cached, "output": meter.completion, "cost_usd": 0.0}])
+            if trace and metadata is not None:
+                db_holder["db"].execute("INSERT INTO proxy_requests "
+                    "(uid, ts, machine, model, endpoint, tag, http_status, result, elapsed_s, input, output, usage_recorded) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (uid, metadata["ts"], machine, name, metadata["endpoint"], tag, metadata["http_status"],
+                     metadata["result"], metadata["elapsed_s"], meter.prompt if meter is not None else None,
+                     meter.completion if meter is not None else None, int(meter is not None and ledger)))
 
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -3874,10 +3901,9 @@ def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1", l
             self.wfile.write(data)
 
         def _forward(self):
-            if self.command == "GET" and self.path == "/metrics":  # Ollama 自己沒有 /metrics，這條是 proxy 的
+            if self.command == "GET" and self.path == "/metrics":
                 return self._metrics()
             if not host_header_ok(self.headers.get("Host"), bind):
-                # 直接轉給 Ollama 的話，Ollama 自己會擋；我們改寫了 Host，所以要替它擋
                 self.send_error(403, "forbidden host")
                 return
             try:
@@ -3886,60 +3912,85 @@ def make_proxy(upstream, machine, db_path=None, inject=True, bind="127.0.0.1", l
                 self.send_error(400)
                 return
             body, model = prepare_request(body, self.path, inject)
-            headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
-            headers["Host"] = up.netloc
-            headers["Accept-Encoding"] = "identity"  # 壓縮過的回應讀不到用量
-            if body or self.command in ("POST", "PUT", "PATCH"):
-                headers["Content-Length"] = str(len(body))
-            cls = http.client.HTTPSConnection if up.scheme == "https" else http.client.HTTPConnection
-            conn = cls(up.hostname, up_port, timeout=900)
+            endpoint = urllib.parse.urlsplit(self.path).path
+            eligible = self.command == "POST" and endpoint in PROXY_ENDPOINTS
+            started, stamp = time.monotonic(), int(now())
+            status, result, meter, conn = None, "upstream_error", None, None
+            def finish_record():
+                metadata = {"ts": stamp, "endpoint": endpoint, "http_status": status,
+                            "result": result, "elapsed_s": max(0.0, time.monotonic() - started)} if eligible else None
+                # 只在確定有用量時記 token；trace 不參與 totals／usage，所以取樣不會雙算。
+                counted = meter if meter is not None and status is not None and 200 <= status < 300 and meter.finish() else None
+                try:
+                    record((meter.model if meter is not None else None) or model, counted, metadata)
+                except Exception as e:
+                    # 帳本失敗不能洩漏 body、header 或例外訊息，也不能打斷轉送。
+                    warn("proxy recording failed (%s)" % type(e).__name__)
             try:
-                conn.request(self.command, self.path, body=body or None, headers=headers)
-                resp = conn.getresponse()
-            except (OSError, http.client.HTTPException) as e:
-                msg = json.dumps({"error": "computai proxy: upstream unreachable (%s)" % type(e).__name__})
-                self.send_response(502)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(msg)))
+                headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP_HEADERS}
+                headers["Host"] = up.netloc
+                headers["Accept-Encoding"] = "identity"
+                if body or self.command in ("POST", "PUT", "PATCH"):
+                    headers["Content-Length"] = str(len(body))
+                cls = http.client.HTTPSConnection if up.scheme == "https" else http.client.HTTPConnection
+                conn = cls(up.hostname, up_port, timeout=900)
+                try:
+                    conn.request(self.command, self.path, body=body or None, headers=headers)
+                    resp = conn.getresponse()
+                except (OSError, http.client.HTTPException) as e:
+                    status = 502
+                    msg = json.dumps({"error": "computai proxy: upstream unreachable (%s)" % type(e).__name__}).encode()
+                    self.send_response(502)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(msg)))
+                    self.end_headers()
+                    self.wfile.write(msg)
+                    return
+                status = resp.status
+                result = "ok" if 200 <= status < 300 else "http_error"
+                meter = UsageMeter(resp.getheader("Content-Type"))
+                self.send_response(status, resp.reason)
+                for k, v in resp.getheaders():
+                    if k.lower() not in HOP_HEADERS:
+                        self.send_header(k, v)
+                length = resp.getheader("Content-Length")
+                no_body = self.command == "HEAD" or status in (204, 304) or 100 <= status < 200
+                chunked = not no_body and length is None
+                if length is not None:
+                    self.send_header("Content-Length", length)
+                elif chunked:
+                    self.send_header("Transfer-Encoding", "chunked")
+                else:
+                    self.send_header("Content-Length", "0")
                 self.end_headers()
-                self.wfile.write(msg.encode())
-                conn.close()
-                return
-            meter = UsageMeter(resp.getheader("Content-Type"))
-            self.send_response(resp.status, resp.reason)
-            for k, v in resp.getheaders():
-                if k.lower() not in HOP_HEADERS:
-                    self.send_header(k, v)
-            length = resp.getheader("Content-Length")
-            no_body = self.command == "HEAD" or resp.status in (204, 304) or 100 <= resp.status < 200
-            chunked = not no_body and length is None
-            if length is not None:
-                self.send_header("Content-Length", length)
-            elif chunked:
-                self.send_header("Transfer-Encoding", "chunked")
-            else:
-                self.send_header("Content-Length", "0")
-            self.end_headers()
-            try:
                 while not no_body:
-                    data = resp.read1(65536) if hasattr(resp, "read1") else resp.read(65536)
+                    try:
+                        data = resp.read1(65536) if hasattr(resp, "read1") else resp.read(65536)
+                    except (OSError, http.client.HTTPException):
+                        result = "upstream_error"
+                        self.close_connection = True
+                        return
                     if not data:
+                        if resp.length is not None and resp.length > 0:
+                            result = "upstream_error"
+                            self.close_connection = True
+                            return
                         break
                     meter.feed(data)
-                    if chunked:
-                        self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data))
-                    else:
-                        self.wfile.write(data)
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(data), data) if chunked else data)
                     self.wfile.flush()
                 if chunked:
                     self.wfile.write(b"0\r\n\r\n")
                     self.wfile.flush()
+                if result == "ok" and not meter.finish():
+                    result = "usage_missing"
             except OSError:
+                result = "client_disconnect"
                 self.close_connection = True
             finally:
-                conn.close()
-            if 200 <= resp.status < 300 and meter.finish():
-                record(meter.model or model, meter)
+                if conn is not None:
+                    conn.close()
+                finish_record()
 
         do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = do_OPTIONS = _forward
 
@@ -3999,14 +4050,15 @@ def proxy_records_requests(machine, listen_port, upstream):
     return True
 
 
-def serve_proxy(listen, upstream, machine, sample_every=60, inject=True, ledger=None):
+def serve_proxy(listen, upstream, machine, sample_every=60, inject=True, ledger=None, tag=None):
     import http.server
     host, port = parse_listen(listen, 11435)
     if not is_loopback(host):
         warn("listening on %s: anyone who can reach this port can use your models through it" % host)
+    trace = ledger is not False   # 明確 --no-ledger 才停 trace；自動停 usage 仍保留請求。
     if ledger is None:
         ledger = proxy_records_requests(machine, port, upstream)
-    Handler, holder = make_proxy(upstream, machine, inject=inject, bind=host, ledger=ledger)
+    Handler, holder = make_proxy(upstream, machine, inject=inject, bind=host, ledger=ledger, trace=trace, tag=tag)
 
     class Server(http.server.ThreadingHTTPServer):
         daemon_threads = True
@@ -12506,6 +12558,7 @@ def parse_args(argv=None):
                    help="which machine the proxied tokens belong to; with --local-history, filter by machine")
     p.add_argument("--sample-every", type=float, default=60, metavar="SEC",
                    help="while --proxy, --live or --web run, sample machines this often (0 = never)")
+    p.add_argument("--tag", choices=PROXY_TAGS, help="label new --proxy requests, or filter --local-requests")
     p.add_argument("--no-ledger", action="store_true",
                    help="with --proxy: only keep token totals at /metrics (for a machine another computai samples)")
     p.add_argument("--no-usage-injection", action="store_true",
@@ -12891,7 +12944,7 @@ def run(args, db):
     if args.proxy:
         db.close()
         return serve_proxy(args.listen, args.upstream, args.machine or default_machine(),
-                           args.sample_every, not args.no_usage_injection, False if args.no_ledger else None)
+                           args.sample_every, not args.no_usage_injection, False if args.no_ledger else None, args.tag)
     if args.statusline:
         payload = read_statusline_stdin()
         add_limits(db, claude_statusline_limits(payload, now()), only_changes=True)

@@ -206,11 +206,67 @@ class EndToEnd(unittest.TestCase):
             self.assertEqual(holder["totals"], {"qwen3:0.6b": [11, 10]})
             db = self.m.open_ledger()
             self.assertEqual(db.execute("SELECT COUNT(*) FROM usage").fetchone()[0], 0)   # 不重複記帳
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM proxy_requests").fetchone()[0], 0)
             db.close()
         finally:
             px.shutdown()
             px.server_close()
             holder["db"].close()
+
+    def wait_traces(self, count, holder=None):
+        import time
+        db = (holder or self.holder)["db"]
+        for _ in range(100):
+            rows = db.execute("SELECT * FROM proxy_requests ORDER BY rowid").fetchall()
+            if len(rows) >= count:
+                return [dict(r) for r in rows]
+            time.sleep(0.01)
+        self.fail("request metadata did not arrive")
+
+    def test_request_metadata_is_private_and_linked(self):
+        self.post("/api/generate", {"model": "qwen3:0.6b", "prompt": "FAKE_PRIVATE_PROMPT", "stream": False},
+                  {"Authorization": "Bearer FAKE_PRIVATE_KEY"})
+        r = self.wait_traces(1)[0]
+        self.assertEqual((r["result"], r["http_status"], r["input"], r["output"], r["usage_recorded"]),
+                         ("ok", 200, 12, 20, 1))
+        self.assertGreater(r["elapsed_s"], 0)
+        self.assertEqual(r["endpoint"], "/api/generate")
+        self.assertIsNone(r["tag"])
+        db = self.holder["db"]
+        self.assertEqual(db.execute("SELECT uid FROM usage").fetchone()[0], r["uid"])
+        for table in ("usage", "proxy_requests"):
+            serialized = json.dumps([dict(x) for x in db.execute("SELECT * FROM " + table)])
+            self.assertNotIn("PRIVATE", serialized)
+            self.assertNotIn("response", serialized)
+
+    def test_failed_request_has_no_fabricated_tokens_or_query(self):
+        with self.assertRaises(urllib.error.HTTPError) as cm:
+            self.post("/v1/completions?key=FAKE_PRIVATE_QUERY", {"model": "demo"})
+        cm.exception.close()
+        r = self.wait_traces(1)[0]
+        self.assertEqual((r["http_status"], r["result"], r["endpoint"]), (404, "http_error", "/v1/completions"))
+        self.assertIsNone(r["input"])
+        self.assertIsNone(r["output"])
+        self.assertEqual(r["usage_recorded"], 0)
+        self.assertNotIn("PRIVATE", json.dumps(r))
+        self.assertEqual(self.holder["totals"], {})
+
+    def test_tagged_trace_without_double_counting_sampled_usage(self):
+        handler, holder = self.m.make_proxy("http://127.0.0.1:%d" % self.up.server_port, "box",
+                                           ledger=False, trace=True, tag="test")
+        px = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=px.serve_forever, daemon=True).start()
+        try:
+            req = urllib.request.Request("http://127.0.0.1:%d/api/generate" % px.server_port,
+                data=json.dumps({"model": "qwen3:0.6b", "stream": False}).encode())
+            with urllib.request.urlopen(req, timeout=10) as response:
+                response.read()
+            r = self.wait_traces(1, holder)[0]
+            self.assertEqual((r["tag"], r["input"], r["output"], r["usage_recorded"]), ("test", 12, 20, 0))
+            self.assertEqual(holder["db"].execute("SELECT COUNT(*) FROM usage").fetchone()[0], 0)
+            self.assertEqual(holder["totals"], {"qwen3:0.6b": [12, 20]})
+        finally:
+            px.shutdown(); px.server_close(); holder["db"].close()
 
     def test_rebinding_host_rejected(self):
         import http.client
@@ -234,6 +290,9 @@ class EndToEnd(unittest.TestCase):
                 urllib.request.urlopen(req, timeout=10)
             self.assertEqual(cm.exception.code, 502)
             cm.exception.close()
+            r = self.wait_traces(1, holder)[0]
+            self.assertEqual((r["result"], r["http_status"]), ("upstream_error", 502))
+            self.assertIsNone(r["output"])
         finally:
             px.shutdown()
             px.server_close()
