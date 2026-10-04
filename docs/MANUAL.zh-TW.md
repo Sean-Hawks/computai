@@ -38,7 +38,7 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 | 設定（`config.ini`、`prices.ini`、`secrets.ini`） | `~/.config/computai/`（Windows：`%APPDATA%\computai`） | `COMPUTAI_CONFIG_DIR`、`XDG_CONFIG_HOME` |
 | 帳本（`ledger.sqlite`） | `~/.local/share/computai/`（Windows：`%LOCALAPPDATA%\computai`） | `COMPUTAI_DATA_DIR`、`XDG_DATA_HOME` |
 | Claude Code 的 log | `~/.claude/projects/`、`~/.config/claude/projects/` | `CLAUDE_CONFIG_DIR`（可用逗號列多個） |
-| Codex 的 log | `~/.codex/sessions/`、`~/.codex/archived_sessions/` | `CODEX_HOME` |
+| Codex 的 log | `~/.codex/sessions/`、`~/.codex/archived_sessions/` | `CODEX_HOME`（可用逗號列多個；帳號額度問第一個） |
 
 `computai --paths` 會印出前兩個位置。第一次執行時會從範本建立 `config.ini` 和 `prices.ini`，之後只讀不寫，
 你改的內容會保留。刪掉帳本是安全的：下次 `--sync` 會從 log 重建訂閱的歷史（機器取樣和雲端紀錄會不見）。

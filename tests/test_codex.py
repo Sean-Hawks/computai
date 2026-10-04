@@ -74,6 +74,10 @@ class CodexSync(unittest.TestCase):
         # 13000 未快取 * 5 + 37000 快取 * 0.5 + 1000 寫入 * 5 + 800 輸出 * 30
         self.assertAlmostEqual(gpt55["cost_usd"], (13000 * 5 + 37000 * 0.5 + 1000 * 5 + 800 * 30) / 1e6)
 
+    def test_sync_reads_every_listed_home(self):
+        env = {"CODEX_HOME": "%s,%s" % (os.path.join(self.sb.root, "other-account"), HOME)}
+        self.assertIn("codex    +4", self.sb.run("--sync", **env).stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
