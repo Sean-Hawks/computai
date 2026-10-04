@@ -6384,7 +6384,7 @@ class Updater:
     def __init__(self, sample_every=60, cloud_every=300, sync_every=30, notify=True):
         self.notify = notify
         self.card_at = 0.0
-        self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300,
+        self.every = {"sync": sync_every, "machines": sample_every, "cloud": cloud_every, "insights": 300, "state": 60,
                       "codex": codex_poll_minutes() * 60, "claude": claude_poll_minutes() * 60}
         self.last = {k: 0.0 for k in self.every}
         self.next_poll = {"codex": 0.0, "claude": 0.0}   # 下次查帳號額度的時間（epoch）
@@ -6433,6 +6433,7 @@ class Updater:
 
     def run(self, on_state, interval):
         db = open_ledger()
+        seen, built = None, 0.0
         try:
             while not self.stop.is_set():
                 t0 = time.monotonic()
@@ -6441,9 +6442,16 @@ class Updater:
                     if time.monotonic() - self.last["insights"] >= self.every["insights"]:
                         self.last["insights"] = time.monotonic()
                         self.insights = insights(db)
+                    # 整份畫面要算上百條查詢：帳本沒變（自己和別的程序都沒寫）就沿用，最多隔一分鐘重算一次（時間相關的欄位）
+                    if (db.total_changes, db.execute("PRAGMA data_version").fetchone()[0]) == seen \
+                            and t0 - built < self.every["state"]:
+                        self.stop.wait(max(0.5, interval - (time.monotonic() - t0)))
+                        continue
+                    built = t0
                     st = dict(dashboard_state(db), insights=self.insights)
                     if self.notify:
                         notify_tick(db, st)
+                    seen = (db.total_changes, db.execute("PRAGMA data_version").fetchone()[0])
                     on_state(st)
                 except Exception as e:  # 更新失敗不能讓畫面或伺服器停掉
                     warn("update failed: %r" % (e,))
