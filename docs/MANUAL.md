@@ -681,6 +681,11 @@ Codex, an `[mcp_servers.computai]` entry with `command = "computai"` and `args =
   known_hosts has the key under another name: use the name or IP you normally ssh to (for Tailscale
   machines often the 100.x address), or run `ssh HOST` once by hand.
 - *"ignoring secrets.ini"*: `chmod 600 ~/.config/computai/secrets.ini`.
+- *Tailscale is online but SSH times out*: if the error says `Tailscale SSH requires an additional check`,
+  run `ssh USER@HOST` in a terminal and open the authentication link it prints. Tailscale's
+  [SSH check mode](https://tailscale.com/docs/features/tailscale-ssh) can require this again when its
+  check period expires; `BatchMode=yes` cannot complete browser authentication. ComputAI keeps retrying
+  after you authenticate. A failed node counts once in the dashboard, and old samples do not count online.
 - *Reporting a bug*: paste `computai --doctor --redact`. It replaces machine names, SSH hosts, IPs, project
   names, paths under your home folder, emails and your user name with codes (`machine-1`, `ip-1`, `~/path-1`).
 - *New version*: `computai --doctor` and the end of interactive commands say when one is out (checked at
