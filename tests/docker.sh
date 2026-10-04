@@ -11,11 +11,15 @@ for image in ${*:-python:3.8-slim ubuntu:24.04}; do
     esac
     echo "== $image"
     docker run --rm -v "$PWD:/src:ro" "$image" sh -c "
+        set -eu
         $prep || exit 1
         cp -R /src /work && cd /work && rm -rf tests/__pycache__ __pycache__
         sh install.sh && export PATH=\$HOME/.local/bin:\$PATH &&
         computai --version && computai --once >/dev/null && computai --doctor --redact --no-sync >/dev/null &&
-        python3 -m unittest discover -s tests -t . 2>&1 | tail -3
+        test_status=0
+        python3 -m unittest discover -s tests -t . > /tmp/computai-tests.log 2>&1 || test_status=\$?
+        tail -8 /tmp/computai-tests.log
+        exit \$test_status
     " || status=1
 done
 exit $status
