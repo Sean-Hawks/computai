@@ -787,9 +787,13 @@ def add_usage(db, rows):
     grown = "(excluded.input + excluded.output + excluded.cache_read + excluded.cache_write_5m" \
             " + excluded.cache_write_1h) > (usage.input + usage.output + usage.cache_read" \
             " + usage.cache_write_5m + usage.cache_write_1h)"
+    session_missing = "usage.session = '' AND excluded.session != '' AND usage.device != '' AND usage.device = excluded.device"
     sql = "INSERT INTO usage (%s) VALUES (%s) ON CONFLICT (source, uid) DO UPDATE SET %s WHERE %s" % (
         ",".join(USAGE_COLS), ",".join("?" * len(USAGE_COLS)),
-        ", ".join("%s = excluded.%s" % (c, c) for c in TOKEN_COLS + ("requests",)), grown)
+        ", ".join("%s = CASE WHEN %s THEN excluded.%s ELSE usage.%s END" % (c, grown, c, c)
+                  for c in TOKEN_COLS + ("requests",)) +
+        ", session = CASE WHEN %s THEN excluded.session ELSE usage.session END" % session_missing,
+        "(%s) OR (%s)" % (grown, session_missing))
     before = db.total_changes
     defaults = {"model": "", "project": "", "session": "", "requests": 1, "subagent": 0,
                 "cost_usd": None, "device": ""}
@@ -1403,8 +1407,9 @@ SOURCES.append(("cursor", sync_cursor))
 
 EXPORT_SOURCES = ("claude", "codex")   # 本地模型和 API 用量在每台各自記，交換會重複計算
 EXPORT_COLS = ("source", "uid", "ts", "model", "project", "input", "cache_read", "cache_write_5m",
-               "cache_write_1h", "output", "reasoning", "requests", "subagent")
-EXPORT_INT_COLS = EXPORT_COLS[2:3] + EXPORT_COLS[5:]
+               "cache_write_1h", "output", "reasoning", "requests", "subagent", "session")
+EXPORT_INT_COLS = EXPORT_COLS[2:3] + EXPORT_COLS[5:-1]
+EXPORT_SESSION_VERSION = "1"   # 匿名 session 欄位；舊格式仍可讀
 DEVICE_ID = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
 DEVICE_STALE = 600   # 超過 10 分鐘沒回報就標成過時
 # 背景每 30 秒同步一次，但共用資料夾和 SSH 不用那麼勤：心跳 1 分鐘、用量檔 2 分鐘、SSH 拉取 5 分鐘。
@@ -1445,7 +1450,9 @@ def local_device(db):
 
 def export_usage(db, since=0, t=None):
     """這台自己的 Claude、Codex 用量，寫成 JSONL：第一行是標頭，之後每行一筆，只有 EXPORT_COLS 這些欄位。
-    專案只留資料夾名稱，session、prompt、回應、路徑都不會出去。回傳 (文字, 筆數)。"""
+    專案只留資料夾名稱，session 只送裝置／來源範圍內的單向雜湊；原始 ID、prompt、回應、路徑不會出去。
+    回傳 (文字, 筆數)。"""
+    import hashlib
     dev, name = local_device(db)
     t = now() if t is None else t
     head = {"computai_export": 1, "device": dev, "name": name, "written": int(t), "version": __version__,
@@ -1456,6 +1463,8 @@ def export_usage(db, since=0, t=None):
     for r in db.execute(q, EXPORT_SOURCES + (int(since),)):
         row = [r[c] for c in EXPORT_COLS]
         row[4] = os.path.basename((row[4] or "").rstrip("/\\"))[:120]
+        row[-1] = hashlib.sha256(json.dumps([dev, r["source"], r["session"]], ensure_ascii=False,
+                                          separators=(",", ":")).encode("utf-8")).hexdigest()[:16] if r["session"] else ""
         lines.append(json.dumps(row, ensure_ascii=False, separators=(",", ":")))
     return "\n".join(lines) + "\n", len(lines) - 1
 
@@ -1475,9 +1484,10 @@ def parse_export(text):
     dev, cols = head.get("device"), head.get("cols")
     if not isinstance(dev, str) or not DEVICE_ID.match(dev):
         raise ValueError("bad device id")
-    if not isinstance(cols, list) or any(c not in cols for c in EXPORT_COLS):
+    if not isinstance(cols, list) or any(c not in cols for c in EXPORT_COLS if c != "session"):
         raise ValueError("missing columns")
-    idx = [cols.index(c) for c in EXPORT_COLS]
+    known = [c for c in EXPORT_COLS if c in cols]
+    idx = [cols.index(c) for c in known]
     rows = []
     for n, ln in enumerate(lines[1:], 2):
         try:
@@ -1486,7 +1496,10 @@ def parse_export(text):
             raise ValueError("line %d is not JSON" % n)
         if not isinstance(arr, list) or len(arr) != len(cols):
             raise ValueError("line %d has the wrong shape" % n)
-        r = dict(zip(EXPORT_COLS, (arr[i] for i in idx)))
+        r = dict(zip(known, (arr[i] for i in idx)))
+        session = r.setdefault("session", "")
+        if not isinstance(session, str) or (session and not re.fullmatch(r"[0-9a-f]{16}", session)):
+            raise ValueError("line %d: bad session hash" % n)
         if r["source"] not in EXPORT_SOURCES or not isinstance(r["uid"], str) or not 0 < len(r["uid"]) <= 200:
             raise ValueError("line %d: bad source or id" % n)
         for c in ("model", "project"):
@@ -1500,7 +1513,8 @@ def parse_export(text):
         rows.append(r)
     name = head.get("name") if isinstance(head.get("name"), str) else ""
     written = head.get("written") if isinstance(head.get("written"), int) else None
-    return {"device": dev, "name": untrusted(name)[:60], "written": written}, rows
+    return {"device": dev, "name": untrusted(name)[:60], "written": written,
+            "sessions": "session" in cols}, rows
 
 
 def note_device(db, dev, name=None, seen=None, via=None, error=None, rows=None):
