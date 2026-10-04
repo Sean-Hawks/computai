@@ -63,4 +63,4 @@
 │  → Codex: example advice                                                                         │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
 ▶ gpubox busy  ◆  Codex weekly limit 7% left · resets in 8h20m  ◆  Claude Code 5-hour limit 58% lef
-q quit · -n SEC refresh · computai --web for the browser · --analyze for advice
+q quit · h help · c monthly recap · computai --web for the browser

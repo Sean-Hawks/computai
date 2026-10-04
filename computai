@@ -6459,7 +6459,7 @@ UI = {
         "compute": "COMPUTE", "machines_n": "%d machines", "machine_1": "1 machine", "machines": "MACHINES",
         "compact": "compact: enlarge the window for details", "no_gpu": "no GPU",
         "no_machines": "no machines yet: add them under [machines] in config.ini",
-        "foot": ["q quit", "-n SEC refresh", "computai --web for the browser", "--analyze for advice"],
+        "foot": ["q quit", "h help", "c monthly recap", "computai --web for the browser"],
         "plan_unset": "monthly fee not set (computai --setup)", "gpus_n": "%d GPUs", "fits": "%.1f GB free: room for a ~%s model (4-bit)",
         "fits_none": "%.1f GB free: not enough for another model", "fits_multi": "across GPUs", "src": {"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "cursor": "Cursor", "local": "Local models",
                                      "cloud": "Cloud GPUs", "anthropic-api": "Anthropic API",
@@ -6636,7 +6636,7 @@ UI = {
         "l_foot": "value at %s API prices; Ollama counts need computai --proxy in front of it",
         "tab_overview": "OVERVIEW", "tab_limits": "LIMITS", "tab_machines": "MACHINES", "tab_local": "LOCAL MODELS",
         "tab_spend": "SPEND", "tab_attention": "ATTENTION", "more_in_tab": "more in tab 5",
-        "hud_keys": ["1-6 switch tabs", "Tab next", "c make a card", "q quit"],
+        "hud_keys": ["q quit", "h help", "c monthly recap", "1-6 tabs", "Tab next"],
         "local_tip": "computai --bench measures tokens/s and electricity per 1M tokens for each model",
         "t_gen": "generating %s tok/s", "b_linking": "linking logs and machines...", "b_ready": "SYSTEM READY",
         "h_today": "TODAY'S USAGE VALUE", "h_month": "this month %s", "h_rate": "LOCAL TOKENS/S",
@@ -6724,7 +6724,7 @@ UI = {
         "compute": "算力", "machines_n": "%d 台機器", "machine_1": "1 台機器", "machines": "機器",
         "compact": "精簡模式：視窗放大可以看細節", "no_gpu": "無 GPU",
         "no_machines": "還沒有機器：在 config.ini 的 [machines] 加上去",
-        "foot": ["q 離開", "-n 秒數 更新間隔", "computai --web 開網頁版", "--analyze 看建議"],
+        "foot": ["q 離開", "h 功能說明", "c 做月報", "computai --web 開網頁版"],
         "plan_unset": "還沒設月費（computai --setup）", "gpus_n": "%d 張 GPU", "fits": "還有 %.1f GB：放得下約 %s 的模型（4-bit）",
         "fits_none": "還有 %.1f GB：放不下別的模型了", "fits_multi": "（要跨卡）", "src": {"claude": "Claude Code", "codex": "Codex", "gemini": "Gemini CLI", "opencode": "OpenCode", "cursor": "Cursor", "local": "本地模型",
                                       "cloud": "雲端 GPU", "anthropic-api": "Anthropic API",
@@ -6899,7 +6899,7 @@ UI = {
         "l_foot": "價值照 %s 的 API 價格算；Ollama 要在前面接 computai --proxy 才數得到",
         "tab_overview": "總覽", "tab_limits": "額度", "tab_machines": "機器", "tab_local": "本地模型",
         "tab_spend": "花費", "tab_attention": "注意", "more_in_tab": "其他在分頁 5",
-        "hud_keys": ["1-6 切換分頁", "Tab 下一頁", "c 做圖卡", "q 離開"],
+        "hud_keys": ["q 離開", "h 功能說明", "c 做月報", "1-6 分頁", "Tab 下一頁"],
         "local_tip": "computai --bench 會量每個模型的速度和每百萬 token 電費",
         "t_gen": "推論中 %s tok/s", "b_linking": "正在連線 log 和機器…", "b_ready": "系統就緒",
         "h_today": "今天用量價值", "h_month": "本月 %s", "h_rate": "本地推論 tok/s",
@@ -8424,6 +8424,7 @@ def run_live(interval, sample_every, intro=True):
         frame = 0
         view = "overview"
         creator_notice = ""
+        help_open = False
         ascii_ = not can_draw_blocks()
         if intro and config_theme() == "cyber":
             set_style(color, ascii_, "cyber")
@@ -8446,6 +8447,7 @@ def run_live(interval, sample_every, intro=True):
                 if k in ("q", "Q"):
                     return 0
                 if k:
+                    help_open = k in ("h", "H", "?")
                     break
                 frame += 1
         while True:
@@ -8454,7 +8456,9 @@ def run_live(interval, sample_every, intro=True):
             cols, rows = shutil.get_terminal_size((100, 40))
             text = (render_live(clean_strings(st), cols, color, ascii_=ascii_, height=rows, frame=frame, view=view) if st
                     else "ComputAI: reading logs and machines...")
-            if creator_notice:
+            if help_open:
+                text = render_live_help(cols, rows)
+            elif creator_notice:
                 text = "\n".join(text.splitlines()[:rows - 2]) + "\n" + clip(creator_notice, cols)
             draw(text, rows)
             k = read_key(tick)
@@ -8462,9 +8466,16 @@ def run_live(interval, sample_every, intro=True):
                 break
             if k and k in "123456":                      # 數字鍵切分頁，Tab 換下一頁
                 view = HUD_VIEWS[int(k) - 1]
+                help_open = False
             elif k == "\t":
                 view = HUD_VIEWS[(HUD_VIEWS.index(view) + 1) % len(HUD_VIEWS)]
+                help_open = False
+            elif k in ("h", "H", "?"):
+                help_open = not help_open
+            elif k == "\033":
+                help_open = False
             elif k in ("c", "C"):
+                help_open = False
                 try:
                     page_db = creator_ledger()
                     try:
@@ -9329,7 +9340,7 @@ def tailscale_open(port):
     return "https://%s%s/" % (name, "" if https == 443 else ":%d" % https), name, close
 
 
-def serve_web(listen, interval, sample_every, tailscale=False):
+def serve_web(listen, interval, sample_every, tailscale=False, launch=False):
     import http.server
     state = {"lock": threading.Lock(), "state": None, "metrics": None}
     host, port = parse_listen(listen, 8765)
@@ -9383,6 +9394,12 @@ def serve_web(listen, interval, sample_every, tailscale=False):
         print("  WARNING: anyone who can reach this address sees your usage, project names and machines.",
               flush=True)
     try:
+        if launch:
+            import webbrowser
+            try:
+                webbrowser.open("http://%s:%d/" % (shown, httpd.server_address[1]))
+            except Exception:
+                pass  # 網址已經印出；沒裝瀏覽器也可以繼續使用服務。
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
@@ -13631,7 +13648,7 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(
         prog="computai",
         description="ComputAI - where your compute and AI money goes.",
-        epilog="Make your first monthly recap: computai recap / 製作月報：computai recap")
+        epilog="Start with the menu: computai / 開啟功能選單：computai. Monthly recap / 月報：computai recap")
     p.add_argument("--version", action="version", version="computai " + __version__)
     p.add_argument("--paths", action="store_true", help="print config and ledger locations")
     p.add_argument("--sync", action="store_true", help="import new usage into the ledger")
@@ -13682,7 +13699,7 @@ def parse_args(argv=None):
     p.add_argument("--rent-per-hour", type=float, metavar="USD",
                    help="for --payback: cloud price per GPU-hour (default: your cloud history)")
     p.add_argument("--live", action="store_true",
-                   help="live terminal dashboard: compute, AI usage, alerts (default on a terminal)")
+                   help="open the live terminal dashboard directly; bare computai opens the feature menu")
     p.add_argument("--no-intro", action="store_true", help="skip the start-up animation of the live dashboard")
     p.add_argument("--once", action="store_true",
                    help="print the live dashboard once and exit (after reading logs and machines)")
@@ -13816,6 +13833,81 @@ def emit(obj, text, as_json):
         print(untrusted(text))
 
 
+HOME_FEATURES = (
+    ("live", "即時監控", "Live monitor", "額度、花費、機器、本地模型", "Limits, spending, machines, local models", "computai --live"),
+    ("create", "做月報圖卡", "Monthly recap", "選月份與版型，下載 PNG", "Choose a month and layout, download PNG", "computai recap"),
+    ("web", "開網頁監控", "Browser dashboard", "用瀏覽器查看圖表與時間軸", "Charts and timeline in your browser", "computai --web"),
+    ("analyze", "看花費分析", "Spending analysis", "快取效率、月底預估與方案建議", "Cache efficiency, forecasts, plan advice", "computai --analyze"),
+    ("doctor", "檢查資料來源", "Check data sources", "找出缺少的紀錄與連線問題", "Find missing logs and connection problems", "computai --doctor"),
+    ("setup", "設定我的環境", "Set up my environment", "月費方案、機器與電費", "Subscription plans, machines, electricity", "computai --setup"),
+)
+
+
+def render_home(width=100, interactive=False):
+    """只列功能與下一步；開選單不建帳本、不讀用量、不連線。"""
+    width = max(20, width)
+    zh = _lang == "zh"
+    lines = ["ComputAI  " + __version__,
+             "你的 AI 用量、算力與花費，放在同一本帳裡。" if zh else
+             "Your AI usage, compute and spending in one ledger.", ""]
+    for i, (_, ztitle, etitle, zdesc, edesc, command) in enumerate(HOME_FEATURES, 1):
+        lines.extend(wrap("  %d  %s — %s" % (i, ztitle if zh else etitle, zdesc if zh else edesc), width, "     "))
+        lines.append("     " + command)
+    lines.extend(["", "只取用量數字，不讀取 prompt 或回應內容。" if zh else
+                  "Usage numbers only; prompts and responses stay private."])
+    if interactive:
+        lines.append("輸入 1–6 後按 Enter；直接 Enter 進監控；0 或 q 離開。" if zh else
+                     "Choose 1–6 and press Enter; Enter opens the monitor; 0 or q exits.")
+    else:
+        lines.extend(["在終端機輸入 computai 可選功能；也可直接執行上面的指令。" if zh else
+                      "Run computai in a terminal to choose, or use a command above.",
+                      "完整選項：computai --help" if zh else "All options: computai --help"])
+    return "\n".join(line for text in lines for line in wrap(text, width))
+
+
+def choose_home(ask=None, out=None):
+    ask, out = ask or input, out or print
+    out(render_home(shutil.get_terminal_size((100, 40)).columns, interactive=True))
+    while True:
+        try:
+            choice = ask("\n選擇 [1] > " if _lang == "zh" else "\nChoose [1] > ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            out("")
+            return None
+        if choice in ("0", "q", "quit", "exit"):
+            return None
+        if choice in ("", "1", "2", "3", "4", "5", "6"):
+            return HOME_FEATURES[int(choice or "1") - 1][0]
+        out("請輸入 1–6；0 或 q 離開。" if _lang == "zh" else "Choose 1–6, or 0 / q to exit.")
+
+
+def render_live_help(width, height):
+    zh = _lang == "zh"
+    lines = ["ComputAI · 功能說明" if zh else "ComputAI · Help", "",
+             "監控按鍵" if zh else "Monitor keys",
+             "  1 總覽  2 額度  3 機器  4 本地模型  5 花費  6 時間軸" if zh else
+             "  1 Overview  2 Limits  3 Machines  4 Local  5 Spend  6 Timeline",
+             "  Tab 下一頁 · c 做月報 · q 離開" if zh else "  Tab next · c monthly recap · q quit", "",
+             "更多功能（回到終端機執行）" if zh else "More features (run in your terminal)"]
+    for _, ztitle, etitle, _, _, command in HOME_FEATURES[1:]:
+        lines.extend(["  " + (ztitle if zh else etitle), "    " + command])
+    lines.extend(["", "  computai --tokens      " + ("token 細項與快取" if zh else "Token and cache breakdown"),
+                  "  computai --local-history  " + ("已記錄的本地推論" if zh else "Recorded local inference")])
+    footer = "h / ? / Esc 返回 · c 做月報 · q 離開" if zh else "h / ? / Esc back · c recap · q quit"
+    lines = [ln for text in lines for ln in wrap(text, max(20, width))]
+    # 保留底部返回提示；矮視窗仍可找到完整功能選單。
+    if len(lines) > height - 2:
+        lines = lines[:max(0, height - 4)] + ["完整選單：computai" if zh else "Full menu: computai"]
+    return "\n".join(lines + [clip(footer, width)])
+
+
+def action_requested(args):
+    return (args.payback is not None or args.recap is not None or args.wrapped is not None
+            or any(getattr(args, a) for a in ACTIONS) or args.json
+            or args.html or args.month is not None or args.since or args.until or args.by != "model"
+            or args.tailscale or args.claude_limits)
+
+
 def main(argv=None):
     global _card_style_flag, _card_layout_flag
     args = parse_args(argv)
@@ -13825,8 +13917,20 @@ def main(argv=None):
         print("config: " + config_dir())
         print("ledger: " + data_dir())
         return 0
+    if not action_requested(args):
+        set_lang(args.lang or config_lang())
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            print(render_home(shutil.get_terminal_size((100, 40)).columns))
+            return 0
+        selected = choose_home()
+        if selected is None:
+            return 0
+        args.home_entry = True
+        setattr(args, selected, "127.0.0.1:8765" if selected == "web" else True)
+        if selected == "create":
+            args.recap_entry = True
     first = ensure_config()
-    if first and not (args.json or args.create or args.setup or args.statusline or args.line or args.mcp) and sys.stderr.isatty():
+    if first and not (getattr(args, "home_entry", False) or args.json or args.create or args.setup or args.statusline or args.line or args.mcp) and sys.stderr.isatty():
         sys.stderr.write("computai: first run - settings are in %s. Run `computai --setup` to tailor them "
                          "(plans, machines, power), or `computai --doctor` to see what is detected.\n" % config_dir())
     db = open_ledger()
@@ -13888,8 +13992,7 @@ def run(args, db):
     set_lang(args.lang or config_lang())
     if args.tailscale and not (args.web or args.install_watch or args.uninstall_watch):
         args.web = "127.0.0.1:8765"   # computai --tailscale 就是 --web --tailscale
-    asked = (args.payback is not None or any(getattr(args, a) for a in ACTIONS) or args.json
-             or args.html or args.month is not None or args.since or args.until or args.by != "model")
+    asked = action_requested(args)
     if not asked and sys.stdout.isatty() and sys.stdin.isatty():
         args.live = True  # 在終端機裡只打 computai 就是 live 畫面；帶了其他選項就照選項做
     if args.once:
@@ -13908,7 +14011,8 @@ def run(args, db):
         if not args.no_sync:
             sync(db, quiet=True)
         try:
-            ask_plans_once(db)   # 第一次打開、還沒設月費：照 log 猜一個，問一句就好
+            if not getattr(args, "home_entry", False):
+                ask_plans_once(db)   # 選單先讓人看到監控；方案可從「設定我的環境」填寫。
         except (KeyboardInterrupt, EOFError):
             print()
         db.close()
@@ -13917,7 +14021,10 @@ def run(args, db):
         return run_live(args.interval, args.sample_every, intro)
     if args.web:
         db.close()
-        return serve_web(args.web, args.interval, args.sample_every, tailscale=args.tailscale)
+        web_args = {"tailscale": args.tailscale}
+        if getattr(args, "home_entry", False):
+            web_args["launch"] = not args.no_open
+        return serve_web(args.web, args.interval, args.sample_every, **web_args)
     if args.watch:
         db.close()
         return run_watch(args.interval, args.sample_every)

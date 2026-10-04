@@ -84,7 +84,8 @@ class Golden(unittest.TestCase):
     def test_hud_views(self):
         for v in self.m.HUD_VIEWS:
             text = self.m.render_live(self.st, 160, theme_name="cyber", height=40, view=v)
-            self.assertIn("1-6 switch tabs", text)
+            self.assertIn("1-6 tabs", text)
+            self.assertIn("h help", text)
             self.assertTrue(all(self.m.vlen(ln) <= 160 for ln in text.splitlines()), v)
         ov = self.m.render_live(self.st, 120, theme_name="cyber", height=40, view="overview")
         self.assertLessEqual(len(ov.splitlines()), 40)                    # 總覽放得進一個畫面
