@@ -1061,8 +1061,15 @@ SOURCES.append(("claude", sync_claude))
 
 # ---- Codex：~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl 和 ~/.codex/archived_sessions/
 
+def codex_homes():
+    """CODEX_HOME 可以用逗號列好幾個（好幾個帳號各一個資料夾）；沒設就看 ~/.codex。"""
+    homes = [p.strip() for p in os.environ.get("CODEX_HOME", "").split(",") if p.strip()]
+    return homes or [os.path.join(os.path.expanduser("~"), ".codex")]
+
+
 def codex_home():
-    return os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
+    """設定檔、hook 和查額度用的那一個：列了好幾個時取第一個。"""
+    return codex_homes()[0]
 
 
 def codex_usage_row(u, ts, uid, model, session, project):
@@ -1154,12 +1161,12 @@ def codex_limits(rl, ts):
 
 
 def sync_codex(db):
-    home = codex_home()
     paths = []
-    for sub in ("sessions", "archived_sessions"):
-        root = os.path.join(home, sub)
-        if os.path.isdir(root):
-            paths.extend(sorted(walk_files(root)))
+    for home in codex_homes():
+        for sub in ("sessions", "archived_sessions"):
+            root = os.path.join(home, sub)
+            if os.path.isdir(root):
+                paths.extend(sorted(walk_files(root)))
     added = 0
     for path in paths:
         sig = file_changed(db, path)
@@ -2060,8 +2067,10 @@ def codex_account_limits(timeout=25, t=None):
         return [], None
     t = now() if t is None else t
     try:
+        # codex 只認得一個 CODEX_HOME：列了好幾個時，問第一個帳號
+        env = dict(os.environ, CODEX_HOME=codex_home()) if os.environ.get("CODEX_HOME") else None
         p = subprocess.Popen([exe, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, universal_newlines=True)
+                             stderr=subprocess.DEVNULL, universal_newlines=True, env=env)
     except OSError:
         return [], None
     got = None
@@ -2553,7 +2562,7 @@ def log_places():
     home = os.path.expanduser("~")
     env = os.environ.get("CLAUDE_CONFIG_DIR")
     claude = [p.strip() for p in env.split(",") if p.strip()] if env else [os.path.join(home, ".claude")]
-    paths = [os.path.join(c, "projects") for c in claude] + [os.path.join(codex_home(), "sessions")]
+    paths = [os.path.join(c, "projects") for c in claude] + [os.path.join(c, "sessions") for c in codex_homes()]
     return ", ".join(("~" + p[len(home):]) if p.startswith(home) else p for p in paths)
 
 
@@ -12820,9 +12829,8 @@ def doctor(db, sample=True):
         add("claude", "ok", T("dr_logs") % ("Claude Code", n_claude))
     else:
         add("claude", "tip", T("dr_nologs") % ("Claude Code", "~/.claude/projects"))
-    home = codex_home()
-    n_codex = sum(1 for sub in ("sessions", "archived_sessions") if os.path.isdir(os.path.join(home, sub))
-                  for _ in walk_files(os.path.join(home, sub)))
+    n_codex = sum(1 for home in codex_homes() for sub in ("sessions", "archived_sessions")
+                  if os.path.isdir(os.path.join(home, sub)) for _ in walk_files(os.path.join(home, sub)))
     if n_codex:
         add("codex", "ok", T("dr_logs") % ("Codex", n_codex))
     else:
