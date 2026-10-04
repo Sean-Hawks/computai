@@ -62,6 +62,17 @@ class Ledger(unittest.TestCase):
         os.environ["CLAUDE_CONFIG_DIR"] = "/u/.claude-nycu"                     # statusline 在 nycu 底下跑
         self.assertEqual([p["used_percent"] for p in self.m.line_parts(self.db)["limits"]], [80.0])
 
+    def test_folders_without_limits_are_skipped_after_a_few_tries(self):
+        asked = []
+
+        def ask(home):
+            asked.append(home)
+            return [{"name": "5h"}] if home == "real" else []
+        for _ in range(5):
+            self.m.poll_homes(["real", "proxy"], ask)
+        self.assertEqual(asked.count("real"), 5)
+        self.assertEqual(asked.count("proxy"), self.m.NO_LIMITS_TRIES)          # 之後一小時內不再問
+
     def test_old_limits_table_moves_to_default_account(self):
         import sqlite3
         import tempfile

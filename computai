@@ -2155,12 +2155,33 @@ def codex_account_limits(timeout=25, t=None, home=None):
     return rows, (int(credits) if isinstance(credits, int) else None)
 
 
+_no_limits = {}   # 帳號資料夾 -> [連續幾次沒有額度, 到什麼時候以前先不問]
+NO_LIMITS_TRIES, NO_LIMITS_SKIP = 3, 3600
+
+
+def poll_homes(homes, ask):
+    """每個帳號資料夾問一次額度。連續幾次都沒有額度的資料夾（走 API key 或 proxy 的）先跳過一小時，
+    不用每分鐘白白啟動一次 CLI；偶爾一次沒回應不算。回傳每個資料夾的結果。"""
+    out = []
+    for home in homes:
+        miss = _no_limits.get(home)
+        if miss and time.time() < miss[1]:
+            continue
+        res = ask(home)
+        if res[0] if isinstance(res, tuple) else res:
+            _no_limits.pop(home, None)
+        else:
+            n = (miss[0] if miss else 0) + 1
+            _no_limits[home] = [n, time.time() + NO_LIMITS_SKIP if n >= NO_LIMITS_TRIES else 0]
+        out.append((home, res))
+    return out
+
+
 def codex_account_poll(db, t=None):
     """讀每個帳號的額度寫進帳本（有變才寫），重置次數放在 meta（codex_reset_credits[:帳號]）。回傳寫了幾筆。"""
     n, got = 0, False
     homes = codex_homes() if os.environ.get("CODEX_HOME") else [None]
-    for home in homes:
-        rows, credits = codex_account_limits(t=t, home=home)
+    for home, (rows, credits) in poll_homes(homes, lambda h: codex_account_limits(t=t, home=h)):
         n += add_limits(db, rows, only_changes=True) if rows else 0
         if credits is not None:
             account = account_name("codex", home) if home else ""
@@ -2233,8 +2254,7 @@ def claude_account_poll(db, t=None):
     """讀每個 Claude 帳號的額度寫進帳本（有變才寫）。回傳寫了幾筆。"""
     n, got = 0, False
     homes = [h for h in claude_homes() if os.path.isdir(h)] if os.environ.get("CLAUDE_CONFIG_DIR") else [None]
-    for home in homes:
-        rows = claude_account_limits(t=t, home=home)
+    for _home, rows in poll_homes(homes, lambda h: claude_account_limits(t=t, home=h)):
         n += add_limits(db, rows, only_changes=True) if rows else 0
         got = got or bool(rows)
     if got:
