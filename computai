@@ -1533,7 +1533,7 @@ def write_device_files(db, folder, t=None):
     sig = db.execute("SELECT COUNT(*), MAX(ts), SUM(input + output + cache_read + cache_write_5m + cache_write_1h) "
                      "FROM usage WHERE device = '' AND source IN (%s)" % ",".join("?" * len(EXPORT_SOURCES)),
                      EXPORT_SOURCES).fetchone()
-    sig = "%s:%s:%s" % tuple(sig)
+    sig = "%s:%s:%s:sessions-%s" % (tuple(sig) + (EXPORT_SESSION_VERSION,))
     row = db.execute("SELECT value FROM meta WHERE key = 'device_export_sig'").fetchone()
     data = os.path.join(folder, dev + ".jsonl")
     n = None
@@ -1653,6 +1653,10 @@ def pull_device(db, m, body=None, t=None):
             return 0, "could not copy computai there"
     row = db.execute("SELECT value FROM meta WHERE key = ?", ("pull_since:" + name,)).fetchone()
     since = int(_float(row["value"], 0)) if row else 0
+    session_key = "pull_sessions:" + name
+    session_row = db.execute("SELECT value FROM meta WHERE key = ?", (session_key,)).fetchone()
+    if not session_row or session_row["value"] != EXPORT_SESSION_VERSION:
+        since = 0   # 升級後成功拉完整歷史一次，補回舊列缺的匿名 session
     text = run_script(m["host"], pull_export_script(since), timeout=180)
     try:
         head, rows = parse_export(text)
@@ -1660,6 +1664,9 @@ def pull_device(db, m, body=None, t=None):
         return 0, "bad export (%s)" % e
     head["name"] = name
     added = merge_export(db, head, rows, "ssh")
+    if head["sessions"]:
+        db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                   (session_key, EXPORT_SESSION_VERSION))
     # 下次從這次寫出的時間往前一天開始拉：中途變長的串流紀錄也會更新到
     db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
                ("pull_since:" + name, str(max(0, (head["written"] or int(t)) - 86400))))
