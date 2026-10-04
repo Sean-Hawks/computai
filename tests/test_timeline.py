@@ -59,20 +59,44 @@ class Timeline(unittest.TestCase):
         self.assertIn(("local", "qwen3:8b@gpubox", False, False), labels)       # 本地模型、機器
         self.assertNotIn(DAY - 600, [ts for r in tl["rows"] for ts, _ in r["events"]])   # 昨天的請求不畫
         st = tl["stats"]
+        self.assertEqual(st["source_seconds"]["local"], 630)
+        self.assertEqual(sum(st["source_seconds"].values()), st["agent_seconds"])
         self.assertEqual(st["peak"], 3)                                         # 14:05 左右 codex、claude、本地同時
         self.assertEqual(st["longest"]["seconds"], 29 * 60)                    # codex 的 30 分鐘
         self.assertEqual(st["idle"], {"seconds": 3600 - (600 + 9 * 120), "start": DAY + 600 + 9 * 120})
 
     def test_narrow_terminal(self):
         tl = self.m.timeline_data(self.db, prices={})
-        for width in (60, 100, 160):
+        for width in (60, 80, 100, 145, 160):
             lines = self.m.render_timeline(tl, width)
             self.assertTrue(all(self.m.vlen(ln) <= width for ln in lines), (width, [ln for ln in lines if self.m.vlen(ln) > width]))
         text = "\n".join(self.m.render_timeline(tl, 60))
-        self.assertIn("Today your agents worked", text)
+        self.assertIn("Accumulated today", text)
         self.assertIn("subagents", text)
         self.assertIn("longest wait: 32m from 00:28", text)
-        self.assertIn("\u21b6claude alpha", text)                              # 從昨天接續的記號
+        self.assertIn("\u21b6Claude 1 · alpha", text)                              # 從昨天接續的記號
+
+    def test_segments_gaps_and_height(self):
+        tl = self.m.timeline_data(self.db, prices={})
+        text = "\n".join(self.m.render_timeline(tl, 145))
+        self.assertIn("━", text)
+        self.assertIn("·", text)
+        self.assertIn("00:10–01:01", text)
+        self.assertIn("ACTIVE / TOKENS", text)
+        self.assertIn("local inference 0.2h", text)
+        for lang in ("en", "zh"):
+            self.m.set_lang(lang)
+            for width in (60, 80, 100, 145):
+                for height in (15, 22, 30, 40):
+                    with self.subTest(lang=lang, width=width, height=height):
+                        lines = self.m.render_timeline(tl, width, height)
+                        self.assertLessEqual(len(lines), height)
+                        self.assertTrue(all(self.m.vlen(ln) <= width for ln in lines))
+
+    def test_window_stays_in_day(self):
+        tl = self.m.timeline_data(self.db, prices={})
+        tl["rows"] = [dict(tl["rows"][0], events=[(tl["end"] - 60, 1)])]
+        self.assertEqual(self.m.timeline_window(tl, tl["end"] - 30), (tl["end"] - 3600, tl["end"]))
 
     def test_svg_has_no_project_or_machine_names(self):
         svg = self.m.render_timeline_svg(self.m.timeline_data(self.db, prices={}))
@@ -82,12 +106,18 @@ class Timeline(unittest.TestCase):
             self.assertNotIn(name, svg)
         self.assertIn("Claude 1", svg)
         self.assertIn("qwen3:8b", svg)
+        self.assertIn("ACTIVE / TOKENS", svg)
+        self.assertNotIn("opacity=", svg)
+        for width in (640, 800):
+            for dark in (True, False):
+                __import__("xml.etree.ElementTree").etree.ElementTree.fromstring(self.m.render_timeline_svg(self.m.timeline_data(self.db, prices={}), width=width, dark=dark))
 
     def test_tab_in_live_view(self):
         st = self.m.dashboard_state(self.db)
         text = self.m.render_live(st, 60, theme_name="cyber", height=30, view="timeline")
         self.assertIn("TIMELINE", text)
         self.assertTrue(all(self.m.vlen(ln) <= 60 for ln in text.splitlines()))
+        self.assertLessEqual(len(text.splitlines()), 30)
 
     def test_cli_keeps_color_codes_and_sanitizes_labels(self):
         tl = self.m.timeline_data(self.db, prices={})
@@ -103,7 +133,7 @@ class Timeline(unittest.TestCase):
                         mock.patch("sys.stdout", out):
                     self.assertEqual(self.m.run(args, self.db), 0)
                 text = out.getvalue()
-                self.assertIn("今天 agent", text)
+                self.assertIn("今日累計", text)
                 self.assertNotIn("\x1b[2J", text)
                 self.assertNotIn("\x07", text)
                 self.assertEqual("\x1b[" in text, color)

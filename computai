@@ -5526,6 +5526,9 @@ def timeline_stats(rows, start, end):
     """一行總結要的數字：agent 工作了多久、最多同時幾個、最長的連續工作、最久的空等、花最多的那個小時。"""
     segs = [(a, b, r["label"]) for r in rows for a, b in r["segments"]]
     work = sum(b - a for a, b, _ in segs)
+    source_seconds = {}
+    for r in rows:
+        source_seconds[r["source"]] = source_seconds.get(r["source"], 0) + int(sum(b - a for a, b in r["segments"]))
     peak, peak_at, cur = 0, None, 0
     for ts, d in sorted([(a, 1) for a, b, _ in segs] + [(b, -1) for a, b, _ in segs], key=lambda x: (x[0], x[1])):
         cur += d
@@ -5543,7 +5546,7 @@ def timeline_stats(rows, start, end):
             h = int((ts - start) // 3600)
             hours[h] = hours.get(h, 0.0) + (r["cost_usd"] * tok / r["tokens"] if r["tokens"] else 0.0)
     top = max(hours, key=hours.get) if hours and max(hours.values()) > 0 else None
-    return {"sessions": sum(1 for r in rows if not r["subagent"]), "agent_seconds": int(work),
+    return {"sessions": sum(1 for r in rows if not r["subagent"]), "agent_seconds": int(work), "source_seconds": source_seconds,
             "peak": peak, "peak_at": peak_at,
             "longest": {"seconds": int(longest[1] - longest[0]), "start": longest[0], "label": longest[2]} if longest else None,
             "idle": {"seconds": int(idle), "start": idle_at} if idle else None,
@@ -5560,131 +5563,166 @@ def timeline_window(tl, t=None):
     a = tl["start"] + int((min(evs) - tl["start"]) // 3600) * 3600
     last = max(max(evs), min(t, tl["end"]))
     b = tl["start"] + int(-(-(last - tl["start"]) // 3600)) * 3600
-    return a, max(b, a + 4 * 3600)
+    return a, min(tl["end"], max(b, a + 4 * 3600))
 
 
 def timeline_labels(rows):
-    """列名：subagent 縮排；同名的 session 加上 #2、#3。"""
+    """來源與 session 編號固定可辨認，保留專案、機器和跨日記號。"""
     seen, out = {}, []
     for r in rows:
         if r["subagent"]:
-            out.append("  " + sym("\u21b3 ", "> ") + T("tl_sub"))
-            continue
-        name = ("%s %s" % ({"claude": "claude", "codex": "codex"}.get(r["source"], ""), r["label"])).strip()
-        seen[name] = seen.get(name, 0) + 1
-        if seen[name] > 1:
-            name += " #%d" % seen[name]
+            name = "  " + sym("\u21b3 ", "> ") + T("tl_sub")
+        elif r["source"] == "local":
+            name = T("tl_local") + " " + r["label"]
+        else:
+            src = r["source"]
+            seen[src] = seen.get(src, 0) + 1
+            name = "%s %d · %s" % (src.title(), seen[src], r["label"])
         out.append((sym("\u21b6", "<") if r["continued"] else "") + name)
     return out
 
 
 def timeline_summary(st, today=True):
-    """「今天 agent 替你工作 6.2 小時，最多 4 個同時，花最多的是 14:00 那一段」。today=False 時說「那天」。"""
+    """分開訂閱 agent 和本地推論；時數是各列相加，不是牆鐘時間。"""
     if not st["agent_seconds"]:
         return T("tl_none")
-    txt = T("tl_sum" if today else "tl_sum_day") % (st["agent_seconds"] / 3600.0, st["peak"])
-    if st["top_hour"]:
-        txt += T("tl_top") % (time.strftime("%H:00", time.localtime(st["top_hour"]["start"])), fmt_usd(st["top_hour"]["cost_usd"]))
-    return txt
+    src = st.get("source_seconds", {})
+    local = src.get("local", 0)
+    agents = st["agent_seconds"] - local
+    return T("tl_sum" if today else "tl_sum_day") % (agents / 3600.0, local / 3600.0)
+
+
+def timeline_notes(st):
+    notes = []
+    if st.get("peak_at") is not None:
+        notes.append(T("tl_peak") % (st["peak"], time.strftime("%H:%M", time.localtime(st["peak_at"]))))
+    if st.get("longest"):
+        notes.append(T("tl_long") % (fmt_dur(st["longest"]["seconds"]), st["longest"]["label"]))
+    if st.get("idle"):
+        notes.append(T("tl_idle") % (fmt_dur(st["idle"]["seconds"]), time.strftime("%H:%M", time.localtime(st["idle"]["start"]))))
+    if st.get("top_hour"):
+        notes.append(T("tl_top") % (time.strftime("%H:00", time.localtime(st["top_hour"]["start"])), fmt_usd(st["top_hour"]["cost_usd"])))
+    return notes
+
+
+def timeline_ticks(a, b, columns, spacing):
+    hours = max(1, int((b - a) // 3600))
+    step = next((s for s in (1, 2, 3, 4, 6, 12, 24) if columns * s / float(hours) >= spacing), 24)
+    return [(min(columns - 1, int(h * columns / float(hours))), a + h * 3600) for h in range(0, hours + 1, step)]
 
 
 def render_timeline(tl, width, height=None, t=None):
-    """甘特圖：每列一個 session，橫軸是今天的時間，方塊越深代表那段 token 越密；
-    session 開著但沒有請求的那段畫成點。下面標出最多同時、最長連續、最久空等。"""
+    """明亮的區段表示推估活動，點表示請求間隔；時間與用量各有明確欄位。"""
     t = now() if t is None else t
-    rows = tl["rows"]
-    st = tl["stats"]
-    lines = [" " + bold(timeline_summary(st)), ""]
+    width = max(24, width)
+    rows, st = tl["rows"], tl["stats"]
+    hm = lambda ts: time.strftime("%H:%M", time.localtime(ts))
+    today = tl.get("start", 0) <= t < tl.get("end", 0)
+    lines = [" " + bold(ln) for ln in wrap(timeline_summary(st, today), width - 2)]
     if not rows:
-        return lines
+        return lines[:height] if height else lines
     a, b = timeline_window(tl, t)
+    lines.append(" " + dim(clip(time.strftime("%Y-%m-%d", time.localtime(a)) + "  " + hm(a) + "–" + hm(b) +
+                                   "  ·  " + T("tl_asof") % hm(min(t, tl["end"])), width - 2)))
+    lines.extend(" " + dim(ln) for ln in wrap(T("tl_legend"), width - 2))
+    lines.append("")
     labels = timeline_labels(rows)
-    lw = max(10, min(22, max(vlen(x) for x in labels), width // 3))
-    tw = 6
-    bw = max(12, width - lw - tw - 4)
+    lw = min(30, max(16, max(vlen(x) for x in labels)), width // 3)
+    mw = 16 if width >= 90 else 7
+    bw = width - lw - mw - 4
     span = float(b - a) / bw
-    shades = (sym("\u2591", "."), sym("\u2592", ":"), sym("\u2593", "+"), sym("\u2588", "#"))
-    cells_all = []
-    for r in rows:
-        cells = [0] * bw
-        for ts, tok in r["events"]:
-            i = int((ts - a) / span)
-            if 0 <= i < bw:
-                cells[i] += max(tok, 1)
-        cells_all.append(cells)
-    top = max([max(c) for c in cells_all] + [1])
-    room = (height - 8) if height else len(rows)
-    keep = list(range(len(rows)))
-    if len(rows) > room > 0:   # 放不下：留 token 最多的那幾列，順序不變
-        keep = sorted(sorted(keep, key=lambda i: -rows[i]["tokens"])[:max(1, room - 1)])
-    for i in keep:
-        r, cells = rows[i], cells_all[i]
-        first, last = r["events"][0][0], r["events"][-1][0]
+    ticks = timeline_ticks(a, b, bw, 7)
+    axis = [" "] * bw
+    prev = -1
+    for col, ts in ticks:
+        lab = hm(ts)
+        pos = min(col, bw - len(lab))
+        if pos > prev:
+            axis[pos:pos + len(lab)] = lab
+            prev = pos + len(lab)
+    lines.append(" %s %s %s" % (cell(T("tl_session"), lw), dim("".join(axis)), cell(T("tl_columns") if mw == 16 else "token", mw, tail=True)))
+    lines.append(" " + dim(sym("─", "-") * (width - 2)))
+    footer = [" " + dim(ln) for note in timeline_notes(st) for ln in wrap(note, width - 2)]
+    footer += [" " + dim(ln) for ln in wrap(T("tl_estimate"), width - 2)]
+    room = max(1, (height - len(lines) - len(footer) - 1)) if height else len(rows) * 2
+    detailed = room >= len(rows) * 2
+    keep = min(len(rows), max(1, (room - (1 if room < len(rows) else 0)) // (2 if detailed else 1)))
+    # 保留主 session 與 subagent 的相鄰關係，避免隱藏主列後留下孤立的子列。
+    for r, label in zip(rows[:keep], labels[:keep]):
+        first, last = r["segments"][0][0], r["segments"][-1][1]
+        active = set()
+        for sa, sb in r["segments"]:
+            lo = max(0, min(bw - 1, int((sa - a) / span)))
+            hi = max(lo + 1, min(bw, int(math.ceil((sb - a) / span))))
+            active.update(range(lo, hi))
+        guides = {col for col, _ts in ticks}
+        nc = int((t - a) / span) if a <= t < b and today else -1
         bar = []
         for k in range(bw):
-            c0 = a + k * span
-            if cells[k]:
-                bar.append(shades[min(3, int(4 * math.sqrt(cells[k] / float(top))))])
-            elif first <= c0 <= last:
-                bar.append(dim(sym("\u00b7", ".")))   # session 開著，但這段沒有請求
+            if k == nc:
+                bar.append(rgb((111, 206, 151), sym("┃", "|")) if r["source"] == "local" else sym("┃", "|"))
+            elif k in active:
+                ch = sym("━", "#")
+                bar.append(rgb((111, 206, 151), ch) if r["source"] == "local" else bold(ch))
+            elif k in guides:
+                bar.append(dim(sym("│", "|")))
+            elif first <= a + k * span < last:
+                bar.append(dim(sym("·", ".")))
             else:
                 bar.append(" ")
-        lines.append(" %s %s %s" % (cell(labels[i], lw), "".join(bar), dim(fmt_tok(r["tokens"]).rjust(tw))))
-    if len(keep) < len(rows):
-        lines.append(" " + dim(T("tl_more") % (len(rows) - len(keep))))
-    # 時間軸：放得下就每小時一格，不然隔幾小时標一次
-    hours = int((b - a) // 3600)
-    step = next(s_ for s_ in (1, 2, 3, 4, 6, 12) if bw / float(hours) * s_ >= 6)
-    axis = [" "] * bw
-    for h in range(0, hours + 1, step):
-        col = int(h * 3600 / span)
-        lab = time.strftime("%H", time.localtime(a + h * 3600))
-        if col + len(lab) <= bw:
-            axis[col:col + len(lab)] = list(lab)
-    lines.append(" " + " " * lw + " " + dim("".join(axis)))
-    # 三種時刻
-    marks = [" "] * bw
-    notes = []
-    def mark(ts, ch):
-        col = int((ts - a) / span)
-        if 0 <= col < bw:
-            marks[col] = ch
-    if st["peak"] > 1:
-        mark(st["peak_at"], sym("\u25b2", "^"))
-        notes.append(sym("\u25b2 ", "^ ") + T("tl_peak") % (st["peak"], time.strftime("%H:%M", time.localtime(st["peak_at"]))))
-    if st["longest"]:
-        mark(st["longest"]["start"], sym("\u25c6", "*"))
-        notes.append(sym("\u25c6 ", "* ") + T("tl_long") % (fmt_dur(st["longest"]["seconds"]), st["longest"]["label"]))
-    if st["idle"]:
-        mark(st["idle"]["start"], sym("\u25c7", "o"))
-        notes.append(sym("\u25c7 ", "o ") + T("tl_idle") % (fmt_dur(st["idle"]["seconds"]),
-                                                          time.strftime("%H:%M", time.localtime(st["idle"]["start"]))))
-    if notes:
-        lines.append(" " + " " * lw + " " + "".join(marks))
-        joined = sym("  \u00b7  ", "  |  ").join(notes)
-        for ln in ([joined] if vlen(joined) <= width - 2 else notes):   # 放不下就一個時刻一行
-            lines.append(" " + clip(ln, width - 2))
-    return lines
+        dur = fmt_dur(sum(sb - sa for sa, sb in r["segments"]))
+        meta = (dur.rjust(8) + " " + fmt_tok(r["tokens"]).rjust(7)) if mw == 16 else fmt_tok(r["tokens"]).rjust(mw)
+        lines.append(" %s %s %s" % (cell(label, lw), "".join(bar), meta))
+        if detailed:
+            detail = hm(first) + "–" + hm(last)
+            if mw != 16:
+                detail += " · " + dur
+            if vlen(label) > lw:
+                detail = label + " · " + detail
+            lines.append("   " + dim(clip(detail, width - 4)))
+    if keep < len(rows):
+        lines.append(" " + dim(T("tl_more") % (len(rows) - keep)))
+    lines.append("")
+    lines += footer
+    return lines[:height] if height else lines
 
 
 def render_timeline_svg(tl, t=None, width=800, dark=True, today=True):
-    """時間軸的 SVG（給 Wrapped、個人頁卡片或自己存）。跟卡片一樣不放專案名和機器名：
-    列名只有「Claude 1」「Codex 2」「subagent」和本地模型的名字。"""
+    """可分享的時間軸：不含專案、機器名稱；明確標示刻度、活動、累計與 token。"""
     from xml.sax.saxutils import escape
     t = now() if t is None else t
     bg, fg, dimc, line = ("#0b0b0c", "#f5f5f5", "#aaaaaa", "#3a3a3a") if dark else ("#ffffff", "#111111", "#555555", "#dddddd")
+    localc = "#6fce97" if dark else "#237945"
     rows = tl["rows"]
     a, b = timeline_window(tl, t)
-    lw, rh, top = 130, 18, 46
-    bw = width - lw - 20
-    h = top + rh * max(1, len(rows)) + 40
-    x = lambda ts: lw + bw * float(ts - a) / (b - a)
+    title = wrap(timeline_summary(tl["stats"], today), max(30, (width - 32) // 8))
+    legend = wrap(T("tl_legend"), max(30, (width - 32) // 7))
+    lw, rh = 154, 42
+    bw = width - lw - 118
+    axis_y = 24 + 19 * len(title) + 17 * len(legend) + 24
+    top = axis_y + 16
+    foot = wrap(T("tl_estimate"), max(30, (width - 32) // 7))
+    h = top + rh * max(1, len(rows)) + 18 + len(foot) * 17
+    x = lambda ts: lw + bw * max(0.0, min(1.0, float(ts - a) / (b - a)))
     o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" '
          'font-family="ui-monospace, SFMono-Regular, Menlo, monospace">' % (width, h, width, h),
-         '<rect width="100%%" height="100%%" fill="%s" rx="8"/>' % bg,
-         '<text x="16" y="26" fill="%s" font-size="13" font-weight="700">%s</text>' % (fg, escape(timeline_summary(tl["stats"], today)))]
+         '<rect width="100%%" height="100%%" fill="%s" rx="8"/>' % bg]
+    def text_at(xx, yy, txt, color=fg, size=12, anchor="start"):
+        o.append('<text x="%.1f" y="%d" fill="%s" font-size="%d" text-anchor="%s">%s</text>'
+                 % (xx, yy, color, size, anchor, escape(txt)))
+    text_at(16, 23, time.strftime("%Y-%m-%d", time.localtime(a)) + " · " + T("tl_asof") % time.strftime("%H:%M", time.localtime(min(t, tl["end"]))), dimc)
+    for i, ln in enumerate(title):
+        text_at(16, 44 + i * 19, ln, fg, 13)
+    for i, ln in enumerate(legend):
+        text_at(16, 44 + len(title) * 19 + i * 17, ln, dimc, 11)
+    text_at(16, axis_y, T("tl_session"), dimc, 11)
+    text_at(width - 16, axis_y, T("tl_columns"), dimc, 11, "end")
+    for col, ts in timeline_ticks(a, b, bw, 58):
+        xx = lw + col
+        text_at(xx, axis_y, time.strftime("%H:%M", time.localtime(ts)), dimc, 10, "middle")
+        o.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="%s" stroke-dasharray="2 4"/>'
+                 % (xx, top - 5, xx, top + rh * len(rows) - 8, line))
     counts = {}
-    peak = max([tok for r in rows for _ts, tok in r["events"]] + [1])
     for i, r in enumerate(rows):
         y = top + i * rh
         if r["subagent"]:
@@ -5693,23 +5731,22 @@ def render_timeline_svg(tl, t=None, width=800, dark=True, today=True):
             name = r["label"].split("@")[0]
         else:
             counts[r["source"]] = counts.get(r["source"], 0) + 1
-            name = "%s %d" % (T("src").get(r["source"], r["source"]).split()[0], counts[r["source"]])
-        o.append('<text x="16" y="%d" fill="%s" font-size="11">%s</text>' % (y + 12, dimc if r["subagent"] else fg, escape(name)))
-        first, last = r["events"][0][0], r["events"][-1][0]
+            name = "%s %d" % (r["source"].title(), counts[r["source"]])
+        text_at(16, y + 12, clip(name, 19), localc if r["source"] == "local" else fg, 11)
+        first, last = r["segments"][0][0], r["segments"][-1][1]
+        text_at(16, y + 29, time.strftime("%H:%M", time.localtime(first)) + "–" + time.strftime("%H:%M", time.localtime(last)), dimc, 10)
         o.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="%s" stroke-dasharray="2 3"/>'
-                 % (x(first), y + 8, x(last), y + 8, line))
+                 % (x(first), y + 9, x(last), y + 9, dimc))
         for sa, sb in r["segments"]:
-            toks = [tok for ts, tok in r["events"] if sa <= ts <= sb]
-            dens = min(1.0, math.sqrt(sum(toks) / float(peak * max(1, len(toks)))))
-            o.append('<rect x="%.1f" y="%d" width="%.1f" height="12" rx="2" fill="%s" opacity="%.2f"/>'
-                     % (x(sa), y + 2, max(2.0, x(sb) - x(sa)), fg, 0.35 + 0.65 * dens))
-    hours = int((b - a) // 3600)
-    step = next(s_ for s_ in (1, 2, 3, 4, 6, 12) if bw / float(hours) * s_ >= 40)
-    ya = top + rh * max(1, len(rows)) + 16
-    for hh in range(0, hours + 1, step):
-        xx = lw + bw * hh * 3600.0 / (b - a)
-        o.append('<text x="%.1f" y="%d" fill="%s" font-size="10" text-anchor="middle">%s</text>'
-                 % (xx, ya, dimc, time.strftime("%H:00", time.localtime(a + hh * 3600))))
+            o.append('<rect x="%.1f" y="%d" width="%.1f" height="8" rx="2" fill="%s"/>'
+                     % (x(sa), y + 5, max(2.0, min(bw, x(sb) - x(sa))), localc if r["source"] == "local" else fg))
+        text_at(width - 16, y + 12, fmt_dur(sum(sb - sa for sa, sb in r["segments"])), fg, 12, "end")
+        text_at(width - 16, y + 29, fmt_tok(r["tokens"]) + " token", dimc, 10, "end")
+    if tl["start"] <= t < tl["end"] and a <= t <= b:
+        o.append('<line x1="%.1f" y1="%d" x2="%.1f" y2="%d" stroke="%s" stroke-width="2"/>'
+                 % (x(t), top - 5, x(t), top + rh * len(rows) - 8, fg))
+    for i, ln in enumerate(foot):
+        text_at(16, top + rh * max(1, len(rows)) + 13 + i * 17, ln, dimc, 11)
     o.append("</svg>")
     return "\n".join(o)
 
@@ -6173,8 +6210,11 @@ UI = {
         "gd_limit": "%s: %d%% left, resets in %s", "gd_budget": "this month is heading for $%d, over the $%d budget",
         "gd_hint": "Prefer fewer, smaller subagents and finish what is open.",
         "gd_strict": "Strict mode: no new subagents until it resets. Finish in this session or check with the user.",
-        "tl_sum": "Today your agents worked %.1f hours, up to %d at once",
-        "tl_sum_day": "That day your agents worked %.1f hours, up to %d at once", "tl_top": "; the priciest hour was %s (%s)",
+        "tl_sum": "Accumulated today · Claude/Codex %.1fh · local inference %.1fh",
+        "tl_sum_day": "Accumulated · Claude/Codex %.1fh · local inference %.1fh", "tl_top": "Peak API-equivalent hour: %s (%s)",
+        "tl_local": "Local", "tl_asof": "as of %s", "tl_session": "SESSION / MODEL",
+        "tl_columns": "ACTIVE / TOKENS", "tl_legend": "━ activity   · gaps   │ hour   ┃ now   ↶ from yesterday",
+        "tl_estimate": "Estimated from requests ≤5m apart; durations add across sessions.",
         "tl_none": "No agent activity today yet.", "tl_sub": "subagents", "tl_more": "+%d more sessions",
         "tl_peak": "most at once: %d at %s", "tl_long": "longest stretch: %s (%s)", "tl_idle": "longest wait: %s from %s",
         "tab_timeline": "TIMELINE",
@@ -6419,8 +6459,11 @@ UI = {
         "gd_limit": "%s 剩 %d%%，%s 後重置", "gd_budget": "這個月預估 $%d，超過預算 $%d",
         "gd_hint": "少派、派小一點的 subagent，先把手上的做完。",
         "gd_strict": "嚴格模式：重置前不再派新的 subagent。在這個 session 裡做完，或先問使用者。",
-        "tl_sum": "今天 agent 替你工作 %.1f 小時，最多 %d 個同時",
-        "tl_sum_day": "那天 agent 替你工作 %.1f 小時，最多 %d 個同時", "tl_top": "，花最多的是 %s 那一段（%s）",
+        "tl_sum": "今日累計 · Claude/Codex %.1f 小時 · 本地推論 %.1f 小時",
+        "tl_sum_day": "當日累計 · Claude/Codex %.1f 小時 · 本地推論 %.1f 小時", "tl_top": "API 等值最高時段：%s（%s）",
+        "tl_local": "本地", "tl_asof": "截至 %s", "tl_session": "SESSION / 模型",
+        "tl_columns": "累計 / TOKEN", "tl_legend": "━ 活動區段   · 請求空檔   │ 整點   ┃ 現在   ↶ 跨日",
+        "tl_estimate": "依相隔 ≤5 分鐘的請求推估活動；時數為各列相加。",
         "tl_none": "今天還沒有 agent 在工作。", "tl_sub": "subagent", "tl_more": "還有 %d 個 session",
         "tl_peak": "最多同時 %d 個（%s）", "tl_long": "最長連續 %s（%s）", "tl_idle": "最久空等 %s（%s 起）",
         "tab_timeline": "時間軸",
