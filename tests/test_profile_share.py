@@ -1,4 +1,5 @@
 import json
+import base64
 import os
 import tempfile
 import time
@@ -91,3 +92,49 @@ class ProfileShare(unittest.TestCase):
                 self.assertNotIn('nan', svg.lower())
         finally:
             db.close()
+
+    def test_cli_uses_saved_palette_and_exports_only_selected_report(self):
+        box = helpers.Sandbox()
+        self.addCleanup(box.close)
+        os.makedirs(box.data, exist_ok=True)
+        db = self.m.open_ledger(os.path.join(box.data, 'ledger.sqlite'))
+        try:
+            seed(self.m, db)
+            db.commit()
+        finally:
+            db.close()
+        result = box.run('--set', 'card.style=amber')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            svg_path = os.path.join(tmp, 'share.svg')
+            html_path = os.path.join(tmp, 'share.html')
+            result = box.run('--profile', '2026-09', '--svg', svg_path, '--html', html_path,
+                             '--who', 'hawks', '--lang', 'zh', '--no-sync')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with open(svg_path, encoding='utf-8') as f:
+                svg = f.read()
+            with open(html_path, encoding='utf-8') as f:
+                page = f.read()
+            self.assertIn('#a78bfa', svg)
+            self.assertIn('width="1080" height="1080"', svg)
+            self.assertNotIn('2026.08', svg)
+            self.assertNotIn('year-2026', page)
+            uri = page.split('src="data:image/svg+xml;base64,', 1)[1].split('"', 1)[0]
+            self.assertEqual(base64.b64decode(uri).decode('utf-8'), svg)
+            result = box.run('--profile', '--share-layout', 'portrait', '--card-style', 'matrix',
+                             '--svg', svg_path, '--no-sync')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with open(svg_path, encoding='utf-8') as f:
+                svg = f.read()
+            self.assertIn('#00ff9c', svg)
+            self.assertIn('height="1350"', svg)
+
+    def test_cli_share_stdout_and_json_remain_distinct(self):
+        box = helpers.Sandbox()
+        self.addCleanup(box.close)
+        result = box.run('--profile', '--share-layout', 'wide', '--no-sync')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(ET.fromstring(result.stdout).attrib['width'], '1200')
+        result = box.run('--profile', '--share-layout', 'wide', '--json', '--no-sync')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['periods'][0]['tokens']['total'], 0)

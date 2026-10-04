@@ -13563,14 +13563,14 @@ def run(args, db):
             print("computai: wrote %s" % args.svg)
         if args.html:
             with open(args.html, "w", encoding="utf-8") as f:
-                f.write(render_profile_share_html(share) if args.share_layout else render_history_profile_html(d, args.who or "", key))
+                f.write(render_profile_share_html(share) if share is not None else render_history_profile_html(d, args.who or "", key))
             print("computai: wrote %s" % args.html)
         elif args.svg:
             pass
-        elif args.share_layout:
-            print(share, end="")
         elif args.json:
             emit(d, "", True)
+        elif args.share_layout:
+            print(share, end="")
         else:
             p = next(p for p in d["periods"] if p["key"] == key)
             display = dict(p["tokens"], start=p["start"] or d["coverage"]["first"] or d["generated_at"])
