@@ -10890,7 +10890,7 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
          (W, H, W, H, layout, e(title + " " + span + " " + short(total) + " tokens")),
          '<title>%s</title><desc>%s</desc>' % (e(title), e("%s; %s tokens; %s" % (span, format(total, ","),
              "; ".join("%s: %s" % (token_labels(zh)[k], format(b[k], ",")) for k in TOKEN_COLS)))),
-         '<style>text{font-family:%s}</style>' % CARD_FONT,
+         '<g font-family="%s">' % svg_escape(CARD_FONT),
          '<rect width="%d" height="%d" fill="%s"/>' % (W, H, bg)]
     def text(x, y, value, size=28, color=None, weight="400", room=None, anchor="start", ident=None):
         full = untrusted(str(value))
@@ -11016,8 +11016,178 @@ def render_mission_share_svg(d, selected="all", handle=None, layout="square", th
             text(588, 902, r["models"][0]["model"] if r["models"] else "—", 28, weight="700", room=410)
         text(48, H - 63, L("B＝十億，含重複快取讀取。推理已含於輸出。", "B = billion. Cache included; reasoning within output."), 26, meta, room=984)
         text(48, H - 25, L("依可見用量紀錄彙總", "Aggregated from observed usage records"), 22, meta, room=984)
-    o.append("</svg>\n")
+    o.append("</g></svg>\n")
     return "".join(o)
+
+
+CREATOR_CSS = r'''*{box-sizing:border-box}html{color-scheme:dark}body{margin:0;background:#0b0b0c;color:#f5f5f5;font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}header{border-bottom:1px solid #3a3a3a;padding:22px max(24px,calc((100vw - 1280px)/2));display:flex;align-items:center;justify-content:space-between;gap:24px}header b{letter-spacing:.18em;font:700 18px Menlo,Consolas,monospace}header span{color:#aaa}main{max-width:1280px;margin:auto;padding:32px 24px}h1{font-size:32px;line-height:1.3;margin:0 0 12px}h2{font-size:18px;margin:0 0 18px}.intro{max-width:820px;margin-bottom:26px}.intro p{margin:0;color:#aaa}.workspace{display:grid;grid-template-columns:320px minmax(0,1fr);gap:24px;align-items:start}.panel{background:#121214;border:1px solid #3a3a3a;border-radius:10px;padding:24px}label{display:block;font-weight:600;margin:0 0 18px}label small{display:block;color:#aaa;font-weight:400;margin-top:5px}select,input{display:block;width:100%;margin-top:8px;border:1px solid #555;border-radius:6px;padding:11px;background:#0b0b0c;color:#f5f5f5;font:inherit}button,a.download{font:inherit;font-weight:600;border:1px solid #666;border-radius:6px;padding:12px 16px;cursor:pointer;background:transparent;color:#f5f5f5}button.primary{background:#f5f5f5;color:#0b0b0c;border-color:#f5f5f5;width:100%;margin-top:10px}button:focus-visible,select:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid #fff;outline-offset:3px}button:disabled,select:disabled{opacity:.55;cursor:default}.secondary{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}.secondary button{flex:1}.preview-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:18px}.preview-head h2{margin:0}#dimensions,.muted{color:#aaa;font-size:13px}.preview-stage{background:#080809;border:1px solid #2e2e2e;border-radius:6px;padding:16px;display:flex;justify-content:center}#preview{width:100%;max-width:520px}#preview svg{display:block;width:100%;height:auto}#preview[data-layout="readme"],#preview[data-layout="wide"]{max-width:100%}.privacy{border-top:1px solid #3a3a3a;padding-top:18px;margin-top:20px;color:#aaa;font-size:13px}.privacy strong{color:#f5f5f5}#status{min-height:24px;margin:12px 0 0;color:#f5f5f5}#empty{border:1px solid #fbbf24;padding:16px;border-radius:6px;margin-bottom:24px}#empty[hidden]{display:none}details{margin-top:24px;color:#aaa}summary{cursor:pointer;color:#f5f5f5}details p{max-width:850px}textarea{width:100%;min-height:108px;background:#0b0b0c;color:#f5f5f5;border:1px solid #555;border-radius:6px;padding:12px;font:14px/1.6 Menlo,Consolas,monospace;margin-top:8px}footer{margin:24px 0;color:#aaa;font-size:13px}a{color:#f5f5f5}code{font-family:Menlo,Consolas,monospace;overflow-wrap:anywhere}noscript{display:block;padding:16px;border:1px solid #fbbf24;margin:16px 0}@media(max-width:760px){header{padding:18px 20px;align-items:flex-start}header span{max-width:190px;font-size:13px}main{padding:24px 16px}h1{font-size:26px}.workspace{grid-template-columns:1fr}.panel{padding:18px}.preview-stage{padding:0}.intro p{font-size:14px}}'''
+
+CREATOR_JS = r'''"use strict";
+const data=JSON.parse(document.getElementById("creator-data").textContent);
+const el=id=>document.getElementById(id);
+const period=el("period"),layout=el("layout"),theme=el("theme"),purpose=el("purpose"),name=el("name");
+let current=null,busy=false;
+const cleanName=()=>{let value=name.value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,"");let out="",width=0;for(const c of value){const n=c.codePointAt(0)>255?2:1;if(width+n>24)break;out+=c;width+=n;}return out;};
+function selection(){return data.periods.find(p=>p.key===period.value)||data.periods[0];}
+function filename(ext){return "computai-"+selection().key+"-"+layout.value+"-"+theme.value+"."+ext;}
+function serialized(){return new XMLSerializer().serializeToString(current);}
+function copyText(){const p=selection();const n=cleanName();return purpose.value==="readme"?"!["+(data.zh?"我的 AI 用量":"My AI usage")+"](./"+filename("svg")+")":(n?n+" · ":"")+p.caption+"\n\n"+data.captionFooter;}
+function update(){
+ const key=period.value+"/"+layout.value+"/"+theme.value;
+ const svg=new DOMParser().parseFromString(data.templates[key],"image/svg+xml").documentElement;
+ const label=svg.querySelector("#creator-name");if(label)label.textContent=cleanName();
+ const node=document.importNode(svg,true);el("preview").replaceChildren(node);current=node;
+ el("preview").dataset.layout=layout.value;
+ el("dimensions").textContent=svg.getAttribute("width")+" × "+svg.getAttribute("height")+" px";
+ el("copy-text").value=copyText();el("copy").textContent=purpose.value==="readme"?data.labels.copyReadme:data.labels.copyCaption;
+ el("copy-help").textContent=purpose.value==="readme"?data.labels.readmeHelp:data.labels.captionHelp;
+ el("status").textContent="";
+}
+function changePurpose(){layout.value=purpose.value==="readme"?"readme":"portrait";layout.disabled=purpose.value==="readme";update();}
+function download(blob,ext){const url=URL.createObjectURL(blob);const link=document.createElement("a");link.href=url;link.download=filename(ext);link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+[period,theme].forEach(node=>node.addEventListener("change",update));
+layout.addEventListener("change",()=>{purpose.value=layout.value==="readme"?"readme":"social";layout.disabled=purpose.value==="readme";update();});
+purpose.addEventListener("change",changePurpose);name.addEventListener("input",update);
+el("svg").addEventListener("click",()=>download(new Blob([serialized()],{type:"image/svg+xml;charset=utf-8"}),"svg"));
+el("png").addEventListener("click",async()=>{
+ if(busy)return;busy=true;el("png").disabled=true;
+ // 下載開始時保存選定圖像和檔名，避免切換預覽後檔名／尺寸對不上。
+ const svg=serialized(),outputName=filename("png");
+ const width=Number(current.getAttribute("width")),height=Number(current.getAttribute("height"));
+ let url=null;
+ try{el("status").textContent=data.labels.exporting;
+  const img=new Image();url=URL.createObjectURL(new Blob([svg],{type:"image/svg+xml;charset=utf-8"}));img.src=url;await img.decode();
+  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;
+  canvas.getContext("2d").drawImage(img,0,0,width,height);
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,"image/png"));if(!blob)throw new Error("PNG");
+  const out=URL.createObjectURL(blob),link=document.createElement("a");link.href=out;link.download=outputName;link.click();
+  setTimeout(()=>URL.revokeObjectURL(out),1000);el("status").textContent=data.labels.downloaded;
+ }catch(error){el("status").textContent=data.labels.pngFailed;}
+ finally{if(url)URL.revokeObjectURL(url);busy=false;el("png").disabled=!data.hasUsage;}
+});
+el("copy").addEventListener("click",async()=>{const text=el("copy-text").value;try{await navigator.clipboard.writeText(text);el("status").textContent=data.labels.copied;}catch(error){el("copy-area").open=true;el("copy-text").focus();el("copy-text").select();el("status").textContent=data.labels.manualCopy;}});
+update();if(!data.hasUsage){["png","svg","copy"].forEach(id=>el(id).disabled=true);}
+'''
+
+
+def render_creator_html(d, handle="", selected=None, lang=None):
+    """本機製卡工具；頁面持有彙總，下載只包含當下選定的一張圖。"""
+    import html
+    zh = (lang or _lang) == "zh"
+    def L(z, e):
+        return z if zh else e
+    periods = d["periods"]
+    keys = {p["key"] for p in periods}
+    if selected is not None and selected not in keys:
+        raise ValueError("No observed history for %s" % selected)
+    # 第一張採最近一個已結束、已有紀錄的月份；新使用者則用最新月份。
+    selected = selected or next((p["key"] for p in periods if p["kind"] == "month" and not p["in_progress"]),
+                               next((p["key"] for p in periods if p["kind"] == "month"), "all"))
+    templates, choices, captions = {}, [], []
+    for p in periods:
+        label = (L("累計歷史", "All observed history") if p["kind"] == "all" else
+                 p["label"] + L(" 年", " year") if p["kind"] == "year" else p["label"])
+        if p["in_progress"]:
+            label += L(" · 截至目前", " · so far")
+        choices.append('<option value="%s"%s>%s</option>' %
+                       (html.escape(p["key"], quote=True), ' selected' if p["key"] == selected else '', html.escape(label)))
+        # 從所選區間圖像擷取相同的可見範圍，貼文不暗示完整帳號歷史。
+        first = max(p["start"], d["coverage"]["first"] or p["end"] - 1)
+        date = lambda ts: time.strftime("%Y-%m-%d", time.localtime(ts))
+        caption = L("我的 AI 用量", "My AI usage") + " · " + date(first) + " ~ " + date(p["end"] - 1)
+        caption += "\n" + format(p["tokens"]["total"], ",") + L(" token 處理量", " tokens processed")
+        caption += "\n" + L("輸出", "Output") + " " + format(p["tokens"]["buckets"]["output"], ",") + " token"
+        if p["in_progress"] or p["history_starts_late"]:
+            caption += "\n" + L("此區間仍在進行，或只有部分歷史。", "This period is ongoing or has partial history.")
+        captions.append({"key": p["key"], "caption": caption})
+        for layout in CREATOR_LAYOUTS:
+            for theme in ("dark", "light"):
+                templates[p["key"] + "/" + layout + "/" + theme] = render_mission_share_svg(d, p["key"], "", layout, theme, lang)
+    data = {"zh": zh, "hasUsage": bool(periods[0]["tokens"]["total"]), "periods": captions, "templates": templates,
+            "captionFooter": L("含重複快取讀取；推理已含於輸出。依本機可見紀錄彙總。", "Includes repeated cache reads; reasoning is within output. Based on observed local usage.") +
+                "\n\nComputAI · https://github.com/Sean-Hawks/computai",
+            "labels": {"copyReadme": L("複製 README 語法", "Copy README snippet"), "copyCaption": L("複製貼文文字", "Copy caption"),
+                "readmeHelp": L("把下載的 SVG 放在 README 同一層，再貼上這段語法。", "Place the downloaded SVG next to your README, then paste this snippet."),
+                "captionHelp": L("可修改下方文字，再貼到 Threads 或其他社群。", "Edit the text below before posting to Threads or another social app."),
+                "exporting": L("正在製作 PNG…", "Creating PNG…"), "downloaded": L("已準備下載，可以直接分享。", "Download ready to share."),
+                "pngFailed": L("PNG 匯出失敗，請下載 SVG 或換個瀏覽器。", "PNG export failed. Download SVG or try another browser."),
+                "copied": L("已複製。", "Copied."), "manualCopy": L("請按 ⌘C／Ctrl+C 複製選取的文字。", "Press ⌘C / Ctrl+C to copy the selected text.")}}
+    payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    fallback = render_mission_share_svg(d, selected, clip(untrusted(handle), 24), "portrait", lang=lang)
+    import base64
+    uri = "data:image/svg+xml;base64," + base64.b64encode(fallback.encode("utf-8")).decode("ascii")
+    # script/CSS 為固定程式；資料 script 只含經 escaping 的彙總，無可執行插值。
+    return ('<!doctype html><html lang="%s"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<meta name="referrer" content="no-referrer"><title>ComputAI · %s</title><style>%s</style></head><body>'
+            '<header><b>COMPUTAI</b><span>%s</span></header><main><div class="intro"><h1>%s</h1><p>%s</p></div>'
+            '<div id="empty"%s>%s</div><div class="workspace"><section class="panel"><h2>%s</h2>'
+            '<label>%s<select id="purpose"><option value="social">%s</option><option value="readme">%s</option></select></label>'
+            '<label>%s<select id="period">%s</select></label>'
+            '<label>%s<select id="layout"><option value="portrait">%s</option><option value="square">%s</option><option value="wide">%s</option><option value="readme">%s</option></select></label>'
+            '<label>%s<select id="theme"><option value="dark">%s</option><option value="light">%s</option></select></label>'
+            '<label>%s<input id="name" maxlength="24" value="%s" autocomplete="off"><small>%s</small></label>'
+            '<button id="png" class="primary">%s</button><div class="secondary"><button id="svg">%s</button><button id="copy">%s</button></div>'
+            '<p id="status" role="status" aria-live="polite"></p><p class="privacy"><strong>%s</strong><br>%s</p></section>'
+            '<section class="panel"><div class="preview-head"><h2>%s</h2><span id="dimensions"></span></div>'
+            '<div class="preview-stage"><div id="preview"></div></div><noscript>%s<br><img src="%s" width="270" alt="ComputAI"> <a href="%s" download="computai-share.svg">SVG</a></noscript>'
+            '<details id="copy-area"><summary>%s</summary><p id="copy-help"></p><textarea id="copy-text" aria-label="%s"></textarea></details></section></div>'
+            '<details><summary>%s</summary><p>%s</p><p>%s</p></details><footer>%s</footer></main>'
+            '<script type="application/json" id="creator-data">%s</script><script>%s</script></body></html>') % (
+        "zh-Hant" if zh else "en", L("做我的圖卡", "Make my card"), CREATOR_CSS,
+        L("本機製作 · 用量留在你的電腦", "Made locally · your usage stays here"),
+        L("你的 AI 用量，一張圖就能分享。", "Your AI usage, ready to share."),
+        L("選範圍 → 選版型 → 下載。社群用 PNG，README 用 SVG。", "Choose a period → choose a layout → download. PNG for social, SVG for your README."),
+        " hidden" if data["hasUsage"] else "", L("目前找不到本機用量。請在使用 AI 工具的電腦執行 computai --create；GUI 須有支援的本機 usage log。可用 computai --doctor 檢查來源。", "No local usage found. Run computai --create on the computer where you use AI tools; your GUI must save supported local usage logs. Check sources with computai --doctor."),
+        L("做你的第一張", "Make your first card"), L("用途", "Use"), L("Threads／社群分享", "Threads / social"), L("GitHub README", "GitHub README"),
+        L("用量範圍", "Period"), "".join(choices), L("版型", "Layout"), L("直式 · 4:5", "Portrait · 4:5"), L("方形 · 1:1", "Square · 1:1"), L("橫式 · 1200×630", "Wide · 1200×630"), L("README 橫幅", "README banner"),
+        L("外觀", "Appearance"), L("深色 · Web／TUI", "Dark · Web / TUI"), L("淺色", "Light"), L("顯示名稱（選填）", "Display name (optional)"), html.escape(clip(untrusted(handle), 24), quote=True),
+        L("不會自動顯示帳號、專案或機器名稱。", "Account, project and machine names are not added automatically."),
+        L("下載 PNG", "Download PNG"), L("下載 SVG", "Download SVG"), L("複製貼文文字", "Copy caption"),
+        L("只讀用量，不讀對話。", "Usage only, no conversations."), L("無需登入、不上傳，不觸發模型推論。下載只含目前選定的圖卡。", "No login, uploads or model calls. Downloads contain only the selected card."),
+        L("分享預覽", "Share preview"), L("啟用 JavaScript 可切換版型與下載 PNG；也可直接下載下方 SVG。", "Enable JavaScript to change layouts and download PNG, or download this SVG."), uri, uri,
+        L("貼文／README 文字", "Caption / README text"), L("可複製的分享文字", "Share text to copy"),
+        L("更多風格、自動更新與 GitHub 發佈", "More styles, automatic updates and GitHub publishing"),
+        L("下載 SVG 就能手動放進 README。想比較既有 10 種 card 風格：", "Download an SVG to add it manually to a README. To compare the existing 10 card styles:") + ' <code>computai --card --html styles.html --no-sync</code>',
+        L("要設定 GitHub 發佈與每日更新，再使用 computai --card 的精靈；這一步可以之後再做。", "Use the computai --card wizard later to configure GitHub publishing and daily updates."),
+        L("這是私人製卡工具頁，內含可選月份的彙總。請分享下載的 PNG／SVG，勿分享此 HTML。重新執行 --create 可更新本機歷史。", "This private creator page holds aggregates for selectable periods. Share downloaded PNG / SVG files, rather than this HTML. Run --create again to refresh local history."),
+        payload, CREATOR_JS)
+
+
+def creator_csp(page):
+    """只允許這份離線頁的固定程式與資料，不對其他 Web 路由放寬 CSP。"""
+    import base64
+    import hashlib
+    def hashes(tag):
+        return " ".join("'sha256-%s'" % base64.b64encode(hashlib.sha256(s.encode("utf-8")).digest()).decode("ascii")
+                        for s in re.findall(r"<%s(?:\s[^>]*)?>(.*?)</%s>" % (tag, tag), page, re.S))
+    return ("default-src 'none'; script-src %s; style-src %s; img-src data: blob:; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'") % (hashes("script"), hashes("style"))
+
+
+def open_creator(db, output=None, handle="", selected=None, lang=None, launch=True):
+    """不啟動 server／watch。以 600 暫存檔原子寫入本機工具页。"""
+    import tempfile
+    path = os.path.abspath(os.path.expanduser(output or os.path.join(data_dir(), "creator.html")))
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    page = render_creator_html(history_profile(db), handle, selected, lang)
+    fd, temp = tempfile.mkstemp(prefix=".computai-creator-", suffix=".tmp", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(page)
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.unlink(temp)
+    opened = False
+    if launch:
+        import pathlib
+        import webbrowser
+        try:
+            opened = webbrowser.open(pathlib.Path(path).as_uri())
+        except (OSError, webbrowser.Error):
+            pass
+    return path, opened
 
 
 def render_profile_share_svg(d, selected="all", handle=None, layout="square", style=None,
@@ -13295,6 +13465,8 @@ def parse_args(argv=None):
     p.add_argument("--report", action="store_true",
                    help="monthly report: summary, projects, machines and analysis (use with --month)")
     p.add_argument("--html", metavar="FILE", help="with --profile, --report, --recap or --wrapped: write an HTML page; with --card: a style gallery")
+    p.add_argument("--create", action="store_true", help="import local usage and open the private card creator; choose a period/layout and download PNG or SVG")
+    p.add_argument("--no-open", action="store_true", help="with --create: write the creator page without opening a browser")
     p.add_argument("--profile", nargs="?", const="all", metavar="all|YYYY-MM|YYYY",
                    help="personal usage profile with selectable monthly and annual reports; imports local usage logs only; "
                         "use --html FILE for a private page, or --json for aggregate data")
@@ -13382,12 +13554,12 @@ def main(argv=None):
         print("ledger: " + data_dir())
         return 0
     first = ensure_config()
-    if first and not (args.json or args.setup or args.statusline or args.line or args.mcp) and sys.stderr.isatty():
+    if first and not (args.json or args.create or args.setup or args.statusline or args.line or args.mcp) and sys.stderr.isatty():
         sys.stderr.write("computai: first run - settings are in %s. Run `computai --setup` to tailor them "
                          "(plans, machines, power), or `computai --doctor` to see what is detected.\n" % config_dir())
     db = open_ledger()
     # 給人看的指令才查新版（背景、一天一次）；給程式讀的輸出（--json、statusline、MCP）不碰網路也不多印字
-    human = sys.stderr.isatty() and not (args.json or args.statusline or args.line or args.mcp or args.profile is not None or args.local_history is not None or args.local_requests is not None)
+    human = sys.stderr.isatty() and not (args.create or args.json or args.statusline or args.line or args.mcp or args.profile is not None or args.local_history is not None or args.local_requests is not None)
     if human:
         check_update_in_background()
     try:
@@ -13419,7 +13591,7 @@ def local_hostname():
     return socket.gethostname().split(".")[0] or "local"
 
 
-ACTIONS = ("tokens", "local_requests", "local_history", "import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
+ACTIONS = ("create", "tokens", "local_requests", "local_history", "import_cursor", "team", "local_cost", "timeline", "hook", "pick", "export_usage", "setup", "doctor", "set", "unset", "sync", "summary", "line", "statusline", "sample", "cloud", "proxy", "analyze", "live", "web",
            "watch", "notify_test", "install_watch", "uninstall_watch", "bench", "limit_reset", "codex_limits",
            "profile", "report", "once", "discover", "csv", "mcp", "recap", "wrapped", "card", "weekly", "wake", "totals", "lab")
 
@@ -13724,6 +13896,18 @@ def run(args, db):
             for name, ok_, msg in res:
                 print("computai: %s %s (%s)" % (name, "sent" if ok_ else "failed", msg))
             return 0 if all(r[1] for r in res) else 1
+        return 0
+    if args.create:
+        if not args.no_sync:
+            sync(db, only=("claude", "codex", "gemini", "opencode", "cursor"), quiet=True)
+        selected = None if args.profile is None else "all" if args.profile == "all" else ("month-" if len(args.profile) == 7 else "year-") + args.profile
+        try:
+            path, opened = open_creator(db, args.html, args.who or "", selected, args.lang or _lang, not args.no_open)
+        except ValueError as e:
+            raise SystemExit("computai: " + str(e))
+        print(("製卡頁：" if _lang == "zh" else "Card creator: ") + path)
+        if not opened and not args.no_open:
+            print("請開啟上面的 HTML 檔案。" if _lang == "zh" else "Open the HTML file above in your browser.")
         return 0
     if args.profile is not None:
         if not args.no_sync:
