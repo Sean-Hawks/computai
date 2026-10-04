@@ -2,6 +2,7 @@ import http.server
 import json
 import os
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -166,8 +167,15 @@ class EndToEnd(unittest.TestCase):
             self.post("/nope", {})
         cm.exception.close()
         db = self.m.open_ledger()
-        rows = db.execute("SELECT model, input, output, project, cost_usd FROM usage ORDER BY rowid").fetchall()
-        db.close()
+        try:
+            deadline = time.monotonic() + 2
+            while True:
+                rows = db.execute("SELECT model, input, output, project, cost_usd FROM usage ORDER BY rowid").fetchall()
+                if len(rows) >= 3 or time.monotonic() >= deadline:
+                    break
+                time.sleep(0.01)  # 完整收到回應時，另一執行緒可能還沒完成記帳
+        finally:
+            db.close()
         # 用量在回應送出之後才寫進帳本，三筆寫入的先後不一定，比內容就好
         self.assertEqual(sorted(tuple(r) for r in rows), [("qwen3:0.6b", 11, 10, "box", 0.0),
                                                           ("qwen3:0.6b", 11, 10, "box", 0.0),
