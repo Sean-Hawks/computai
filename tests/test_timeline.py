@@ -1,6 +1,9 @@
+import io
 import os
+import re
 import time
 import unittest
+from unittest import mock
 
 from tests import helpers
 
@@ -85,6 +88,30 @@ class Timeline(unittest.TestCase):
         text = self.m.render_live(st, 60, theme_name="cyber", height=30, view="timeline")
         self.assertIn("TIMELINE", text)
         self.assertTrue(all(self.m.vlen(ln) <= 60 for ln in text.splitlines()))
+
+    def test_cli_keeps_color_codes_and_sanitizes_labels(self):
+        tl = self.m.timeline_data(self.db, prices={})
+        tl["rows"][0]["label"] = "alpha\x1b[2J\x07"
+        args = self.m.parse_args(["--timeline", "--no-sync", "--lang", "zh"])
+        for color in (True, False):
+            with self.subTest(color=color):
+                out = io.StringIO()
+                with mock.patch.object(self.m, "timeline_data", return_value=tl), \
+                        mock.patch.object(self.m, "use_color", return_value=color), \
+                        mock.patch.object(self.m, "can_draw_blocks", return_value=True), \
+                        mock.patch.object(self.m.shutil, "get_terminal_size", return_value=os.terminal_size((80, 40))), \
+                        mock.patch("sys.stdout", out):
+                    self.assertEqual(self.m.run(args, self.db), 0)
+                text = out.getvalue()
+                self.assertIn("今天 agent", text)
+                self.assertNotIn("\x1b[2J", text)
+                self.assertNotIn("\x07", text)
+                self.assertEqual("\x1b[" in text, color)
+                plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+                self.assertNotIn("[38;", plain)
+                self.assertNotIn("[1m", plain)
+                self.assertNotIn("[0m", plain)
+                self.assertTrue(all(self.m.vlen(line) <= 80 for line in text.splitlines()))
 
 
 if __name__ == "__main__":

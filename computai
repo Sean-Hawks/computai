@@ -12167,7 +12167,8 @@ def run(args, db):
             print(json.dumps(tl, ensure_ascii=False, indent=2))
             return 0
         set_style(use_color(), not can_draw_blocks())
-        print(untrusted("\n".join(render_timeline(tl, shutil.get_terminal_size((100, 40)).columns))))
+        # 先清理資料裡的控制字元，再產生可信的 ANSI 樣式；不能把畫好的色碼只去掉 ESC。
+        print("\n".join(render_timeline(clean_strings(tl), shutil.get_terminal_size((100, 40)).columns)))
         return 0
     if args.hook:   # 只讀帳本，不同步、不連網
         return run_hook(db, args.hook.split("-", 1)[1])
