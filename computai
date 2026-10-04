@@ -687,6 +687,7 @@ CREATE TABLE IF NOT EXISTS limits (
     plan TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (source, name, ts)
 );
+CREATE INDEX IF NOT EXISTS limits_source_ts ON limits (source, ts);
 CREATE TABLE IF NOT EXISTS files (
     path TEXT PRIMARY KEY,
     size INTEGER NOT NULL,
