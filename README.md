@@ -156,6 +156,9 @@ alone. The single HTML includes all observed periods and stays local; nothing is
 The published beta.1 does not include this feature.
 
 Use `computai --create` for a preview, period/layout selection and PNG/SVG downloads, including a README banner.
+Monthly recaps show source date coverage, record counts and comparison with the adjacent calendar month;
+missing records remain unknown. Supported GUI logs and recorded local-model usage can share one recap;
+web-only chat is outside this first version. The creator also exports aggregates for just the selected period as JSON.
 The default follows the calm Web/TUI design. For scripted single-image exports:
 
 ```sh
