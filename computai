@@ -4542,7 +4542,8 @@ def forecast(db, t=None, ps=None, month_machines=None):
     elapsed = max((t - start) / 86400.0, 1 / 24.0)
     remaining = max((end - t) / 86400.0, 0.0)
     s = summary(db, start, min(end, t + 1), plan_table={})
-    fixed = sum(p["usd"] for p in plans().values())
+    plan_table = plans()
+    fixed = sum(p["usd"] for p in plan_table.values())
     variable = {x["source"]: x["cost_usd"] for x in s["sources"]
                 if x["source"] not in SUBSCRIPTION_SOURCES and x["source"] != "local"}
     if month_machines is None:
@@ -4565,6 +4566,7 @@ def forecast(db, t=None, ps=None, month_machines=None):
             subs[x["source"]] = round(x["cost_usd"] / elapsed * (elapsed + remaining), 2)
     budget = _float(load_config().get("budget", "monthly_usd", fallback="0"), 0.0)
     out = {"month": label, "days_left": round(remaining, 1), "subscriptions_usd": round(fixed, 2),
+           "subscription_by_source": plan_table,
            "variable_so_far_usd": round(mtd, 2), "variable_by_source": {k: round(v, 2) for k, v in variable.items()},
            "daily_rate_usd": round(rate, 2), "projected_usd": round(projected, 2),
            "subscription_value_projected": subs, "budget_usd": budget or None, "over_budget": None}
@@ -8171,6 +8173,35 @@ def machine_row(m, width):
         bits.append((rgb(GREEN, loaded[0]) if busy else dim(loaded[0])) +
                     (rgb(GREEN, " %.0f tok/s" % rate) if rate else ""))
     return clip("  ".join(bits), width)
+
+
+def spend_summary(st):
+    """從既有快照分開設定月費、已記錄變動費和訂閱 API 等值，不把預估當帳單。"""
+    forecast_ = st["forecast"]
+    subscriptions = forecast_.get("subscription_by_source")
+    if subscriptions is None:
+        subscriptions = {row["source"]: row["plan"] for row in st["sources"] if row.get("plan")}
+    sources = {row["source"]: row for row in st["sources"]}
+    providers = []
+    for source in sorted(set(subscriptions) | (set(sources) & set(SUBSCRIPTION_SOURCES))):
+        usage = sources.get(source, {})
+        plan = subscriptions.get(source)
+        value = usage.get("cost_usd", 0.0)
+        fee = plan["usd"] if plan else None
+        providers.append({"source": source, "name": plan["name"] if plan else "",
+                          "fee_usd": fee, "value_usd": value,
+                          "tokens": usage.get("tokens", 0),
+                          "ratio": value / fee if fee and source in SUBSCRIPTION_SOURCES else None})
+    payments = [{"source": row["source"], "usd": row["fee_usd"], "name": row["name"]}
+                for row in providers if row["fee_usd"] is not None]
+    payments.extend({"source": source, "usd": cost, "name": ""}
+                    for source, cost in sorted(forecast_.get("variable_by_source", {}).items()))
+    known = forecast_["subscriptions_usd"] + forecast_["variable_so_far_usd"]
+    return {"known_usd": known, "projected_usd": forecast_["projected_usd"],
+            "remaining_usd": max(0.0, forecast_["projected_usd"] - known),
+            "value_usd": sum(row["value_usd"] for row in providers if row["source"] in SUBSCRIPTION_SOURCES),
+            "payments": payments, "providers": [row for row in providers if row["source"] in SUBSCRIPTION_SOURCES],
+            "missing_plans": [row["source"] for row in providers if row["fee_usd"] is None]}
 
 
 def spend_lines(st, width):
