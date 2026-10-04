@@ -75,6 +75,69 @@ class Dashboard(unittest.TestCase):
         self.db.execute("UPDATE samples SET ts = ?", (t + 302,))
         self.assertFalse(self.m.latest_samples(self.db, t=t + 302)[0]["stale"])
 
+    def test_failed_poll_is_one_node_and_recovers(self):
+        self.m.set_lang("en")
+        self.m.machine_errors["mac"] = "mac: cannot read: synthetic timeout"
+        st = self.m.dashboard_state(self.db)
+        self.assertEqual(self.m.machine_connectivity(st)[:2], (0, 1))
+        for ascii_ in (False, True):
+            text = self.m.render_live(st, 120, ascii_=ascii_, theme_name="cyber", view="overview")
+            self.assertIn("0/1 NODES ONLINE", text)
+            rows = [ln for ln in text.splitlines() if ln.startswith(("│", "|")) and " mac " in ln and ("DOWN" in ln or "cannot be reached" in ln or "generating" in ln or "stale" in ln or "idle" in ln)]
+            self.assertEqual(len(rows), 1, rows)
+        nodes = [r for r in self.m.boot_checks(st) if r[0] == "NODE  mac"]
+        self.assertEqual(nodes, [("NODE  mac", "OFFLINE", "fail")])
+        self.m.sample_machines(self.db)
+        st = self.m.dashboard_state(self.db)
+        self.assertEqual(self.m.machine_connectivity(st)[:2], (1, 1))
+
+    def test_stale_and_never_sampled_nodes_do_not_count_online(self):
+        self.m.set_lang("en")
+        os.environ["COMPUTAI_FAKE_NOW"] = "1790000301"
+        st = self.m.dashboard_state(self.db)
+        self.assertEqual(self.m.machine_connectivity(st)[:2], (0, 1))
+        self.assertIn("0/1 NODES ONLINE", self.m.hud_header(st, 120, ""))
+        self.assertEqual([r[1].split()[0] for r in self.m.boot_checks(st) if r[0] == "NODE  mac"], ["STALE"])
+        st["alerts"] += [{"kind": "machine_unreachable", "machine": "new", "message": "new timeout"}] * 2
+        self.assertEqual(self.m.machine_connectivity(st)[:2], (0, 2))
+
+    def test_web_machine_table_counts_unique_nodes_and_recovers(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node is needed for the Web DOM check")
+        fn = self.m.WEB_JS.split("function machineTable(st)", 1)[1].split("const MIX_COLORS", 1)[0]
+        script = r"""
+const assert = require('assert');
+const t = {h_nodes:'NODES', h_online:'%s/%s ONLINE', h_down:'DOWN', w_stale:'STALE', idle:'IDLE', busy:'BUSY'};
+function el(tag, attrs, ...children) {return {tag, children, append(...c) {this.children.push(...c);}};}
+function fmt(s, ...args) {return args.reduce((s, a) => s.replace('%s', a), s);}
+function hd(a,b) {return el('header', {}, a,b);}
+function mini() {return '';}
+function content(e) {return typeof e === 'object' ? e.children.map(content).join(' ') : String(e);}
+""" + "function machineTable(st)" + fn + r"""
+const machine = {machine:'box', stale:false, loaded:[]};
+const error = {kind:'machine_unreachable', machine:'box'};
+for (const m of [machine, {...machine, stale:true}]) {
+  const card = machineTable({machines:[m], alerts:[error,error]});
+  assert(content(card).includes('0/1 ONLINE'));
+  assert.equal(card.children[1].children.length, 2); // header and one node
+  assert(content(card).includes('DOWN'));
+}
+const missing = machineTable({machines:[], alerts:[error]});
+assert(content(missing).includes('0/1 ONLINE'));
+assert.equal(missing.children[1].children.length,2);
+const recovered = machineTable({machines:[machine], alerts:[]});
+assert(content(recovered).includes('1/1 ONLINE'));
+assert(!content(recovered).includes('DOWN'));
+const stale = machineTable({machines:[{...machine, stale:true}], alerts:[]});
+assert(content(stale).includes('0/1 ONLINE'));
+assert(content(stale).includes('STALE'));
+"""
+        result = subprocess.run([node, "-e", script], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_live_render_has_three_areas(self):
         text = self.m.render_live(self.st, 90)
         for title in ("COMPUTE", "AI SUBSCRIPTIONS", "ALERTS", "\u2500 mac "):

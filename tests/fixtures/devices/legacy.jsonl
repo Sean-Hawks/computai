@@ -1,0 +1,5 @@
+{"computai_export":1,"device":"fixture-box","name":"Demo box","written":1790037000,"cols":["source","uid","ts","model","project","input","cache_read","cache_write_5m","cache_write_1h","output","reasoning","requests","subagent"]}
+["codex","demo-a1",1790035800,"demo-model","demo",10,0,0,0,20,5,1,0]
+["codex","demo-a2",1790036040,"demo-model","demo",10,0,0,0,20,5,1,0]
+["codex","demo-b1",1790035920,"demo-model","demo",10,0,0,0,20,5,1,0]
+["codex","demo-b2",1790036160,"demo-model","demo",10,0,0,0,20,5,1,0]

@@ -202,8 +202,9 @@ OPENAI_ADMIN_KEY = ...
 額度是整個帳號的，但 token 和花費來自這台的 log。要把筆電、公司電腦或 homelab 加進來（[細節](MULTI-DEVICE.md)）：
 
 - **共用資料夾**（推薦）：每台都 `computai --set devices.folder=路徑`，指向一個它們都會同步的資料夾（iCloud Drive、
-  Dropbox、Syncthing、私人 git repo）。每台把自己的用量寫進去（只有用量數字，沒有 prompt、路徑和 session id），
+  Dropbox、Syncthing、私人 git repo）。每台把自己的用量寫進去（沒有 prompt 或完整路徑，session id 只留裝置／來源範圍內的單向雜湊），
   再讀別台的。`devices.name` 設定顯示的名字。
+  匿名 session 修正目前在 beta.2 開發版；已匯入的舊資料可依[升級步驟](MULTI-DEVICE.md#從沒有-session-的舊格式升級)補回分組。
 - **SSH 拉取**：`[machines]` 裡的機器加上 `[machine.X] usage = pull`。ComputAI 會把自己複製到對方的
   `~/.cache/computai`（對方只需要 `python3`），再執行 `computai --export-usage`。
 
@@ -610,6 +611,11 @@ agent 可以透過 MCP 的 `pick` 工具問同一個問題。
   裡這台的 key 記在別的名字下：改用你平常 ssh 用的名字或 IP（Tailscale 的機器常常是 100.x 的位址），
   或先手動 `ssh 主機` 一次。
 - *「ignoring secrets.ini」*：`chmod 600 ~/.config/computai/secrets.ini`。
+- *Tailscale 在線，但 SSH 一直逾時*：若錯誤是 `Tailscale SSH requires an additional check`，
+  在終端執行 `ssh 帳號@主機`，開啟它印出的驗證網址並登入。
+  Tailscale 的 [SSH check mode](https://tailscale.com/docs/features/tailscale-ssh) 會在驗證期限到期後再次要求登入；
+  `BatchMode=yes` 無法代替你完成瀏覽器驗證。完成後 ComputAI 下次取樣會重試。
+  儀表板裡每台斷線機器只計算一次，舊取樣不算在線。
 - *回報問題*：貼上 `computai --doctor --redact` 的輸出。機器名、SSH 主機、IP、專案名、家目錄底下的路徑、email
   和使用者名稱都會換成代號（`machine-1`、`ip-1`、`~/path-1`）。
 - *新版*：有新版時 `computai --doctor` 和互動指令結束時會說（一天最多查一次；`[general] update_check = no` 關掉）。
