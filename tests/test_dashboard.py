@@ -53,6 +53,28 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(len(d["days"]), 3)
         self.assertEqual(d["sources"]["claude"][-1], 20.0)   # 今天（9/21）那筆 $20
 
+    def test_stale_inference_is_unknown_and_recovers(self):
+        t = 1790000000
+        self.db.execute("UPDATE samples SET ai_active = 1")
+        for age, stale in ((300, False), (301, True)):
+            ms = self.m.latest_samples(self.db, t=t + age)
+            self.assertEqual(ms[0]["stale"], stale)
+            self.assertEqual(ms[0]["ai_active"], not stale)
+            self.assertEqual(ms[0]["services"][0]["busy"], not stale)
+            lo = self.m.local_overview(self.db, ms, [], t=t + age)
+            self.assertEqual(lo["rows"][0]["stale"], stale)
+            self.assertEqual(lo["rows"][0]["busy"], not stale)
+            if stale:
+                self.assertIsNone(ms[0]["power_w"])
+                self.assertEqual(ms[0]["services"][0]["tok_s"], 0)
+                self.m.set_lang("en")
+                text = "\n".join(self.m.local_panel({"local": lo}, 120))
+                self.assertIn("stale", text)
+                self.assertNotIn("generating", text)
+        self.assertEqual(self.db.execute("SELECT ai_active FROM samples").fetchone()[0], 1)
+        self.db.execute("UPDATE samples SET ts = ?", (t + 302,))
+        self.assertFalse(self.m.latest_samples(self.db, t=t + 302)[0]["stale"])
+
     def test_live_render_has_three_areas(self):
         text = self.m.render_live(self.st, 90)
         for title in ("COMPUTE", "AI SUBSCRIPTIONS", "ALERTS", "\u2500 mac "):
