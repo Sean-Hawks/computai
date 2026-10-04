@@ -11399,10 +11399,10 @@ def render_profile_share_html(svg, lang=None):
     zh = (lang or _lang) == "zh"
     uri = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
     return ('<!doctype html><html lang="%s"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<title>ComputAI %s</title><style>body{margin:0;background:#09090d;color:#f5f5f5;font:16px/1.5 -apple-system,sans-serif}'
+            '<title>ComputAI %s</title><style>body{margin:0;background:#0b0b0c;color:#f5f5f5;font:16px/1.5 -apple-system,sans-serif}'
             'main{max-width:1080px;margin:auto;padding:20px}img{display:block;width:100%%;height:auto}'
             '.downloads{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:20px 0}'
-            'a,button{font:inherit;display:block;color:#fbbf24;background:transparent;padding:10px 18px;border:1px solid #52495e;border-radius:6px;cursor:pointer}'
+            'a,button{font:inherit;display:block;color:#f5f5f5;background:transparent;padding:10px 18px;border:1px solid #3a3a3a;border-radius:6px;cursor:pointer}'
             'button:disabled{opacity:.5}#status{text-align:center;color:#bbb}'
             '@media print{main{padding:0}.downloads,#status{display:none}}</style></head><body><main><img id="card" src="%s" alt="ComputAI %s">'
             '<div class="downloads"><button id="png" hidden>%s</button><a href="%s" download="computai-share.svg">%s</a></div>'
