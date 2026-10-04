@@ -339,7 +339,7 @@ vLLM、llama.cpp、SGLang 自己會報 token 累計數。Ollama 不會，要在�
 
 用戶端照樣打 `:11434`，不用改。proxy 在 `/metrics` 提供累計數，取樣時透過 SSH 讀，所以遠端機器也行。
 
-- 機器已經在 `[machines]` 裡被取樣時，proxy 只交計數，不會算兩次。
+- 取樣若讀 proxy 的 Ollama 埠，或讀上游 vLLM／llama.cpp／SGLang 的 token 計數器，proxy 只交累計數。若只取樣原生 Ollama／LM Studio，proxy 仍逐筆記帳，避免漏帳。
 - 在給別台 computai 取樣的機器上，用 `--no-ledger`。
 
 ## 自動更新的 GitHub 個人頁卡片

@@ -75,6 +75,20 @@ class Meter(unittest.TestCase):
         self.assertFalse(self.m.is_loopback("0.0.0.0"))
 
 
+class RecordingPolicy(unittest.TestCase):
+    def test_sampling_native_ollama_does_not_drop_proxy_usage(self):
+        m = helpers.load()
+        cases = [([("ollama", 11434)], True), ([('ollama', 11435)], False),
+                 ([("vllm", 8000)], False), (m.service_list(m.DEFAULT_SERVICES), True),
+                 ([("lmstudio", 1234)], True)]
+        for services, expected in cases:
+            with self.subTest(services=services):
+                m.machines = lambda: [{"name": "box", "services": services}]
+                upstream = "http://127.0.0.1:8000" if services == [("vllm", 8000)] else "http://127.0.0.1:11434"
+                self.assertEqual(m.proxy_records_requests("box", 11435, upstream), expected)
+        self.assertTrue(m.proxy_records_requests("unmonitored", 11435, upstream))
+
+
 class FakeUpstream(http.server.BaseHTTPRequestHandler):
     """依路徑回 fixture；/api/chat 用 chunked 串流回應。記下收到的請求。"""
     protocol_version = "HTTP/1.1"

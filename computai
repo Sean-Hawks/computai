@@ -3931,13 +3931,27 @@ def host_header_ok(header, bind, extra=()):
     return is_loopback(name) or name.lower() in extra
 
 
+def proxy_records_requests(machine, listen_port, upstream):
+    """原生 Ollama／LM Studio 沒有 token 計數，不能因為機器有取樣就停記帳。"""
+    import urllib.parse
+    up = urllib.parse.urlsplit(upstream if "://" in upstream else "http://" + upstream)
+    upstream_port = up.port or (443 if up.scheme == "https" else 80)
+    for m in machines():
+        if m["name"] != machine:
+            continue
+        for kind, port in m["services"]:
+            if (kind == "ollama" and port == listen_port) or (kind in ("vllm", "llamacpp", "sglang") and port == upstream_port):
+                return False  # 取樣會讀到 proxy 或原生服務的 token 累計數
+    return True
+
+
 def serve_proxy(listen, upstream, machine, sample_every=60, inject=True, ledger=None):
     import http.server
     host, port = parse_listen(listen, 11435)
     if not is_loopback(host):
         warn("listening on %s: anyone who can reach this port can use your models through it" % host)
-    if ledger is None:  # 這台機器已經在 [machines] 裡被取樣：只交計數，不直接記帳
-        ledger = machine not in {m["name"] for m in machines()}
+    if ledger is None:
+        ledger = proxy_records_requests(machine, port, upstream)
     Handler, holder = make_proxy(upstream, machine, inject=inject, bind=host, ledger=ledger)
 
     class Server(http.server.ThreadingHTTPServer):

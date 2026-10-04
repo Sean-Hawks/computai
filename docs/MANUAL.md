@@ -384,7 +384,7 @@ vLLM, llama.cpp and SGLang report token totals themselves. Ollama does not: put 
 
 Clients keep using `:11434` unchanged. The proxy serves running totals at `/metrics`, which sampling reads over SSH, so this works on other machines too.
 
-- If the machine is already in `[machines]`, the proxy only keeps totals, so nothing is counted twice.
+- If sampling reads the proxy as an Ollama service, or reads counters from upstream vLLM/llama.cpp/SGLang, the proxy only keeps totals. Sampling native Ollama/LM Studio alone does not disable per-request recording.
 - On a machine that another computai samples, use `--no-ledger`.
 
 ## GitHub profile card, kept fresh
