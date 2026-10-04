@@ -633,6 +633,22 @@ def warn(msg):
 
 # ---------------------------------------------------------------- 帳本
 
+# account：同一個來源有好幾個帳號時是哪一個（設定資料夾的名字，見 account_name）；'' 是預設帳號
+LIMITS_DDL = """
+CREATE TABLE IF NOT EXISTS limits (
+    source TEXT NOT NULL,
+    account TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    used_percent REAL,
+    window_minutes INTEGER,
+    resets_at INTEGER,
+    plan TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (source, account, name, ts)
+);
+CREATE INDEX IF NOT EXISTS limits_source_ts ON limits (source, ts);
+"""
+
 # usage 一列是一次 API 回應（或一段彙總）的 token 用量。
 #   input       沒有命中快取的輸入（OpenAI 的 input 已含 cached，匯入時先減掉）
 #   cache_read  命中快取的輸入
@@ -677,17 +693,6 @@ CREATE TABLE IF NOT EXISTS proxy_requests (
     usage_recorded INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS proxy_requests_ts ON proxy_requests (ts);
-CREATE TABLE IF NOT EXISTS limits (
-    source TEXT NOT NULL,
-    name TEXT NOT NULL,
-    ts INTEGER NOT NULL,
-    used_percent REAL,
-    window_minutes INTEGER,
-    resets_at INTEGER,
-    plan TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (source, name, ts)
-);
-CREATE INDEX IF NOT EXISTS limits_source_ts ON limits (source, ts);
 CREATE TABLE IF NOT EXISTS files (
     path TEXT PRIMARY KEY,
     size INTEGER NOT NULL,
@@ -747,7 +752,7 @@ CREATE TABLE IF NOT EXISTS devices (
     error TEXT NOT NULL DEFAULT '',
     rows INTEGER NOT NULL DEFAULT 0
 );
-"""
+""" + LIMITS_DDL
 
 USAGE_COLS = ("source", "uid", "ts", "model", "project", "session", "input", "cache_read",
               "cache_write_5m", "cache_write_1h", "output", "reasoning", "requests",
@@ -772,7 +777,29 @@ def open_ledger(path=None, shared=False):
     add_columns(db, "files", {"offset": "INTEGER NOT NULL DEFAULT 0", "state": "TEXT"})
     add_columns(db, "samples", {"detail": "TEXT"})
     add_columns(db, "usage", {"device": "TEXT NOT NULL DEFAULT ''"})
+    migrate_limits_account(db)
     return db
+
+
+def migrate_limits_account(db):
+    """舊帳本的 limits 沒有 account：帳號要放進主鍵（兩個帳號同一秒查到同一個視窗不能互相蓋掉），
+    只能重建表。舊的紀錄都算預設帳號（''）。"""
+    if any(r[1] == "account" for r in db.execute("PRAGMA table_info(limits)")):
+        return
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        if not any(r[1] == "account" for r in db.execute("PRAGMA table_info(limits)")):   # 別的程序可能剛搬完
+            db.execute("ALTER TABLE limits RENAME TO limits_old")
+            db.execute("DROP INDEX IF EXISTS limits_source_ts")
+            for stmt in LIMITS_DDL.split(";"):
+                db.execute(stmt)
+            db.execute("INSERT INTO limits (source, name, ts, used_percent, window_minutes, resets_at, plan) "
+                       "SELECT source, name, ts, used_percent, window_minutes, resets_at, plan FROM limits_old")
+            db.execute("DROP TABLE limits_old")
+        db.execute("COMMIT")
+    except Exception:
+        db.execute("ROLLBACK")
+        raise
 
 
 def add_columns(db, table, cols):
@@ -813,19 +840,19 @@ def add_usage(db, rows):
 def add_limits(db, rows, only_changes=False):
     """only_changes=True：跟這個視窗最新一筆一樣（使用率、重置時間都沒變）就不寫。
     statusline 每則訊息都會呼叫一次，不這樣做會一天寫進上千筆一樣的資料。"""
-    sql = ("INSERT OR IGNORE INTO limits (source, name, ts, used_percent, window_minutes, "
-           "resets_at, plan) VALUES (?,?,?,?,?,?,?)")
+    sql = ("INSERT OR IGNORE INTO limits (source, account, name, ts, used_percent, window_minutes, "
+           "resets_at, plan) VALUES (?,?,?,?,?,?,?,?)")
     before = db.total_changes
     if only_changes:
         keep = []
         for r in rows:
-            last = db.execute("SELECT used_percent, resets_at FROM limits WHERE source = ? AND name = ? "
-                              "ORDER BY ts DESC LIMIT 1", (r["source"], r["name"])).fetchone()
+            last = db.execute("SELECT used_percent, resets_at FROM limits WHERE source = ? AND account = ? AND name = ? "
+                              "ORDER BY ts DESC LIMIT 1", (r["source"], r.get("account") or "", r["name"])).fetchone()
             if last is None or (last["used_percent"], last["resets_at"]) != (r.get("used_percent"),
                                                                             r.get("resets_at")):
                 keep.append(r)
         rows = keep
-    db.executemany(sql, [(r["source"], r["name"], r["ts"], r.get("used_percent"),
+    db.executemany(sql, [(r["source"], r.get("account") or "", r["name"], r["ts"], r.get("used_percent"),
                           r.get("window_minutes"), r.get("resets_at"), r.get("plan") or "")
                          for r in rows])
     return db.total_changes - before
@@ -2264,8 +2291,8 @@ def limit_poll_plan(db, source, last, t=None, cp=None):
             if r["stale"] or not r["resets_at"]:
                 continue
             samples = [(x["ts"], x["used_percent"] or 0.0) for x in db.execute(
-                "SELECT ts, used_percent FROM limits WHERE source = ? AND name = ? AND resets_at = ? AND ts >= ? "
-                "AND ts <= ? ORDER BY ts", (source, r["name"], r["resets_at"], t - 6 * 3600, t))]
+                "SELECT ts, used_percent FROM limits WHERE source = ? AND account = ? AND name = ? AND resets_at = ? "
+                "AND ts >= ? AND ts <= ? ORDER BY ts", (source, r["account"], r["name"], r["resets_at"], t - 6 * 3600, t))]
             rate = limit_burn(samples, t, base)
             if rate <= 0:
                 continue
@@ -2293,7 +2320,7 @@ def limit_reset_rows(db, source, t=None):
     """手動標記某個訂閱的額度已經重置（例如提早重置、log 裡看不到）：每個視窗寫一筆 0%，
     重置時間不知道就留空。下次 Claude／Codex 寫出真的數字（比較新）就會取代它。"""
     t = now() if t is None else t
-    return [{"source": source, "name": r["name"], "ts": int(t), "used_percent": 0.0,
+    return [{"source": source, "account": r["account"], "name": r["name"], "ts": int(t), "used_percent": 0.0,
              "window_minutes": r["window_minutes"], "resets_at": None}
             for r in current_limits(db, t) if r["source"] == source]
 
@@ -2302,15 +2329,16 @@ def current_limits(db, t=None):
     """每個額度視窗最新的一筆。已經過了重置時間的視窗當作 0%。"""
     t = now() if t is None else t
     out = []
-    q = ("SELECT l.* FROM limits l JOIN (SELECT source, name, MAX(ts) AS ts FROM limits "
-         "GROUP BY source, name) x ON l.source = x.source AND l.name = x.name AND l.ts = x.ts "
-         "ORDER BY l.source, l.window_minutes")
+    q = ("SELECT l.* FROM limits l JOIN (SELECT source, account, name, MAX(ts) AS ts FROM limits "
+         "GROUP BY source, account, name) x ON l.source = x.source AND l.account = x.account AND l.name = x.name "
+         "AND l.ts = x.ts ORDER BY l.source, l.account, l.window_minutes")
     rows = [dict(r) for r in db.execute(q)]
     newest = {}
     for r in rows:
-        newest[r["source"]] = max(newest.get(r["source"], 0), r["ts"])
+        k = (r["source"], r["account"])
+        newest[k] = max(newest.get(k, 0), r["ts"])
     for r in rows:
-        if newest[r["source"]] - r["ts"] > 8 * 86400:  # 這個視窗已經很久沒出現，大概是方案換了
+        if newest[(r["source"], r["account"])] - r["ts"] > 8 * 86400:  # 這個視窗已經很久沒出現，大概是方案換了
             continue
         r["stale"] = bool(r["resets_at"] and r["resets_at"] <= t)
         if r["stale"]:
@@ -2337,8 +2365,9 @@ def limit_pace(db, r, t):
     if used >= LIMIT_FAIL:
         out["eta_full"] = 0
         return out
-    rows = db.execute("SELECT ts, used_percent FROM limits WHERE source = ? AND name = ? AND resets_at = ? "
-                      "AND ts >= ? ORDER BY ts", (r["source"], r["name"], r["resets_at"], t - 3600)).fetchall()
+    rows = db.execute("SELECT ts, used_percent FROM limits WHERE source = ? AND account = ? AND name = ? "
+                      "AND resets_at = ? AND ts >= ? ORDER BY ts",
+                      (r["source"], r.get("account") or "", r["name"], r["resets_at"], t - 3600)).fetchall()
     rate = None
     if len(rows) >= 2 and rows[-1]["ts"] - rows[0]["ts"] >= 600:
         rate = max(0.0, (rows[-1]["used_percent"] - rows[0]["used_percent"]) / (rows[-1]["ts"] - rows[0]["ts"]))

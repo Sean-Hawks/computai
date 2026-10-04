@@ -33,6 +33,31 @@ class Ledger(unittest.TestCase):
         self.m.add_usage(self.db, [self.row("a"), self.row("a", source="other")])
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM usage").fetchone()[0], 2)
 
+    def test_limits_keep_accounts_apart(self):
+        lim = [dict(source="codex", account=a, name="week", ts=1, used_percent=u, window_minutes=10080, resets_at=None)
+               for a, u in (("", 10.0), ("nycu", 80.0))]
+        self.assertEqual(self.m.add_limits(self.db, lim), 2)                     # 同一秒、同一個視窗，兩個帳號都留
+        self.assertEqual(self.m.add_limits(self.db, lim, only_changes=True), 0)
+        got = {(r["account"], r["used_percent"]) for r in self.m.current_limits(self.db, t=2)}
+        self.assertEqual(got, {("", 10.0), ("nycu", 80.0)})
+
+    def test_old_limits_table_moves_to_default_account(self):
+        import sqlite3
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), "old.sqlite")
+        old = sqlite3.connect(path)
+        old.execute("CREATE TABLE limits (source TEXT NOT NULL, name TEXT NOT NULL, ts INTEGER NOT NULL, "
+                    "used_percent REAL, window_minutes INTEGER, resets_at INTEGER, plan TEXT NOT NULL DEFAULT '', "
+                    "PRIMARY KEY (source, name, ts))")
+        old.execute("INSERT INTO limits VALUES ('codex', 'week', 1, 39.0, 10080, NULL, 'pro')")
+        old.commit()
+        old.close()
+        db = self.m.open_ledger(path)
+        self.addCleanup(db.close)
+        self.assertEqual([tuple(r) for r in db.execute("SELECT source, account, name, used_percent, plan FROM limits")],
+                         [("codex", "", "week", 39.0, "pro")])
+        self.assertEqual(self.m.open_ledger(path).execute("SELECT COUNT(*) FROM limits").fetchone()[0], 1)   # 只搬一次
+
     def test_limits_idempotent(self):
         lim = [dict(source="codex", name="primary", ts=1, used_percent=40.0, window_minutes=300,
                     resets_at=100, plan="pro")]
