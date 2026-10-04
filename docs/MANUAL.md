@@ -42,13 +42,26 @@ or type another plan's name. It only asks once; `computai --setup` changes it la
 |---|---|---|
 | Settings (`config.ini`, `prices.ini`, `secrets.ini`) | `~/.config/computai/` (Windows: `%APPDATA%\computai`) | `COMPUTAI_CONFIG_DIR`, `XDG_CONFIG_HOME` |
 | Ledger (`ledger.sqlite`) | `~/.local/share/computai/` (Windows: `%LOCALAPPDATA%\computai`) | `COMPUTAI_DATA_DIR`, `XDG_DATA_HOME` |
-| Claude Code logs | `~/.claude/projects/` and `~/.config/claude/projects/` | `CLAUDE_CONFIG_DIR` (comma-separated list allowed) |
-| Codex logs | `~/.codex/sessions/`, `~/.codex/archived_sessions/` | `CODEX_HOME` |
+| Claude Code logs | `~/.claude/projects/` and `~/.config/claude/projects/` | `CLAUDE_CONFIG_DIR` (comma-separated list allowed; each folder is one account and its limits are shown separately) |
+| Codex logs | `~/.codex/sessions/`, `~/.codex/archived_sessions/` | `CODEX_HOME` (comma-separated list allowed; each folder is one account and its limits are shown separately) |
 
 `computai --paths` prints the first two. The first run creates `config.ini` and `prices.ini`
 from templates; after that ComputAI only reads them, so your edits stay. Deleting the ledger
 is safe: the next `--sync` rebuilds subscription history from the logs (machine samples and
 cloud history are lost).
+
+Account labels come from folder names: `.claude` and `.codex` use the default label,
+while `.claude-work` and `.codex-work` use `work`. Different accounts of the same tool
+need distinct labels. Existing limit history moves to the default account once when the
+ledger opens; old account ownership cannot be reconstructed. A status line with a single
+configured folder shows only that account, and leaves missing limits unknown.
+Token totals, spending and plan simulations still combine accounts by tool.
+
+The live and web dashboards reuse their last snapshot when the ledger has not changed,
+with a 60-second refresh limit for time-dependent fields. Sync and sampling continue on
+their own schedules; even an empty sync writes metadata and can trigger an earlier refresh.
+Three consecutive empty account-limit queries pause that folder's queries for an hour,
+tracked separately for Claude and Codex.
 
 ## Subscriptions: Claude Code and Codex
 

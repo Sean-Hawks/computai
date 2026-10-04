@@ -37,11 +37,20 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 |---|---|---|
 | 設定（`config.ini`、`prices.ini`、`secrets.ini`） | `~/.config/computai/`（Windows：`%APPDATA%\computai`） | `COMPUTAI_CONFIG_DIR`、`XDG_CONFIG_HOME` |
 | 帳本（`ledger.sqlite`） | `~/.local/share/computai/`（Windows：`%LOCALAPPDATA%\computai`） | `COMPUTAI_DATA_DIR`、`XDG_DATA_HOME` |
-| Claude Code 的 log | `~/.claude/projects/`、`~/.config/claude/projects/` | `CLAUDE_CONFIG_DIR`（可用逗號列多個） |
-| Codex 的 log | `~/.codex/sessions/`、`~/.codex/archived_sessions/` | `CODEX_HOME` |
+| Claude Code 的 log | `~/.claude/projects/`、`~/.config/claude/projects/` | `CLAUDE_CONFIG_DIR`（可用逗號列多個；每個資料夾是一個帳號，額度分開顯示） |
+| Codex 的 log | `~/.codex/sessions/`、`~/.codex/archived_sessions/` | `CODEX_HOME`（可用逗號列多個；每個資料夾是一個帳號，額度分開顯示） |
 
 `computai --paths` 會印出前兩個位置。第一次執行時會從範本建立 `config.ini` 和 `prices.ini`，之後只讀不寫，
 你改的內容會保留。刪掉帳本是安全的：下次 `--sync` 會從 log 重建訂閱的歷史（機器取樣和雲端紀錄會不見）。
+
+帳號標籤來自資料夾名稱：`.claude`、`.codex` 是預設帳號，`.claude-work`、`.codex-work` 是 `work`。
+同一工具的不同帳號需使用不同標籤。舊額度紀錄在開啟帳本時一次搬到預設帳號，無法反推原本屬於哪個帳號。
+狀態列只指定一個資料夾時，只顯示該帳號；缺額度資料就保持未知。
+Token、花費和方案模擬仍依工具合併各帳號。
+
+終端機與網頁監控在帳本未變時沿用上一份畫面，時間相關欄位最多隔 60 秒重算。
+同步與取樣維持各自間隔；即使沒有新用量，同步仍會寫入狀態資料，因此可能提早觸發重算。
+連續三次查不到額度的資料夾會暫停查詢一小時，Claude 和 Codex 分別計數。
 
 ## 訂閱：Claude Code 和 Codex
 
