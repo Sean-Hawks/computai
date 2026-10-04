@@ -24,11 +24,14 @@ A 也讓每台都看到全部的用量。B 留給本來就用 SSH 監看的 home
 
 ```
 {"computai_export": 1, "device": "a1b2c3d4e5f6", "name": "laptop", "written": 1790000000, "version": "0.1.0", "cols": [...]}
-["claude","msg_A:req_A",1790000000,"claude-opus-5-5","alpha",3,1000,0,200,377,0,1,0]
+["claude","msg_A:req_A",1790000000,"claude-opus-5-5","alpha",3,1000,0,200,377,0,1,0,"4e0f83a1276b905c"]
 ```
 
-- 欄位是白名單：`source, uid, ts, model, project, input, cache_read, cache_write_5m, cache_write_1h, output, reasoning, requests, subagent`。
-- `project` 只留資料夾名稱（`alpha`，不是 `/Users/me/work/alpha`）；session id、prompt、回應、路徑都不會出去。
+- 欄位是白名單：`source, uid, ts, model, project, input, cache_read, cache_write_5m, cache_write_1h, output, reasoning, requests, subagent, session`。
+- `project` 只留資料夾名稱（`alpha`，不是 `/Users/me/work/alpha`）；原始 session id、prompt、回應、完整路徑都不會出去。
+- `session` 是裝置代號、來源和原始 session id 的 JSON 陣列經 SHA-256 後取前 16 個十六進位字元。
+  同一台、同一來源的同一個 session 會得到相同代號，供時間軸、同時執行數和工作時數分組；不同裝置或來源的代號不同。
+  沒有 session 的原始紀錄仍送空字串，不能據此還原缺少的分組。
 - 只交換 `claude` 和 `codex`。本地模型（proxy）和組織 API 的用量每台各自記，交換會重複計算；額度樣本也不交換
   （不同電腦可能登入不同帳號，各自問官方 CLI 就好）。
 
@@ -36,6 +39,8 @@ A 也讓每台都看到全部的用量。B 留給本來就用 SSH 監看的 home
 
 - 帳本多一個 `device` 欄位（`''` 是這台），舊帳本開啟時自動補上；另有 `devices` 表記每台的名字、最後回報時間、經由哪條路、錯誤。
 - 同一筆 `(source, uid)` 只記一次，所以同一份檔案讀兩次、或兩條路都拉到同一台，都不會重複計算；同一筆變長（串流中途寫下的半截）時取比較大的。
+- 同一筆已匯入資料的 `session` 若為空，重新合併同裝置的新格式匯出檔會補上匿名代號，即使 token 數沒有增加。
+  補填不會降低既有 token 數、覆蓋非空 session 或修改本機紀錄的 session。
 - 自己的檔案繞回來（同一個裝置代號）就略過。
 - **壞檔**：讀檔時整份檢查（JSON、欄位型別、長度、來源），任何一行不對就整份不要，記下原因給 `--doctor`。
   帳本只會新增、不會因為別台的檔案而刪資料，所以上一份好的結果一直都在，絕不清空。
@@ -51,7 +56,16 @@ A 也讓每台都看到全部的用量。B 留給本來就用 SSH 監看的 home
 - 對方只需要 SSH 和 python3。computai 這個檔案透過同一條 SSH（heredoc 裡的 base64）送到對方的 `~/.cache/computai/computai`，內容沒變（SHA-256 一樣）就不重送。
 - 在對方執行時，設定和帳本放在 `~/.cache/computai/{config,data}`，不碰對方自己的 ComputAI。
 - 游標：每次從上次寫出時間的前一天開始拉，中途變長的紀錄也會更新到。
+  升級匿名 session 格式後，每個 SSH 來源會先成功拉取一次完整歷史，補填舊資料，再恢復增量；失敗時下次重試完整歷史。
 - 沒有 python3、SSH 不通、輸出格式不對，都記在 `--doctor`，不影響其他來源。
+
+## 從沒有 session 的舊格式升級
+
+- 共用資料夾：兩台都更新後各執行 `computai --sync`。來源端會重寫完整匯出檔，即使 token 用量沒變；接收端重新合併並補填 session。
+  背景同步沿用最多兩分鐘一次的寫檔節流，手動 `--sync` 不等。
+- SSH：更新拉取端後執行 `computai --sync`，程式會更新遠端的快取執行檔並自動重拉完整歷史一次。
+- 舊版讀新檔時忽略新增欄位；新版讀舊檔時將 session 留空。來源仍用舊版或原始 log 已刪除時，缺少的歷史 session 無法補回。
+- 這是 beta.2 開發版修正；公開的 `v0.1.0-beta.1` 尚不含匿名 session 欄位。
 
 ## 設定
 
