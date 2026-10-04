@@ -143,118 +143,67 @@ This checkout includes beta.2 features that the released beta.1 does not yet pro
 
 ## Cards and sharing
 
-Export an SVG for your GitHub README with `computai --card --svg card.svg`.
-The beta.2 creator (`computai --create`) lets you select a period and download PNG or SVG for social posts or READMEs.
-Both use local usage aggregates. [First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
+Create a usage card for your README, portfolio or social posts. Choose the design by its layout and the information you want to share.
+Cards use local aggregates and omit conversations, project paths and machine names.
+
+| Design | Best for | Default format | Command | Available in |
+|---|---|---|---|---|
+| **Minimal** | A concise README banner with key totals | `compact` · 720×230 | `--card --card-style minimal` | beta.2 development |
+| **Paper** | A vertical summary with serif typography | `portrait` · 420×610 | `--card --card-style paper` | beta.2 development |
+| **GitHub** | Statistics, activity grid and model shares | `dashboard` · 900×360 | `--card --card-style github` | beta.2 development |
+| **Terminal** | A console-style banner with monospace text | `compact` · 720×230 | `--card --card-style terminal` | beta.2 development |
+| **HUD** | A detailed profile with agent activity, rank and badges | `hud` · 900×390 | `--card --card-style netrunner` | beta.1 |
+| **Web/TUI sharing card** | Social posts, monthly recaps or a README image | Square, portrait, wide or README | `--create` · PNG/SVG downloads | beta.2 development |
 
 <details>
-<summary>Card gallery: all ten styles, layouts and export commands</summary>
+<summary>Preview the six designs (demo data)</summary>
 
-### Choose your card style
-
-Turn your AI usage into a card for Threads, a monthly recap or your GitHub README.
-Start with the Web/TUI look, or choose one of ten profile styles below. All previews use demo data.
-
-#### Four new profile styles (beta.2 development)
-
-These change the typography and layout as well as the palette. They were added in
-`feature-card-layouts` (commit `4f50a5c`), and are included in this development branch.
-
-| `minimal` · monochrome banner | `github` · activity dashboard |
+| Minimal · concise banner | Terminal · console banner |
 |---|---|
-| ![Minimal light profile card](docs/images/card-minimal.svg) | ![GitHub dark profile card](docs/images/card-github.svg) |
-| **`paper` · warm paper portrait** | **`terminal` · monospace banner** |
-| <img src="docs/images/card-paper.svg" width="280" alt="Paper light profile card with serif type and a vertical activity grid"> | ![Terminal dark profile card](docs/images/card-terminal.svg) |
+| ![Minimal profile card](docs/images/card-minimal.svg) | ![Terminal profile card](docs/images/card-terminal.svg) |
+| **GitHub · activity dashboard** | **HUD · detailed agent profile** |
+| ![GitHub profile card](docs/images/card-github.svg) | ![HUD profile card](docs/images/card-netrunner.svg) |
+| **Paper · vertical summary** | **Web/TUI · social sharing** |
+| <img src="docs/images/card-paper.svg" width="240" alt="Paper card with serif typography and a vertical activity grid"> | <img src="docs/images/share-preview.png" width="240" alt="Web/TUI sharing card with usage totals and a daily activity chart"> |
 
-#### Web/TUI sharing card (beta.2 development)
+</details>
 
-The separate creator uses the black and white Web/TUI design with clear totals and activity trends.
-Choose square, portrait, wide or README formats, then download PNG or SVG with `--create`.
-This version was added in `feature-card-creator` (commit `d556665`).
+### Export a card
 
-<img src="docs/images/share-preview.png" width="270" alt="Web/TUI sharing card: white usage totals and a daily activity chart on black">
-
-#### Neon HUD profile styles (beta.1)
-
-Prefer neon? These six styles use a HUD with cut corners, activity grids and decorative animation:
-
-| `netrunner` · cyan / pink / yellow | `arasaka` · red / black |
-|---|---|
-| ![Netrunner profile card](docs/images/card-netrunner.svg) | ![Arasaka profile card](docs/images/card-arasaka.svg) |
-| **`militech` · yellow / orange** | **`amber` · violet / gold** |
-| ![Militech profile card](docs/images/card-militech.svg) | ![Amber profile card](docs/images/card-amber.svg) |
-| **`matrix` · terminal green** | **`synthwave` · magenta / cyan** |
-| ![Matrix profile card](docs/images/card-matrix.svg) | ![Synthwave profile card](docs/images/card-synthwave.svg) |
-
-#### Pick the look that fits your page
-
-| Profile style (`--card-style`) | Look and use | Default layout | Available in |
-|---|---|---|---|
-| `minimal` | Monochrome, whitespace; a compact README banner | `compact` | beta.2 development |
-| `paper` | Warm paper and serif type; a vertical summary | `portrait` | beta.2 development |
-| `github` | Statistic panels, activity grid and model shares | `dashboard` | beta.2 development |
-| `terminal` | Monospace console with a straight frame | `compact` | beta.2 development |
-| `netrunner` | Cyan, pink and yellow; the default cyberpunk HUD | `hud` | beta.1 |
-| `arasaka` | Red accents; a stark red and black HUD | `hud` | beta.1 |
-| `militech` | Yellow and orange; a high-contrast HUD | `hud` | beta.1 |
-| `amber` | Violet and gold; a warmer neon palette | `hud` | beta.1 |
-| `matrix` | Green; a terminal-inspired HUD | `hud` | beta.1 |
-| `synthwave` | Magenta and cyan; retro neon | `hud` | beta.1 |
-
-Every profile style has dark and light versions, with English or Traditional Chinese labels.
-The Web/TUI sharing card, four new styles, layout overrides and local gallery need this beta.2 development checkout;
-the released beta.1 has the six neon styles. The creator uses the Web/TUI look; choose profile styles through `--card`.
-The older `computai` and `mono` names now alias `netrunner`; they are not additional styles in the current version.
-
-#### Make your first card
-
-With Python 3.8+ in this development folder, open the creator without installing:
+With this development checkout and Python 3.8+, run:
 
 ```sh
-python3 ./computai --create                 # Windows: py -3 computai --create
-```
-
-Choose social or GitHub README, a period and a layout, then download PNG or SVG.
-No GitHub setup is needed. [First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
-
-For the profile styles, run these from the same folder, then open `styles.html` or `card.svg`:
-
-```sh
-python3 ./computai --card --html styles.html   # compare all ten styles, dark/light and layouts
+python3 ./computai --create                         # choose a period and download PNG/SVG
 python3 ./computai --card --card-style minimal --svg card.svg
-python3 ./computai --card --card-style paper --card-theme light --svg card.svg
-python3 ./computai --card --card-style amber --svg card.svg
+python3 ./computai --card --card-style paper --svg card.svg
 ```
 
-Add a downloaded SVG to your README:
+On Windows, replace `python3 ./computai` with `py -3 computai`; after installation, use `computai`.
+Add the exported SVG to your README:
 
 ```markdown
 ![My AI usage](card.svg)
 ```
 
-These commands write local files. Share the downloaded image; the creator HTML contains your selectable history.
-Once installed, use `computai` in place of `python3 ./computai`.
+The creator uses the Web/TUI design; the five profile designs use `--card` and export SVG.
+Share the downloaded image; the creator HTML contains selectable history.
+[First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
 
-#### Adjust the layout and save your favourite
+### Layout options
 
-Style chooses colours and fonts; `--card-layout` chooses dimensions and content:
-`auto` follows the style, `hud` is 900×390, `compact` 720×230, `dashboard` 900×360 and `portrait` 420×610.
-Compact banners show tokens, API equivalent, active days, usage mix and top model;
-dashboard and portrait also show activity grids and hours. The four new styles are static in their default layouts.
+In beta.2 development, `--card-layout` accepts `auto` (follow the style), `compact`, `portrait`, `dashboard` or `hud`.
+Compact banners show key totals; dashboard and portrait add activity grids and hours.
+The HUD design includes the fuller agent profile with decorative animation; the other profile designs are static by default.
 
 ```sh
 computai --card --card-style github --card-layout compact --svg card.svg
-computai --set card.style=paper --set card.layout=portrait  # daily updates use these too
-computai --set 'card.colors=#ff6b6b, #ffd93d'               # custom accent pair
-computai --set card.handle=NEO                             # display name
-computai --set card.lang=zh                                # en or zh
-computai --set card.credit=no                              # hide the small credit
+computai --set card.style=paper --set card.layout=portrait  # save defaults for exports and daily updates
 ```
 
-CLI options override saved `[card]` settings. For both light/dark SVGs and daily updates,
-follow the [GitHub profile setup](#github-profile-updates).
-
-</details>
+Every profile design supports light/dark mode (`--card-theme`) and English/Traditional Chinese labels.
+The HUD colour presets are `netrunner` (default), `arasaka`, `militech`, `amber`, `matrix` and `synthwave`;
+they share the same layout. To compare all presets and layouts locally, use `computai --card --html styles.html` (beta.2 development).
+Display names, custom accents and other options are in the [card reference](docs/MANUAL.md#profile-card).
 
 ### GitHub profile updates
 
