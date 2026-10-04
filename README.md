@@ -6,17 +6,17 @@ cloud GPUs in one ledger: tokens, GPU hours, kWh and money.
 
 Single Python file · Standard library only · Python 3.8+ · macOS, Linux and Windows
 
-[繁體中文](README.zh-TW.md) · [Quick start](#quick-start) · [Manual](docs/MANUAL.md) · [Release notes](docs/RELEASE-v0.1.0-beta.md)
+[繁體中文](README.zh-TW.md) · [Quick start](#quick-start) · [Manual](docs/MANUAL.md) · [Release notes](docs/RELEASE-v0.1.0-beta.3.md)
 
-**Current release:** [v0.1.0-beta.2](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.2).
-Features marked **beta.3 development** are available in this development checkout.
+**Current release:** [v0.1.0-beta.3](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.3).
+Beta.3 adds a feature menu, monthly recaps and private card downloads.
 You can also export [usage cards for social posts and GitHub READMEs](#cards-and-sharing).
 
 ## Dashboards
 
 ### Terminal UI
 
-In this development checkout, run `computai` to see what you can do: monitor, make a monthly recap,
+Run `computai` to see what you can do: monitor, make a monthly recap,
 open the browser, analyze spending, check sources or set up your environment. Choose a number and press Enter;
 Enter alone opens the monitor. `computai --live` opens it directly.
 Inside the monitor, use `1`–`6` or `Tab` to switch between overview, limits, machines, local models, spend and timeline;
@@ -42,32 +42,32 @@ the local server continues to listen on `127.0.0.1`.
 macOS / Linux — install the released beta to `~/.local/bin/computai`:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.2/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.3/install.sh | sh
 ```
 
-Windows — download and extract the ZIP from the [release page](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.2), then run in that folder:
+Windows — download and extract the ZIP from the [release page](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.3), then run in that folder:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File install.ps1
 ```
 
 Ensure the install directory is on `PATH`; on Windows, reopen your terminal after installation.
-To use this development checkout, run `sh install.sh` on macOS/Linux or the PowerShell command above on Windows.
+From an extracted release folder, run `sh install.sh` on macOS/Linux or the PowerShell command above on Windows.
 You can also run the single file directly with `python3 ./computai` (Windows: `py -3 computai`).
 
 ### Launch
 
 ```sh
-computai                 # feature menu (development); terminal dashboard on released beta.2
+computai                 # feature menu; Enter opens the monitor
 computai --live           # open the terminal dashboard directly
 computai --web           # browser GUI at http://127.0.0.1:8765/
 ```
 
-Run either command in its own terminal. Claude Code and Codex usage is detected from supported local logs.
-The development menu lets you start monitoring without subscription questions; configure plans through
+Run each view in its own terminal. Claude Code and Codex usage is detected from supported local logs.
+The menu lets you start monitoring without subscription questions; configure plans through
 the setup option when needed. Direct `--live` may ask you to confirm your plans. Stop the browser server with `Ctrl-C`.
 
-The development menu also shows a direct command for every feature. Outside an interactive terminal,
+The menu also shows a direct command for every feature. Outside an interactive terminal,
 bare `computai` prints the guide and exits; use `computai --summary` or `--json` for scripted usage output.
 Selecting the browser option opens the local dashboard automatically; the terminal keeps the server running.
 
@@ -138,22 +138,22 @@ See the [configuration reference](docs/MANUAL.md#configuration) for machines, se
 - Usage and reports remain local unless you explicitly configure sharing, remote access or publishing. Dashboard views and full exports can include project and machine names; share cards omit them.
 
 ComputAI checks for updates at most once a day. Disable this with `computai --set general.update_check=no`.
-Source coverage and platform limitations are documented in the [beta release notes](docs/RELEASE-v0.1.0-beta.md#已知限制).
+Source coverage and platform limitations are documented in the [beta release notes](docs/RELEASE-v0.1.0-beta.3.md#已知限制).
 
-## Development features
+## New in beta.3
 
-This checkout includes beta.3 development features that released beta.2 does not yet provide:
+Beta.3 adds these features to the previous release:
 
 | Feature | Entry point |
 |---|---|
 | Feature menu and monitor help | `computai` · `h` or `?` inside the monitor |
-| Token breakdown and local request history | [Usage and tracing](docs/MANUAL.md#token-breakdown-and-local-request-tracing-beta3-development) |
-| Personal history with monthly and annual reports | [Profile reports](docs/MANUAL.md#personal-history-profile-beta3-development) |
+| Token breakdown and local request history | [Usage and tracing](docs/MANUAL.md#token-breakdown-and-local-request-tracing-beta3) |
+| Personal history with monthly and annual reports | [Profile reports](docs/MANUAL.md#personal-history-profile-beta3) |
 | Browser card creator and four new profile styles | [Cards below](#cards-and-sharing) |
 
 ## Cards and sharing
 
-For your first monthly recap, install this **beta.3 development checkout** and run:
+For your first monthly recap, install **beta.3** and run:
 
 ```sh
 computai recap
@@ -167,12 +167,12 @@ Cards use local aggregates and omit conversations, project paths and machine nam
 
 | Design | Best for | Default format | Command | Available in |
 |---|---|---|---|---|
-| **Minimal** | A concise README banner with key totals | `compact` · 720×230 | `--card --card-style minimal` | beta.3 development |
-| **Paper** | A vertical summary with serif typography | `portrait` · 420×610 | `--card --card-style paper` | beta.3 development |
-| **GitHub** | Statistics, activity grid and model shares | `dashboard` · 900×360 | `--card --card-style github` | beta.3 development |
-| **Terminal** | A console-style banner with monospace text | `compact` · 720×230 | `--card --card-style terminal` | beta.3 development |
+| **Minimal** | A concise README banner with key totals | `compact` · 720×230 | `--card --card-style minimal` | beta.3 |
+| **Paper** | A vertical summary with serif typography | `portrait` · 420×610 | `--card --card-style paper` | beta.3 |
+| **GitHub** | Statistics, activity grid and model shares | `dashboard` · 900×360 | `--card --card-style github` | beta.3 |
+| **Terminal** | A console-style banner with monospace text | `compact` · 720×230 | `--card --card-style terminal` | beta.3 |
 | **HUD** | A detailed profile with agent activity, rank and badges | `hud` · 900×390 | `--card --card-style netrunner` | beta.1 |
-| **Web/TUI sharing card** | Social posts, monthly recaps or a README image | Square, portrait, wide or README | `recap` · PNG/SVG downloads | beta.3 development |
+| **Web/TUI sharing card** | Social posts, monthly recaps or a README image | Square, portrait, wide or README | `recap` · PNG/SVG downloads | beta.3 |
 
 Monthly recaps show source date coverage, record counts and comparison with the adjacent calendar month;
 missing records remain unknown. Supported GUI logs and recorded local-model usage can share one recap;
@@ -193,7 +193,7 @@ web-only chat is outside this first version. The creator also exports aggregates
 
 ### Export a card
 
-With this development checkout and Python 3.8+, run:
+With the release folder and Python 3.8+, run:
 
 ```sh
 python3 ./computai recap                         # choose a period and download PNG/SVG
@@ -214,7 +214,7 @@ Share the downloaded image; the creator HTML contains selectable history.
 
 ### Layout options
 
-In beta.3 development, `--card-layout` accepts `auto` (follow the style), `compact`, `portrait`, `dashboard` or `hud`.
+In beta.3, `--card-layout` accepts `auto` (follow the style), `compact`, `portrait`, `dashboard` or `hud`.
 Compact banners show key totals; dashboard and portrait add activity grids and hours.
 The HUD design includes the fuller agent profile with decorative animation; the other profile designs are static by default.
 
@@ -225,7 +225,7 @@ computai --set card.style=paper --set card.layout=portrait  # save defaults for 
 
 Every profile design supports light/dark mode (`--card-theme`) and English/Traditional Chinese labels.
 The HUD colour presets are `netrunner` (default), `arasaka`, `militech`, `amber`, `matrix` and `synthwave`;
-they share the same layout. To compare all presets and layouts locally, use `computai --card --html styles.html` (beta.3 development).
+they share the same layout. To compare all presets and layouts locally, use `computai --card --html styles.html` (beta.3).
 Display names, custom accents and other options are in the [card reference](docs/MANUAL.md#profile-card).
 
 ### GitHub profile updates

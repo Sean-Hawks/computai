@@ -23,10 +23,10 @@ ComputAI 把所有花你算力和 AI 錢的東西記在同一本帳（一個 SQL
 `computai --set 段落.鍵=值` 和 `--unset 段落.鍵` 改單一設定，不會動到你的註解。
 `computai --discover --add` 把連得上的機器都加進來，並依硬體填好功耗建議值。
 
-開發版直接輸入 `computai` 先顯示六項功能。直接 Enter 進監控；`2` 做月報、`3` 自動開網頁、
+直接輸入 `computai` 先顯示六項功能。直接 Enter 進監控；`2` 做月報、`3` 自動開網頁、
 `4` 看花費分析、`5` 檢查資料來源、`6` 設定環境。輸入數字後按 Enter；`0`、`q`、Ctrl-C 或 EOF 離開。
 只看選單不會讀用量、連線機器或建立設定與帳本。非互動環境會印指南後結束；腳本查用量用 `--summary` 或 `--json`。
-已釋出的 beta.2 仍直接進監控。
+beta.3 以前的裸指令會直接進監控。
 
 從選單進監控不會先問月費。第一次直接執行 `computai --live`、又還沒設月費時，每個訂閱只問一句：Codex 用 log 裡記錄的方案，Claude 照近 30 天的用量猜。
 Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後用 `computai --setup` 改。
@@ -86,7 +86,7 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 
 | 指令 | 做什麼 |
 |---|---|
-| `computai` | 開發版：功能選單，Enter 進監控；非互動環境印指南後結束。已釋出 beta.2：終端機進 live，其他環境印摘要。 |
+| `computai` | 功能選單，Enter 進監控；非互動環境印指南後結束。 |
 | `--summary [--by model\|project\|session\|day]` | 每個來源、每個模型的總量、等值 API 花費、方案比較、額度、機器、雲端和警示。 |
 | `--sync` | 匯入新的用量，印出每個來源新增幾筆。 |
 | `--line [--sep " · "]` | 一行字：每個訂閱最吃緊的額度視窗、今天的花費。最多每 30 秒重讀一次 log。 |
@@ -111,9 +111,9 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 | `--totals 檔名 [--who 名字]`／`--lab 資料夾` | 實驗室彙總：每個人把自己這個月的總額（每個來源、模型的花費和 token、度數；不含專案名稱）寫到共用資料夾，`--lab` 把整個資料夾合成一張表。 |
 | `--csv 檔名` | 範圍內每一筆用量（時間、來源、模型、專案、token、金額）輸出成 CSV；`= + - @` 開頭的文字前面會加 `'`，避免試算表把它當公式執行。 |
 | `--report [--html 檔名]` | 月報，文字版或一個獨立的 HTML 檔（含每日花費圖）。 |
-| `--profile [all\|YYYY-MM\|YYYY] [--html 檔名]` | beta.3 開發版：個人用量頁，切換累計、月報、年報，附涵蓋日期與精確 token 細項。 |
-| `--create [--html 檔名] [--no-open]` | beta.3 開發版：本機製卡頁，自動開瀏覽器，選範圍／版型後下載 PNG 或 SVG；不需要 GitHub 設定。 |
-| `--profile --share-layout square\|portrait\|wide [--svg 檔名] [--html 檔名]` | beta.3 開發版：Web／TUI 風格的一頁社群圖卡，分享頁可下載原尺寸 PNG。 |
+| `--profile [all\|YYYY-MM\|YYYY] [--html 檔名]` | beta.3：個人用量頁，切換累計、月報、年報，附涵蓋日期與精確 token 細項。 |
+| `--create [--html 檔名] [--no-open]` | beta.3：本機製卡頁，自動開瀏覽器，選範圍／版型後下載 PNG 或 SVG；不需要 GitHub 設定。 |
+| `--profile --share-layout square\|portrait\|wide [--svg 檔名] [--html 檔名]` | beta.3：Web／TUI 風格的一頁社群圖卡，分享頁可下載原尺寸 PNG。 |
 | `--analyze` | 月底預測、方案檢查、快取效率、電費分析。 |
 | `--payback 美元 [--gpu-watts W --hours-per-day H --rent-per-hour 美元]` | 買一張卡跟租雲端比，多久回本。 |
 | `--discover` | 從 `~/.ssh/config` 和 Tailscale 找機器，逐台試 SSH，說明連不上的原因，並印出可以貼進 `[machines]` 的設定。 |
@@ -121,9 +121,9 @@ Enter 確認、`n` 跳過，或打別的方案名稱。只問這一次，之後�
 | `--sample` | 讀一次每台機器，印出機器表。 |
 | `--cloud` | 列出 RunPod、Vast.ai、Lambda 的機器並記下花費。 |
 | `--proxy [--listen ... --upstream ... --machine 名稱]` | Ollama 和 OpenAI 相容服務的 token 計數 proxy。 |
-| `--tokens` | 最近 30 天的 token 精確細項、快取占比及來源／模型／專案排名；支援日期與 JSON。beta.3 開發版。 |
-| `--local-requests [筆數] [--tag test/production/benchmark]` | 今天新版 proxy 請求的耗時、HTTP 結果及輸出／全程 tok/s；支援日期／機器／模型篩選。beta.3 開發版。 |
-| `--local-history [筆數] [--machine 名稱] [--model 模型]` | 最近本地用量，預設今天最新 20 筆，最多 200 筆；支援日期範圍與 `--json`。beta.3 開發版新增。 |
+| `--tokens` | 最近 30 天的 token 精確細項、快取占比及來源／模型／專案排名；支援日期與 JSON。beta.3。 |
+| `--local-requests [筆數] [--tag test/production/benchmark]` | 今天新版 proxy 請求的耗時、HTTP 結果及輸出／全程 tok/s；支援日期／機器／模型篩選。beta.3。 |
+| `--local-history [筆數] [--machine 名稱] [--model 模型]` | 最近本地用量，預設今天最新 20 筆，最多 200 筆；支援日期範圍與 `--json`。beta.3 新增。 |
 | `--mcp` | 給 agent 用的 MCP server（見下面）。 |
 | `--paths`、`--version` | |
 
@@ -209,7 +209,7 @@ OPENAI_ADMIN_KEY = ...
 - **共用資料夾**（推薦）：每台都 `computai --set devices.folder=路徑`，指向一個它們都會同步的資料夾（iCloud Drive、
   Dropbox、Syncthing、私人 git repo）。每台把自己的用量寫進去（沒有 prompt 或完整路徑，session id 只留裝置／來源範圍內的單向雜湊），
   再讀別台的。`devices.name` 設定顯示的名字。
-  匿名 session 修正已在 beta.2 釋出，本開發版也已包含；已匯入的舊資料可依[升級步驟](MULTI-DEVICE.md#從沒有-session-的舊格式升級)補回分組。
+  匿名 session 修正已在 beta.2 釋出，本版也已包含；已匯入的舊資料可依[升級步驟](MULTI-DEVICE.md#從沒有-session-的舊格式升級)補回分組。
 - **SSH 拉取**：`[machines]` 裡的機器加上 `[machine.X] usage = pull`。ComputAI 會把自己複製到對方的
   `~/.cache/computai`（對方只需要 `python3`），再執行 `computai --export-usage`。
 
@@ -289,7 +289,7 @@ OpenAI 的 `usage`、Responses API 的 `response.usage`）。OpenAI 的串流請
 
 ## 總帳畫面
 
-- `--live`（或開發版選單直接 Enter，cyber 主題）有分頁：**1 總覽**（一個畫面放得下：額度油表、每台機器一行、花費、最重要的警示和建議）、**2 額度**、**3 機器**、**4 本地模型**、**5 花費**、**6 時間軸**；`1`-`6` 或 `Tab` 切換，`q` 離開。開發版按 `h` 或 `?` 看按鍵與功能指令，資料載入中也能使用；再按 `h`、`?` 或 Esc 返回，`c` 開製卡頁。額度預設看「剩下多少」（`[general] limits = used` 改回已用）。各面板由上到下：
+- `--live`（或選單直接 Enter，cyber 主題）有分頁：**1 總覽**（一個畫面放得下：額度油表、每台機器一行、花費、最重要的警示和建議）、**2 額度**、**3 機器**、**4 本地模型**、**5 花費**、**6 時間軸**；`1`-`6` 或 `Tab` 切換，`q` 離開。按 `h` 或 `?` 看按鍵與功能指令，資料載入中也能使用；再按 `h`、`?` 或 Esc 返回，`c` 開製卡頁。額度預設看「剩下多少」（`[general] limits = used` 改回已用）。各面板由上到下：
   - **總結列**：一切正常、注意或警告，加上最嚴重的那件事（「Codex 每週額度用完了，4h43m 後重置 · 另外還有 1 件」）。
   - **額度**：每個額度視窗一條粗量表和百分比。白色的 `┃` 標出這個週期過了多久，長條超過它就代表用得比時間快。
     下一行寫「照目前速度 1h20m 後用完」或「重置時約 65%」。有用量卻沒有額度資料的訂閱，會告訴你怎麼接上。
@@ -361,7 +361,7 @@ vLLM、llama.cpp、SGLang 自己會報 token 累計數。Ollama 不會，要在�
 用戶端照樣打 `:11434`，不用改。proxy 在 `/metrics` 提供累計數，取樣時透過 SSH 讀，所以遠端機器也行。
 
 - 取樣若讀 proxy 的 Ollama 埠，或讀上游 vLLM／llama.cpp／SGLang 的 token 計數器，proxy 只交累計數。若只取樣原生 Ollama／LM Studio，proxy 仍逐筆記帳，避免漏帳。
-- 給別台 computai 取樣時通常會自動避免重複記帳；明確 `--no-ledger` 只保留 `/metrics`，beta.3 開發版也會停用逐筆請求紀錄。
+- 給別台 computai 取樣時通常會自動避免重複記帳；明確 `--no-ledger` 只保留 `/metrics`，beta.3 也會停用逐筆請求紀錄。
 
 ## 自動更新的 GitHub 個人頁卡片
 
@@ -378,16 +378,16 @@ push = yes
 `computai`、`--web` 或 `--watch` 每天會重寫一次那兩張卡片並 commit。
 
 - `style` 選外觀：`netrunner`（預設）、`arasaka`、`militech`、`amber`、`matrix`、`synthwave`；`colors = #起, #迄` 可以自訂漸層。
-- beta.3 開發版另有 `minimal`、`paper`、`github`、`terminal`，分別為灰階橫幅、紙張直式、統計面板及等寬字終端風格。
+- beta.3 另有 `minimal`、`paper`、`github`、`terminal`，分別為灰階橫幅、紙張直式、統計面板及等寬字終端風格。
 - `layout = auto` 跟隨風格預設；可改成 `hud`、`compact`、`dashboard`、`portrait`，或用 `--card-layout` 暫時覆蓋。原本的 style 與 `mono`／`computai` 別名維持 HUD。
 - `computai --card --html styles.html --lang zh` 產生本機比較頁：10 種風格的深淺色與 4 種版型。比較頁採各風格預設配色，附上產生 SVG 的指令；單張 SVG 與每日更新則使用自己的設定。
 - `handle` 是標題上的名字，預設用 repo 的 GitHub 帳號。
 - `lang` 是卡片的語言。
 - `--setup` 會一項一項問，也會自動找到本機的個人頁 repo。推之前會先接上機器人推的 commit。
 
-## 最近本地推論紀錄（beta.3 開發版）
+## 最近本地推論紀錄（beta.3）
 
-這項功能位於 `feature-local-history` 分支，已發佈的 `v0.1.0-beta.1` 尚未包含。
+這項功能自 `v0.1.0-beta.3` 提供。
 
 ```sh
 computai --local-history --lang zh
@@ -429,7 +429,7 @@ TUI 分頁 **4 本地模型** 與網頁會顯示今天最新 8 筆；終端視�
 
 Mac 要設定 `idle_watts`／`max_watts`（或接智慧插座）才有功耗欄位。
 
-## 個人歷史 Profile（beta.3 開發版）
+## 個人歷史 Profile（beta.3）
 
 ```sh
 computai --profile --html profile.html --who hawks --lang zh
@@ -638,7 +638,7 @@ agent 可以透過 MCP 的 `pick` 工具問同一個問題。
 - *移除*：刪掉 `computai` 檔案、`~/.config/computai` 和 `~/.local/share/computai`。
 
 
-## Token 細項與本地請求追蹤（beta.3 開發版）
+## Token 細項與本地請求追蹤（beta.3）
 
 ```sh
 computai --tokens --lang zh
@@ -666,4 +666,4 @@ reasoning 已含於 output，只列子集合。B 是十億（10 億），M 是�
 明確 `--no-ledger` 同時停用逐筆用量及請求 metadata，只保留記憶體 `/metrics`。
 `--local-history` 繼續顯示原本的請求／取樣差值；舊紀錄無法補出耗時、結果與標籤。
 TUI 本地頁有紀錄時優先顯示請求，網頁同時保留兩種表格。既有 proxy／TUI／web 需要重啟才能載入新版。
-這些功能只在本地開發分支，已發佈 beta.1 尚未包含。
+這些功能自 beta.3 提供。

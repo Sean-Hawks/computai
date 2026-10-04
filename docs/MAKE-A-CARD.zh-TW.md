@@ -3,12 +3,12 @@
 在使用 AI 工具的電腦執行 `computai recap`，打開後按「下載 PNG」，就能分享你的月報。
 程式會自動找支援的本機用量、選好月份和直式版型；不用先設定模型、方案、GitHub 或常駐服務。
 
-**目前是 beta.3 本機開發功能，已發佈的 beta.1／beta.2 尚未包含。** 以下從這份開發版資料夾執行；朋友公開下載的入口要等下一版發佈。
+**這項功能自 beta.3 提供。** 可下載公開版本，或用下方的一行指令安裝並開啟月報。
 需要 Python 3.8+，並在使用 AI 工具的那台電腦上製作。
 
 <img src="images/share-preview.png" width="320" alt="Web／TUI 風格的直式分享圖，使用合成示範資料">
 
-## 已經安裝這份開發版
+## 已經安裝 beta.3
 
 只記得 `computai` 也可以：執行後選「2 做月報圖卡」，就會開相同的月報頁。
 選單列有即時監控、網頁、花費分析、資料檢查與設定，不用先記參數。
@@ -25,9 +25,20 @@ computai recap
 要指定月份，只需 `computai recap 2026-09`；需要繁中時加 `--lang zh`。
 `computai recap --help` 只列月報相關選項。
 
-## 有開發版資料夾，還沒安裝
+## 還沒下載
 
-在下載並解壓的 **beta.3 開發版資料夾**開啟終端機。macOS／Linux 用一行完成安裝並打開月報，不需要重開終端機或調 PATH：
+macOS／Linux 可用一行安裝並打開月報：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Sean-Hawks/computai/v0.1.0-beta.3/install.sh | sh -s -- --recap
+```
+
+Windows 從 [beta.3 版本頁](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.3)
+下載並解壓 ZIP，雙擊 `Make a card.cmd` 即可開月報，不需先設定 PATH。
+
+## 有版本資料夾，還沒安裝
+
+在下載並解壓的 **beta.3 資料夾**開啟終端機。macOS／Linux 用一行完成安裝並打開月報，不需要重開終端機或調 PATH：
 
 ```sh
 sh install.sh --recap

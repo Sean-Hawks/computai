@@ -48,7 +48,7 @@ class Installer(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             with open(log, encoding="utf-8") as f:
                 url = f.read().strip()
-            self.assertEqual(url, "https://raw.githubusercontent.com/Sean-Hawks/computai/%s/computai" % (ref or "v0.1.0-beta.2"))
+            self.assertEqual(url, "https://raw.githubusercontent.com/Sean-Hawks/computai/%s/computai" % (ref or "v0.1.0-beta.3"))
 
     def test_install_and_create_runs_without_path_refresh_or_configuration_wizard(self):
         sb = helpers.Sandbox()

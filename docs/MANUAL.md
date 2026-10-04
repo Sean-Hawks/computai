@@ -25,11 +25,11 @@ and machine and prints the command that fixes each gap. `computai --set SECTION.
 `--unset SECTION.KEY` change single settings without touching your comments. `computai --discover --add`
 adds every reachable machine with power settings suggested from its hardware.
 
-In the development checkout, `computai` first shows a menu with six choices. Enter opens the monitor;
+In beta.3, `computai` first shows a menu with six choices. Enter opens the monitor;
 `2` makes a monthly recap, `3` opens the browser automatically, `4` analyzes spending, `5` checks sources and
 `6` sets up your environment. `0`, `q`, Ctrl-C or EOF exits. Browsing the menu does not read usage, connect
 to machines or create configuration/ledger files. Outside a terminal, it prints the same guide and exits.
-Use `--summary` or `--json` to get usage in scripts. Released beta.2 still opens the monitor directly.
+Use `--summary` or `--json` to get usage in scripts. Before beta.3, bare `computai` opened the monitor directly.
 
 Selecting the monitor from the menu skips plan questions. The first direct `computai --live` with no plan set
 asks one question per subscription:
@@ -103,7 +103,7 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 
 | Command | What it does |
 |---|---|
-| `computai` | Development: feature menu; Enter opens the monitor. Outside an interactive terminal: guide, then exit. Released beta.2: live on a terminal, summary otherwise. |
+| `computai` | Feature menu; Enter opens the monitor. Outside an interactive terminal: guide, then exit. |
 | `--summary [--by model\|project\|session\|day]` | Totals per source and model, API-equivalent cost, plan comparison, limits, machines, cloud and alerts. |
 | `--sync` | Import new usage and print how many rows were added per source. |
 | `--line [--sep " · "]` | One line: each subscription's fullest limit window and today's cost. Re-reads logs at most every 30 s. |
@@ -135,9 +135,9 @@ All commands accept `--json`. Ranges: `--month [YYYY-MM]`, `--since YYYY-MM-DD`,
 | `--sample` | Read every machine once and print the machine table. |
 | `--cloud` | List RunPod, Vast.ai and Lambda instances and record their cost. |
 | `--proxy [--listen ... --upstream ... --machine NAME]` | Token-counting proxy for Ollama and OpenAI-compatible servers. |
-| `--tokens` | Exact token breakdown and cache share for the last 30 days; date filters and JSON supported. Beta.2 development. |
-| `--local-requests [N] [--tag test/production/benchmark]` | New proxy request timings, HTTP outcomes and output / elapsed tok/s; date/machine/model filters. Beta.2 development. |
-| `--local-history [N] [--machine NAME] [--model MODEL]` | Recent local usage: today's latest 20 rows by default, at most 200; date filters and `--json` supported. Added in beta.3 development. |
+| `--tokens` | Exact token breakdown and cache share for the last 30 days; date filters and JSON supported. Beta.3. |
+| `--local-requests [N] [--tag test/production/benchmark]` | New proxy request timings, HTTP outcomes and output / elapsed tok/s; date/machine/model filters. Beta.3. |
+| `--local-history [N] [--machine NAME] [--model MODEL]` | Recent local usage: today's latest 20 rows by default, at most 200; date filters and `--json` supported. Added in beta.3. |
 | `--mcp` | MCP server on stdio for agents (see below). |
 | `--paths`, `--version` | |
 
@@ -323,7 +323,7 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
 
 ## Dashboards
 
-- `--live` (or Enter in the development menu, cyber theme) has tabs: **1 overview** (fits one screen: limit gauges, one line per machine, spend, the top alerts and advice), **2 limits**, **3 machines**, **4 local models**, **5 spend**, **6 timeline**; `1`-`6` or `Tab` switch, `q` quits. Development: `h` or `?` opens help with feature commands, even while data loads; `h`, `?` or Esc returns, `c` opens the card creator. Limits show what is left by default (`[general] limits = used` flips it). The panels, top to bottom:
+- `--live` (or Enter in the menu, cyber theme) has tabs: **1 overview** (fits one screen: limit gauges, one line per machine, spend, the top alerts and advice), **2 limits**, **3 machines**, **4 local models**, **5 spend**, **6 timeline**; `1`-`6` or `Tab` switch, `q` quits. `h` or `?` opens help with feature commands, even while data loads; `h`, `?` or Esc returns, `c` opens the card creator. Limits show what is left by default (`[general] limits = used` flips it). The panels, top to bottom:
   - **Verdict**: ALL CLEAR, WATCH or ALERT and the worst problem in plain words
     ("Codex weekly limit is used up - resets in 4h43m · +1 more").
   - **LIMITS**: a thick gauge per limit window with its percentage. A white `┃` marks how much of the
@@ -410,7 +410,7 @@ vLLM, llama.cpp and SGLang report token totals themselves. Ollama does not: put 
 Clients keep using `:11434` unchanged. The proxy serves running totals at `/metrics`, which sampling reads over SSH, so this works on other machines too.
 
 - If sampling reads the proxy as an Ollama service, or reads counters from upstream vLLM/llama.cpp/SGLang, the proxy only keeps totals. Sampling native Ollama/LM Studio alone does not disable per-request recording.
-- Sampling is normally detected automatically to avoid double counting. Explicit `--no-ledger` keeps only `/metrics`; in beta.3 development it also disables persistent request metadata.
+- Sampling is normally detected automatically to avoid double counting. Explicit `--no-ledger` keeps only `/metrics`; in beta.3 it also disables persistent request metadata.
 
 ## GitHub profile card, kept fresh
 
@@ -427,16 +427,16 @@ push = yes
 Once a day, `computai`, `--web` or `--watch` rewrites the two card SVGs there and commits them.
 
 - `style` picks the look: `netrunner` (default), `arasaka`, `militech`, `amber`, `matrix` or `synthwave`. `colors = #from, #to` sets your own gradient.
-- Beta.2 development also adds `minimal`, `paper`, `github` and `terminal`: a monochrome banner, paper portrait, statistic dashboard and plain console.
+- Beta.3 also adds `minimal`, `paper`, `github` and `terminal`: a monochrome banner, paper portrait, statistic dashboard and plain console.
 - `layout = auto` follows the style; choose `hud`, `compact`, `dashboard` or `portrait`, or override with `--card-layout`. Existing styles and the `mono`/`computai` aliases retain the HUD.
 - `computai --card --html styles.html` writes a local comparison of ten styles, both themes and four layouts, with SVG commands. The gallery uses preset colours; individual SVGs and daily updates use your settings.
 - `handle` sets the title; it defaults to the repo's GitHub account.
 - `lang` sets the card's language.
 - `--setup` asks for all of this and finds the profile repo on disk. Before pushing it rebases onto any commit a bot pushed in the meantime.
 
-## Recent local inference (beta.3 development)
+## Recent local inference (beta.3)
 
-Available on `feature-local-history`; the published `v0.1.0-beta.1` does not include it.
+Available since `v0.1.0-beta.3`.
 
 ```sh
 computai --local-history
@@ -483,7 +483,7 @@ price in `prices.ini`; hardware is not counted. Only usage fields are read from 
 
 Macs need `idle_watts` / `max_watts` (or a smart plug) for the power columns.
 
-## Personal history profile (beta.3 development)
+## Personal history profile (beta.3)
 
 ```sh
 computai --profile --html profile.html --who hawks
@@ -716,7 +716,7 @@ Codex, an `[mcp_servers.computai]` entry with `command = "computai"` and `args =
 - *Uninstall*: delete the `computai` file, `~/.config/computai` and `~/.local/share/computai`.
 
 
-## Token breakdown and local request tracing (beta.3 development)
+## Token breakdown and local request tracing (beta.3)
 
 ```sh
 computai --tokens
@@ -750,4 +750,4 @@ from token usage; automatic counter sampling may suppress usage rows while retai
 without adding tokens twice. Explicit `--no-ledger` disables both persistent usage and request metadata,
 leaving in-memory /metrics. Existing --local-history remains available; old rows cannot recover timings,
 outcomes or labels. The TUI local tab prioritizes requests when available; web shows both histories.
-Restart existing proxy/TUI/web processes to load the new code. These features are not in released beta.1.
+Restart existing proxy/TUI/web processes to load the new code. These features are available since beta.3.
