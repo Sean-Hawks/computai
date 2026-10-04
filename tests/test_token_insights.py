@@ -38,6 +38,18 @@ class TokenInsights(unittest.TestCase):
         self.assertIn('已含於輸出', text)
         self.assertIn('十億', text)
 
+    def test_card_details_share_the_card_range_and_hide_projects(self):
+        import xml.etree.ElementTree as ET
+        c = self.m.card_data(self.db, 'all', prices={}, plan_table={}, t=150)
+        self.assertEqual(c['tokens'], c['token_details']['total'])
+        self.assertNotIn('fake-project', json.dumps(c['token_details']))
+        for layout in ('hud', 'compact', 'dashboard', 'portrait'):
+            svg = self.m.render_card_svg(c, lang='zh', layout=layout)
+            ET.fromstring(svg)
+            self.assertIn('快取讀取占總数', svg)
+            self.assertIn('推理（已含於輸出）', svg)
+            self.assertNotIn('fake-project', svg)
+
     def test_cli_range_and_json(self):
         sb = helpers.Sandbox()
         try:

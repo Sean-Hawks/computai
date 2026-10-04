@@ -5965,6 +5965,7 @@ def dashboard_state(db):
     st["ledger_empty"] = not st["sources"] and ledger_empty(db)
     st["devices"] = devices_report(db, start, end, t)
     st["timeline"] = timeline_data(db, t=t)
+    st["token_insights"] = token_insights(db, start, end)
     st["local_history"] = local_history(db, limit=8)
     st["local_cost"] = local_cost_report(db, start, end, t=t)
     ts_ = team_settings()
@@ -6382,6 +6383,8 @@ UI = {
         "tl_sum_day": "Accumulated · Claude/Codex %.1fh · local inference %.1fh", "tl_top": "Peak API-equivalent hour: %s (%s)",
         "lh_title": "Recent local inference", "lh_range": "%s to %s · newest first",
         "lh_time": "TIME", "lh_via": "SOURCE", "lh_input": "INPUT", "lh_output": "OUTPUT", "lh_requests": "REQ",
+        "ti_title": "Token breakdown", "ti_note": "B = billion. Repeated cache reads count again; reasoning is already in output.",
+        "ti_buckets": token_labels(False), "ti_cache": "Cache reads / total",
         "lh_proxy": "proxy", "lh_counter": "counter", "lh_more": "+%d rows · computai --local-history",
         "lh_none": "No local usage in this range. Requests must pass through --proxy, or a service must provide token metrics.",
         "lh_note": "proxy = requests; counter = sample deltas, request count unknown. Usage only; no conversation content.",
@@ -6638,6 +6641,8 @@ UI = {
         "tl_sum_day": "當日累計 · Claude/Codex %.1f 小時 · 本地推論 %.1f 小時", "tl_top": "API 等值最高時段：%s（%s）",
         "lh_title": "最近本地推論紀錄", "lh_range": "%s 至 %s · 最新在上",
         "lh_time": "時間", "lh_via": "來源", "lh_input": "輸入", "lh_output": "輸出", "lh_requests": "請求數",
+        "ti_title": "Token 用量細項", "ti_note": "B = 十億。快取可重複讀取；推理已含於輸出，總數不是不同文字的數量。",
+        "ti_buckets": token_labels(True), "ti_cache": "快取讀取占總數",
         "lh_proxy": "proxy", "lh_counter": "取樣差值", "lh_more": "另 %d 筆 · computai --local-history",
         "lh_none": "這個區間沒有本地用量。請求需經過 --proxy，或由推論服務提供 token metrics。",
         "lh_note": "proxy 為逐筆請求；取樣差值的請求數未知。僅顯示用量，不含對話內容。",
@@ -7964,6 +7969,10 @@ def spend_lines(st, width):
         else:
             out.append(" %s %s" % (bold(cell(name, 13)), T("worth" if x["source"] in SUBSCRIPTION_SOURCES else "spent")
                                    % fmt_usd(x["cost_usd"])))
+    d = st.get("token_insights")
+    if d:
+        for ln in wrap(T("ti_title") + ": " + fmt_tok(d["total"]) + " · computai --tokens", max(20, width - 1)):
+            out.append(" " + ln)
     f = st["forecast"]
     pay = fmt_usd(f["projected_usd"])
     for i, ln in enumerate(wrap(T("sum_pay") % pay, max(20, width - 1))):   # 太長就折行，不要被框線切掉
@@ -8658,6 +8667,23 @@ function usageCard(st) {
   return card;
 }
 
+function tokenInsightCard(st) {
+  const d = st.token_insights;
+  if (!d) return null;
+  const card = el("div", {class: "card"});
+  const details = el("details");
+  details.append(el("summary", {}, `${t.ti_title} · ${tok(d.total)} · ${st.month}`));
+  const body = el("tbody");
+  for (const [key, name] of Object.entries(t.ti_buckets)) {
+    const n = d.buckets[key];
+    body.append(el("tr", {}, el("td", {}, name), el("td", {class: "num"}, n.toLocaleString()),
+      el("td", {class: "num"}, key === "reasoning" || !d.total ? "-" : (100 * n / d.total).toFixed(2) + "%")));
+  }
+  details.append(el("div", {class: "tablewrap"}, el("table", {}, body)), ft(t.ti_note));
+  card.append(details);
+  return card;
+}
+
 function localHistoryCard(st) {
   const history = st.local_history;
   if (!history || !history.rows.length) return null;
@@ -8836,7 +8862,8 @@ function render(st) {
   $("#cloud").replaceChildren(...(cc ? [cc] : []));
   const lc = localCard(st);
   const lh = localHistoryCard(st);
-  $("#usage").replaceChildren(...(lc ? [lc] : []), ...(lh ? [lh] : []), usageCard(st));
+  const ti = tokenInsightCard(st);
+  $("#usage").replaceChildren(...(lc ? [lc] : []), ...(lh ? [lh] : []), ...(ti ? [ti] : []), usageCard(st));
   $("#foot").textContent = `ComputAI ${st.version} · ${st.month} · ${t.w_prices}`;
   document.title = `${st.line_text} · ComputAI`;
 }
@@ -10450,6 +10477,7 @@ def card_data(db, period="30d", prices=None, plan_table=None, t=None):
          "top_model": w["top_models"][0]["model"] if w["top_models"] else None,
          "active_days": w["active_days"], "longest_streak": w["longest_streak"],
          "bars": bars, "bars_key": bars_key}
+    c["token_details"] = token_insights(db, start, end, rankings=False)
     c.update(card_extras(db, w, today, start, end))
     c["devices"] = db.execute("SELECT COUNT(DISTINCT device) FROM usage WHERE ts >= ? AND ts < ? AND source IN (%s)"
                               % ",".join("?" * len(EXPORT_SOURCES)), (start, end) + EXPORT_SOURCES).fetchone()[0]
@@ -10644,6 +10672,24 @@ def card_persona(key, lang):
     return name.upper() if lang == "en" else name
 
 
+def card_token_caption(c, lang):
+    d = c.get("token_details") or {}
+    pct = d.get("cache_share_pct")
+    if pct is None:
+        return ""
+    return (("快取讀取占總数 %.1f%% · 輸出 %s" if lang == "zh" else "Cache reads %.1f%% of total · Output %s") %
+            (pct, fmt_tok(d["buckets"]["output"])))
+
+
+def card_token_description(c, lang):
+    d = c.get("token_details")
+    if not d:
+        return ""
+    labels = token_labels(lang == "zh")
+    note = ("B = 十億；快取可重複讀取。" if lang == "zh" else "B = billion; repeated cache reads count again.")
+    return note + " " + "; ".join("%s: %s" % (labels[k], format(d["buckets"][k], ",")) for k in TOKEN_COLS)
+
+
 def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netrunner", colors=None, credit=True, layout="auto"):
     """GitHub 個人頁卡片（900x390），cyberpunk HUD：切角霓虹外框和光暈、掃描線、警示條紋、片假名副標、
     色差殘影的大數字、反白的區段標籤、13 週熱力圖（有掃描光）、分段等級環、agent 工作指標（工時、最多同時、
@@ -10719,6 +10765,10 @@ def render_card_svg(c, theme="dark", handle=None, t=None, lang=None, style="netr
         o.append(text(W / 2, 210, tx["none"], 18, p["gray"], anchor="middle", spacing=4))
         o.append("</svg>\n")
         return "".join(o)
+    caption = card_token_caption(c, lang)
+    if caption:
+        o.append('<desc>%s</desc>' % e(card_token_description(c, lang)))
+        o.append(text(34, 57, caption, 9, p["gray"]))
     # 左：色差殘影的大數字、價值、agent 工作指標
     big = e(fmt_tok(c["tokens"]))
     o.append(tab(34, 76, "%s // %s" % (tx["tokens"], period)))
@@ -10865,7 +10915,7 @@ def render_card_flat(c, theme, handle, t, lang, style, colors, credit, layout):
     e = svg_escape
     o = ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" data-layout="%s" aria-label="%s">'
          % (W, H, W, H, layout, e("%s · %s · %s tokens" % (title, period, fmt_tok(c["tokens"])))),
-         '<title>%s</title><desc>%s</desc>' % (e(title), e("%s · %s %s" % (period, labels["updated"], stamp))),
+         '<title>%s</title><desc>%s</desc>' % (e(title), e("%s · %s %s · %s" % (period, labels["updated"], stamp, card_token_description(c, lang)))),
          '<style>text{font-family:%s}</style>' % font,
          '<rect x=".5" y=".5" width="%s" height="%s" rx="%d" fill="%s" stroke="%s"/>' % (W - 1, H - 1, radius, p["bg"], p["frame"])]
 
@@ -10940,6 +10990,9 @@ def render_card_flat(c, theme, handle, t, lang, style, colors, credit, layout):
     else:
         text(pad, 34, title, 18, weight="600", room=W - 2 * pad - 130)
         text(W - pad, 34, period, 12, p["gray"], anchor="end", room=120)
+    caption = card_token_caption(c, lang)
+    if caption:
+        text(pad, 84 if layout == "portrait" else 53, caption, 10, p["gray"])
     if not c["tokens"]:
         text(W / 2, H / 2, labels["none"], 18, p["gray"], anchor="middle", room=W - 2 * pad)
     elif layout == "compact":
