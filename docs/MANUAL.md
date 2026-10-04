@@ -340,7 +340,10 @@ time-of-use tariff it assumes the work is scheduled off-peak where possible.
   extra bill). Cost breakdown and subscription comparison sit side by side on wide terminals and stack
   on narrow ones. Comparison includes monthly fees, API value, value/fee ratio, daily trends and
   month-to-date tokens; the ratio is not cash payback or savings. Configured subscriptions remain in
-  costs even without usage. Missing fees or prices warn of possible underestimates. The budget line
+  costs even without usage. Missing fees or prices warn of possible underestimates. A `+` marks the
+  priced portion of incomplete API values: `$0.00+` does not mean zero value. Ratios are unavailable
+  for unpriced subscriptions; fully priced subscriptions keep their comparisons. A zero monthly fee
+  shows `$0.00` with no ratio, separately from a missing fee. The budget line
   shows projected headroom or overage. At 36 rows or fewer, primary amounts and subscription comparisons
   take priority; enlarge the window or run `computai --summary` for details, and `computai --insights`
   for full advice. Costs are configuration/ledger estimates, not payment receipts. Local-model tokens
