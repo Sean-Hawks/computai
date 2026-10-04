@@ -12,6 +12,97 @@ GPUs you rent: tokens, GPU hours, kWh and money, side by side.
 > beta.2 development: `computai --create` → choose a period/layout → download PNG or SVG. No GitHub setup needed.
 > From this development checkout, `sh install.sh --create` installs and opens the creator in one step. Released beta.1 does not include it yet. [First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
 
+[Pick a card style](#choose-your-card-style) · [Make your first card](#make-your-first-card) · [Daily GitHub updates](#your-ai-ops-card-for-your-github-profile)
+
+## Choose your card style
+
+Turn your AI usage into a card for Threads, a monthly recap or your GitHub README.
+Start with the Web/TUI look, or choose one of ten profile styles below. All previews use demo data.
+
+| Web/TUI sharing card | Profile cards: minimal, paper, github, terminal |
+|---|---|
+| <img src="docs/images/share-preview.png" width="270" alt="Web/TUI sharing card: white usage totals and a daily activity chart on black"> | <img src="docs/images/card-styles-preview.png" width="660" alt="Four profile styles: minimal monochrome banner, paper portrait, GitHub dashboard and terminal banner"> |
+| Black and white, clear totals and activity trends. Square, portrait, wide or README formats; download PNG or SVG with `--create`. | Quiet banners, a warm paper summary or an activity dashboard. Export SVG with `--card`. |
+
+Prefer neon? These six styles use a HUD with cut corners, activity grids and decorative animation:
+
+| `netrunner` · cyan / pink / yellow | `arasaka` · red / black |
+|---|---|
+| ![Netrunner profile card](docs/images/card-netrunner.svg) | ![Arasaka profile card](docs/images/card-arasaka.svg) |
+| **`militech` · yellow / orange** | **`amber` · violet / gold** |
+| ![Militech profile card](docs/images/card-militech.svg) | ![Amber profile card](docs/images/card-amber.svg) |
+| **`matrix` · terminal green** | **`synthwave` · magenta / cyan** |
+| ![Matrix profile card](docs/images/card-matrix.svg) | ![Synthwave profile card](docs/images/card-synthwave.svg) |
+
+### Pick the look that fits your page
+
+| Profile style (`--card-style`) | Look and use | Default layout | Available in |
+|---|---|---|---|
+| `minimal` | Monochrome, whitespace; a compact README banner | `compact` | beta.2 development |
+| `paper` | Warm paper and serif type; a vertical summary | `portrait` | beta.2 development |
+| `github` | Statistic panels, activity grid and model shares | `dashboard` | beta.2 development |
+| `terminal` | Monospace console with a straight frame | `compact` | beta.2 development |
+| `netrunner` | Cyan, pink and yellow; the default cyberpunk HUD | `hud` | beta.1 |
+| `arasaka` | Red accents; a stark red and black HUD | `hud` | beta.1 |
+| `militech` | Yellow and orange; a high-contrast HUD | `hud` | beta.1 |
+| `amber` | Violet and gold; a warmer neon palette | `hud` | beta.1 |
+| `matrix` | Green; a terminal-inspired HUD | `hud` | beta.1 |
+| `synthwave` | Magenta and cyan; retro neon | `hud` | beta.1 |
+
+Every profile style has dark and light versions, with English or Traditional Chinese labels.
+The Web/TUI sharing card, four new styles, layout overrides and local gallery need this beta.2 development checkout;
+the released beta.1 has the six neon styles. The creator uses the Web/TUI look; choose profile styles through `--card`.
+
+### Make your first card
+
+With Python 3.8+ in this development folder, open the creator without installing:
+
+```sh
+python3 ./computai --create                 # Windows: py -3 computai --create
+```
+
+Choose social or GitHub README, a period and a layout, then download PNG or SVG.
+No GitHub setup is needed. [First-card guide (繁中)](docs/MAKE-A-CARD.zh-TW.md).
+
+For the profile styles, run these from the same folder, then open `styles.html` or `card.svg`:
+
+```sh
+python3 ./computai --card --html styles.html   # compare all ten styles, dark/light and layouts
+python3 ./computai --card --card-style minimal --svg card.svg
+python3 ./computai --card --card-style paper --card-theme light --svg card.svg
+python3 ./computai --card --card-style amber --svg card.svg
+```
+
+Add a downloaded SVG to your README:
+
+```markdown
+![My AI usage](card.svg)
+```
+
+These commands write local files. Share the downloaded image; the creator HTML contains your selectable history.
+Once installed, use `computai` in place of `python3 ./computai`.
+
+### Adjust the layout and save your favourite
+
+Style chooses colours and fonts; `--card-layout` chooses dimensions and content:
+`auto` follows the style, `hud` is 900×390, `compact` 720×230, `dashboard` 900×360 and `portrait` 420×610.
+Compact banners show tokens, API equivalent, active days, usage mix and top model;
+dashboard and portrait also show activity grids and hours. The four new styles are static in their default layouts.
+
+```sh
+computai --card --card-style github --card-layout compact --svg card.svg
+computai --set card.style=paper --set card.layout=portrait  # daily updates use these too
+computai --set 'card.colors=#ff6b6b, #ffd93d'               # custom accent pair
+computai --set card.handle=NEO                             # display name
+computai --set card.lang=zh                                # en or zh
+computai --set card.credit=no                              # hide the small credit
+```
+
+CLI options override saved `[card]` settings. For both light/dark SVGs and daily updates,
+follow the [GitHub profile setup](#your-ai-ops-card-for-your-github-profile).
+
+## See your usage live
+
 ```
 $ computai --summary --month 2026-09
 ComputAI  2026-09  (2026-09-01 - 2026-09-30)
@@ -173,9 +264,7 @@ The creator HTML is a private tool containing aggregates for selectable periods;
 
 ## Your AI ops card for your GitHub profile
 
-A cyberpunk card for your profile README (`github.com/<you>/<you>`) that shows how AI agents work for you: how many tokens, for how many hours, how many at once, with which models. It is rendered on your own machine from your own Claude Code and Codex logs, and updated once a day. There is no web service and no upload.
-
-![ComputAI profile card](docs/images/card-netrunner.svg)
+A card for your profile README (`github.com/<you>/<you>`) that shows how AI agents work for you: how many tokens, for how many hours, how many at once, with which models. It is rendered on your own machine from your own usage logs, and can be updated once a day. [Choose your style above](#choose-your-card-style), then use this setup to add it to your profile and keep it fresh.
 
 ### Quick start
 
@@ -213,51 +302,6 @@ Claude Code and Codex need no setup. If you have used them on this computer, the
 | **Facts** | Work rhythm (night owl, early bird, nine to five, evening hacker), peak hour, current streak, money the cache saved. |
 | **Badges** | 100M / 1B / 10B CLUB (all-time tokens), STREAK xN (7+ days in a row), your rhythm, CACHE LORD ($1,000+ saved by the cache), HOMELAB (local models used), POLYGLOT (3+ models with 5%+ share), MAXED OUT (a limit hit 100%). |
 | **Pulse** | The line under the stats is your daily usage over 30 days. |
-
-### Styles
-
-Beta.2 development adds four styles with different default layouts; the published beta.1 does not include them.
-
-| Style | Appearance and default layout |
-|---|---|
-| `minimal` | Quiet monochrome banner (`compact`) |
-| `paper` | Warm paper, serif typography, vertical summary (`portrait`) |
-| `github` | Statistic panels, activity grid and model shares (`dashboard`) |
-| `terminal` | Plain monospace console, square frame (`compact`) |
-
-![Four new card styles using demo data](docs/images/card-styles-preview.png)
-
-```sh
-computai --card --html styles.html                     # compare all ten styles, light/dark and layouts locally
-computai --card --card-style minimal --svg card.svg
-computai --card --card-style paper --card-theme light --svg card.svg
-computai --card --card-style github --card-layout compact --svg card.svg
-computai --set card.style=paper --set card.layout=portrait  # also used by daily updates
-```
-
-`--card-layout` accepts `auto` (follow the style), `hud` (900×390), `compact` (720×230),
-`dashboard` (900×360) or `portrait` (420×610). Style selects colours and fonts; layout selects dimensions and content.
-CLI options override `[card]` settings. Compact banners show tokens, API equivalent, active days, usage mix and top model;
-the dashboard and portrait also show activity grids and hours. New styles are static by default.
-The original six styles retain their HUD layout and decorative animation:
-
-| `arasaka` | `militech` |
-|---|---|
-| ![arasaka](docs/images/card-arasaka.svg) | ![militech](docs/images/card-militech.svg) |
-| `synthwave` | `matrix` |
-| ![synthwave](docs/images/card-synthwave.svg) | ![matrix](docs/images/card-matrix.svg) |
-| `amber` | light mode |
-| ![amber](docs/images/card-amber.svg) | ![netrunner light](docs/images/card-netrunner-light.svg) |
-
-```sh
-computai --set card.style=arasaka                 # netrunner (default), arasaka, militech, amber, matrix, synthwave
-computai --set 'card.colors=#ff6b6b, #ffd93d'     # your own accent pair
-computai --set card.handle=NEO                    # the name after SYS. (default: your GitHub account)
-computai --set card.lang=zh                       # card language (en, zh)
-computai --set card.credit=no                     # drop the small GEN BY COMPUTAI
-```
-
-Every style has a light version (`computai-card-light.svg`). The README snippet shows it to visitors who use light mode.
 
 ### Keeping it fresh, by hand or in scripts
 
