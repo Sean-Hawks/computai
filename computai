@@ -10913,7 +10913,7 @@ def render_profile_share_svg(d, selected="all", handle=None, layout="square", st
         text(x, y, short(total), size, p["text"], "800", room=room)
     def metric(x, y, value, label, room, size=50, color=None):
         text(x, y, value, size, color or p["text"], "700", room=room)
-        text(x, y + 40, label, 22, p["gray"], room=room)
+        text(x, y + 40, label, 22 if layout == "wide" else 26, p["gray"], room=room)
     def sources(x, y, width):
         rows = report["sources"]
         mix = [(r["source"].upper(), r["tokens"]) for r in rows[:2]]
@@ -10928,7 +10928,7 @@ def render_profile_share_svg(d, selected="all", handle=None, layout="square", st
                      (left, y + 25, w, (p["violet"], p["to"], p["gray"])[i]))
             left += w
             share = ("<1%" if 0 < n < total / 100.0 else "%.1f%%" % (100.0 * n / total)) if total else "—"
-            size = 18 if layout == "wide" else 20
+            size = 18 if layout == "wide" else 24
             room = width / 3 - 12
             cap = max(1, int(room / (size * .64)) - len(share) - 1)
             shown_name = name if vlen(name) <= cap else clip(name, max(0, cap - 1)) + "…"
@@ -11008,7 +11008,7 @@ def render_profile_share_svg(d, selected="all", handle=None, layout="square", st
             text(64, 911, L("處理量最高模型", "TOP MODEL BY TOKENS"), 22, p["amber"], room=340)
             text(1016, 911, top_model, 28, weight="700", anchor="end", room=590)
         rule(H - 145)
-        text(64, H - 104, L("B＝十億，含重複快取讀取。推理已含於輸出。", "B = billion. Repeated cache reads count again."), 23, p["gray"])
+        text(64, H - 104, L("B＝十億，含重複快取讀取。推理已含於輸出。", "B = billion. Repeated cache reads count again."), 26, p["gray"])
         text(64, H - 65, L("依可見用量紀錄彙總", "Observed usage records"), 22, p["gray"], room=700)
         text(W - 64, H - 65, "COMPUTAI", 24, p["amber"], "700", anchor="end", room=250)
     o.append("</svg>\n")
