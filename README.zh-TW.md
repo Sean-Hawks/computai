@@ -141,118 +141,66 @@ ComputAI 每天最多檢查一次更新，可用 `computai --set general.update_
 
 ## 圖卡與分享
 
-用 `computai --card --svg card.svg` 匯出 GitHub README 圖卡。
-beta.2 製卡頁（`computai --create --lang zh`）可選範圍、下載社群或 README 用的 PNG／SVG。
-兩者都從本機彙總用量產生。[做第一張圖卡](docs/MAKE-A-CARD.zh-TW.md)。
+把用量做成 README、作品集或社群貼文裡的圖卡，依版型與想呈現的資訊選擇設計。
+圖卡使用本機彙總資料，不含對話、專案路徑或機器名稱。
+
+| 設計 | 適合用途 | 預設版型 | 指令 | 可用版本 |
+|---|---|---|---|---|
+| **Minimal** | 用關鍵數字呈現簡潔的 README 橫幅 | `compact` · 720×230 | `--card --card-style minimal` | beta.2 開發版 |
+| **Paper** | 襯線字體與直式用量摘要 | `portrait` · 420×610 | `--card --card-style paper` | beta.2 開發版 |
+| **GitHub** | 統計方塊、活動圖與模型比例 | `dashboard` · 900×360 | `--card --card-style github` | beta.2 開發版 |
+| **Terminal** | 等寬字體的終端機橫幅 | `compact` · 720×230 | `--card --card-style terminal` | beta.2 開發版 |
+| **HUD** | Agent 活動、等級與徽章的完整個人頁 | `hud` · 900×390 | `--card --card-style netrunner` | beta.1 |
+| **Web／TUI 分享卡** | 社群貼文、月回顧或 README 圖片 | 方形、直式、橫式或 README | `--create` · 下載 PNG／SVG | beta.2 開發版 |
 
 <details>
-<summary>展開卡片畫廊：10 種風格、版型與匯出指令</summary>
+<summary>查看六種設計的預覽（示範資料）</summary>
 
-### 選一張適合你的圖卡
-
-把自己的 AI 用量做成 Threads 貼文、每月回顧，或 GitHub README 裡的一張卡片。
-可以從 Web／TUI 風格開始，也能挑下方 10 種個人頁風格。所有預覽都使用示範資料。
-
-#### 四種新版個人頁風格（beta.2 開發版）
-
-這四種風格也改變字體和資訊排版，於 `feature-card-layouts` 加入（commit `4f50a5c`），
-這份開發分支已包含。
-
-| `minimal` · 灰階橫幅 | `github` · 活動統計面板 |
+| Minimal · 簡潔橫幅 | Terminal · 終端機橫幅 |
 |---|---|
-| ![Minimal 淺色個人頁卡片](docs/images/card-minimal.svg) | ![GitHub 深色個人頁卡片](docs/images/card-github.svg) |
-| **`paper` · 暖色紙張直式** | **`terminal` · 等寬字橫幅** |
-| <img src="docs/images/card-paper.svg" width="280" alt="Paper 淺色個人頁卡片，使用襯線字體與直式活動圖"> | ![Terminal 深色個人頁卡片](docs/images/card-terminal.svg) |
+| ![Minimal 個人頁卡片](docs/images/card-minimal.svg) | ![Terminal 個人頁卡片](docs/images/card-terminal.svg) |
+| **GitHub · 活動統計面板** | **HUD · 完整 agent 個人頁** |
+| ![GitHub 個人頁卡片](docs/images/card-github.svg) | ![HUD 個人頁卡片](docs/images/card-netrunner.svg) |
+| **Paper · 直式摘要** | **Web／TUI · 社群分享** |
+| <img src="docs/images/card-paper.svg" width="240" alt="Paper 圖卡，使用襯線字體與直式活動圖"> | <img src="docs/images/share-preview.png" width="240" alt="Web／TUI 分享卡，呈現用量總數與每日活動圖"> |
 
-#### Web／TUI 分享卡（beta.2 開發版）
+</details>
 
-獨立製卡頁採用 Web／TUI 的黑白設計，呈現清楚的總量與活動趨勢。
-可選方形、直式、橫式或 README 版型，用 `--create` 下載 PNG／SVG。
-此版本於 `feature-card-creator` 加入（commit `d556665`）。
+### 匯出圖卡
 
-<img src="docs/images/share-preview.png" width="270" alt="Web／TUI 分享卡：黑底白色用量數字與每日活動圖">
-
-#### 霓虹 HUD 個人頁風格（beta.1）
-
-喜歡霓虹？這六種風格採用切角 HUD、活動格與裝飾動畫：
-
-| `netrunner` · 青／粉紅／黃 | `arasaka` · 紅／黑 |
-|---|---|
-| ![Netrunner 個人頁卡片](docs/images/card-netrunner.svg) | ![Arasaka 個人頁卡片](docs/images/card-arasaka.svg) |
-| **`militech` · 黃／橙** | **`amber` · 紫／金** |
-| ![Militech 個人頁卡片](docs/images/card-militech.svg) | ![Amber 個人頁卡片](docs/images/card-amber.svg) |
-| **`matrix` · 終端機綠** | **`synthwave` · 洋紅／青** |
-| ![Matrix 個人頁卡片](docs/images/card-matrix.svg) | ![Synthwave 個人頁卡片](docs/images/card-synthwave.svg) |
-
-#### 挑選適合你頁面的風格
-
-| 個人頁風格（`--card-style`） | 視覺與用途 | 預設版型 | 可用版本 |
-|---|---|---|---|
-| `minimal` | 灰階、留白；適合簡潔的 README 橫幅 | `compact` | beta.2 開發版 |
-| `paper` | 暖色紙張、襯線字體；直式摘要 | `portrait` | beta.2 開發版 |
-| `github` | 統計方塊、活動圖、模型比例 | `dashboard` | beta.2 開發版 |
-| `terminal` | 等寬字、平直邊框；終端機橫幅 | `compact` | beta.2 開發版 |
-| `netrunner` | 青、粉紅與黃；預設 cyberpunk HUD | `hud` | beta.1 |
-| `arasaka` | 紅色強調；鮮明的紅黑 HUD | `hud` | beta.1 |
-| `militech` | 黃與橙；高對比 HUD | `hud` | beta.1 |
-| `amber` | 紫與金；暖調霓虹 | `hud` | beta.1 |
-| `matrix` | 綠色；終端機感的 HUD | `hud` | beta.1 |
-| `synthwave` | 洋紅與青；復古霓虹 | `hud` | beta.1 |
-
-每種個人頁風格都有深／淺色版，標籤可選英文或繁中。
-Web／TUI 分享卡、四種新風格、版型選項與本機比較頁需要這份 beta.2 開發版；已釋出的 beta.1 有六種霓虹風格。
-製卡頁使用 Web／TUI 風格；個人頁風格透過 `--card` 選擇。
-舊版的 `computai`、`mono` 名稱現在是 `netrunner` 的別名，不另外計為目前版本的風格。
-
-#### 做第一張圖卡
-
-在這份開發版資料夾裡，有 Python 3.8+ 就能直接開製卡頁：
+在這份開發版資料夾裡，有 Python 3.8+ 就能執行：
 
 ```sh
-python3 ./computai --create --lang zh       # Windows：py -3 computai --create --lang zh
-```
-
-選社群或 GitHub README、範圍與版型，再下載 PNG／SVG。不需要先設定 GitHub。
-[完整的第一張圖卡教學](docs/MAKE-A-CARD.zh-TW.md)。
-
-想用個人頁風格，在同一個資料夾執行以下指令，再打開 `styles.html` 或 `card.svg`：
-
-```sh
-python3 ./computai --card --html styles.html --lang zh  # 比較 10 種風格、深淺色與版型
+python3 ./computai --create --lang zh                # 選範圍，下載 PNG／SVG
 python3 ./computai --card --card-style minimal --svg card.svg --lang zh
-python3 ./computai --card --card-style paper --card-theme light --svg card.svg --lang zh
-python3 ./computai --card --card-style amber --svg card.svg --lang zh
+python3 ./computai --card --card-style paper --svg card.svg --lang zh
 ```
 
-把下載的 SVG 放在 README 同一層，貼上：
+Windows 把 `python3 ./computai` 換成 `py -3 computai`；安裝後可直接用 `computai`。
+把匯出的 SVG 放在 README 同一層，貼上：
 
 ```markdown
 ![我的 AI 用量](card.svg)
 ```
 
-這些指令只產生本機檔案。請分享下載的圖片；製卡頁 HTML 內含可選歷史區間。
-安裝後，可以把 `python3 ./computai` 換成 `computai`。
+製卡頁使用 Web／TUI 設計，五種個人頁設計透過 `--card` 匯出 SVG。
+請分享下載的圖片；製卡頁 HTML 內含可選歷史區間。[做第一張圖卡](docs/MAKE-A-CARD.zh-TW.md)。
 
-#### 調整版型、保存喜歡的風格
+### 調整版型
 
-風格決定配色與字體，`--card-layout` 決定尺寸和資訊安排：
-`auto` 跟隨風格，`hud` 為 900×390、`compact` 為 720×230、`dashboard` 為 900×360、`portrait` 為 420×610。
-橫幅顯示 token、API 等值、活躍天數、來源比例和常用模型；統計面板與直式另有活動圖及活動時數。
-四種新風格的預設版型都是靜態。
+beta.2 開發版的 `--card-layout` 可選 `auto`（跟隨風格）、`compact`、`portrait`、`dashboard` 或 `hud`。
+簡潔橫幅呈現關鍵數字，統計面板與直式另有活動圖與活動時數。
+HUD 提供較完整的 agent 個人頁與裝飾動畫，其餘個人頁設計預設靜態。
 
 ```sh
 computai --card --card-style github --card-layout compact --svg card.svg
-computai --set card.style=paper --set card.layout=portrait  # 每日更新也沿用
-computai --set 'card.colors=#ff6b6b, #ffd93d'               # 自訂兩個強調色
-computai --set card.handle=NEO                             # 顯示名稱
-computai --set card.lang=zh                                # en 或 zh
-computai --set card.credit=no                              # 隱藏小字署名
+computai --set card.style=paper --set card.layout=portrait  # 儲存預設，匯出與每日更新都沿用
 ```
 
-CLI 選項優先於保存的 `[card]` 設定。想產生深／淺色配對、每天更新，接著看
-[GitHub 個人頁設定](#github-個人頁更新)。
-
-</details>
+每種個人頁設計都支援深／淺色（`--card-theme`）與英文／繁中標籤。
+HUD 的配色選項為 `netrunner`（預設）、`arasaka`、`militech`、`amber`、`matrix`、`synthwave`，版型相同。
+要在本機比較所有配色與版型，可用 `computai --card --html styles.html --lang zh`（beta.2 開發版）。
+顯示名稱、自訂強調色與其他選項見[卡片參考](docs/MANUAL.zh-TW.md#個人頁卡片)。
 
 ### GitHub 個人頁更新
 
