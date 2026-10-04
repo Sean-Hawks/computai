@@ -80,4 +80,4 @@ case ":$PATH:" in
     *":$BIN:"*) ;;
     *) echo "add $BIN to your PATH, e.g.: echo 'export PATH=\"$BIN:\$PATH\"' >> ~/.profile" ;;
 esac
-echo "next: computai --summary --month    (config: $("$BIN/computai" --paths | sed -n 's/^config: //p'))"
+echo "next: computai    (config: $("$BIN/computai" --paths | sed -n 's/^config: //p'))"

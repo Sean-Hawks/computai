@@ -16,6 +16,8 @@ class Installer(unittest.TestCase):
         env = sb.env(PREFIX=prefix, COMPUTAI_URL="http://127.0.0.1:1/must-not-fetch")
         r = subprocess.run(["sh", "install.sh"], cwd=helpers.ROOT, env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("next: computai    (config:", r.stdout)
+        self.assertNotIn("next: computai --summary", r.stdout)
         installed = os.path.join(prefix, "bin", "computai")
         with open(helpers.SCRIPT, "rb") as f, open(installed, "rb") as g:
             self.assertEqual(f.read(), g.read())

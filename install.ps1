@@ -49,3 +49,4 @@ if ($Create -or $Recap) {
     & $Py[0] @($Py | Select-Object -Skip 1) $Target @CreatorArgs
     exit $LASTEXITCODE
 }
+Write-Host "next: computai"
