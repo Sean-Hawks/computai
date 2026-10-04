@@ -35,7 +35,7 @@ else { Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Target }
 $cmd = '@echo off' + "`r`n" + ($Py -join ' ') + ' "%~dp0computai.py" %*' + "`r`n"
 Set-Content -Path (Join-Path $Bin "computai.cmd") -Value $cmd -Encoding ASCII
 
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+[string]$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (-not ($userPath -split ";" | Where-Object { $_ -eq $Bin })) {
     [Environment]::SetEnvironmentVariable("Path", ($userPath.TrimEnd(";") + ";" + $Bin), "User")
     Write-Host "added $Bin to your PATH (open a new terminal to use it)"
