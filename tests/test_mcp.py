@@ -48,6 +48,11 @@ class Mcp(unittest.TestCase):
         self.assertEqual(r[5]["error"]["code"], -32601)
         self.assertEqual(r[6]["error"]["code"], -32700)
 
+    def test_non_object_input_does_not_end_the_session(self):
+        r = self.talk([], 123, None, {"jsonrpc": "2.0", "id": 7, "method": "ping"})
+        self.assertEqual(r[0]["id"], 7)
+        self.assertEqual(r[0]["result"], {})
+
     def test_pick_tool(self):
         r = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "pick", "arguments": {"task": "light"}}},
                       {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "pick", "arguments": {"task": "x"}}})
