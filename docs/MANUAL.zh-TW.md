@@ -110,7 +110,7 @@ Token、花費和方案模擬仍依工具合併各帳號。
 | `--notify-test` | 送一則測試通知。 |
 | `--install-watch`／`--uninstall-watch` | 登入時自動在背景跑 `--watch`，或取消。 |
 | `--bench [--machine 名稱]` | 每個本地模型跑幾秒：每秒 token、功耗、每 token 焦耳、每百萬 token 電費和 API 比較。 |
-| `--theme cyber\|classic` | 深色、安靜的 cyberpunk 儀器風格（預設，見 [DESIGN.md](DESIGN.md)）或 slurmtop 樣式，終端機、網頁、月報、回顧卡都會套用（也可以設 `[general] theme`）。 |
+| `--theme cyber\|classic` | 深色、安靜的 cyberpunk 儀器風格（預設）或 slurmtop 樣式，終端機、網頁、月報、回顧卡都會套用（也可以設 `[general] theme`）。 |
 | `--lang zh` | live 畫面、網頁版和 `--line` 用繁體中文（也可以設 `[general] lang = zh`）。預設 `lang = auto` 跟系統語言走；macOS 以系統偏好的語言為準，因為 cmux、Ghostty 等終端機不管系統語言都會設 `LANG=en_US`。想固定英文就設 `COMPUTAI_LANG=en` 或 `lang = en`。 |
 | `--web [[位址:]埠]` | 瀏覽器版（手機排版）、`/api/state` JSON、給 Prometheus 的 `/metrics`。預設 `127.0.0.1:8765`。 |
 | `--recap [年份] [--html 檔名]` | 年度回顧（token、方案划算程度、使用天數、最長連續天數、最忙的一天、最常用的模型、本地推論）；HTML 卡片不含專案和機器名稱，可以直接分享。月費以「有用量的月份 × 目前 `[plans]` 的價格」計算。 |
