@@ -6,7 +6,7 @@ cloud GPUs in one ledger: tokens, GPU hours, kWh and money.
 
 Single Python file · Standard library only · Python 3.8+ · macOS, Linux and Windows
 
-[繁體中文](README.zh-TW.md) · [Quick start](#quick-start) · [Manual](docs/MANUAL.md) · [Release notes](docs/RELEASE-v0.1.0-beta.3.md)
+[繁體中文](README.zh-TW.md) · [Quick start](#quick-start) · [Card previews](#usage-cards) · [Manual](docs/MANUAL.md) · [Release notes](docs/RELEASE-v0.1.0-beta.3.md)
 
 **Current release:** [v0.1.0-beta.3](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.3).
 Beta.3 adds a feature menu, monthly recaps and private card downloads.
@@ -34,6 +34,26 @@ The browser shows the same ledger with usage charts, machine status and alerts, 
 Both screenshots use demo data. Use `--lang zh` for Traditional Chinese and `--theme classic` for the alternative dashboard theme.
 With Tailscale installed and signed in, `computai --tailscale` makes the browser GUI available over HTTPS on your own tailnet;
 the local server continues to listen on `127.0.0.1`.
+
+## Usage cards
+
+Turn your usage into an image for social posts or a GitHub README. These six previews use demo data.
+
+| Minimal · concise banner | Terminal · console banner |
+|---|---|
+| ![Minimal profile card](docs/images/card-minimal.svg) | ![Terminal profile card](docs/images/card-terminal.svg) |
+| **GitHub · activity dashboard** | **HUD · detailed agent profile** |
+| ![GitHub profile card](docs/images/card-github.svg) | ![HUD profile card](docs/images/card-netrunner.svg) |
+| **Paper · vertical summary** | **Web/TUI · social sharing** |
+| <img src="docs/images/card-paper.svg" width="240" alt="Paper card with serif typography and a vertical activity grid"> | <img src="docs/images/share-preview.png" width="240" alt="Web/TUI sharing card with usage totals and a daily activity chart"> |
+
+```sh
+computai recap                                      # open the monthly card creator; download PNG/SVG
+computai --card --card-style minimal --svg card.svg  # export a README card
+```
+
+Install through the [quick start](#quick-start); see [cards and sharing](#cards-and-sharing) for design comparisons,
+export options and automatic profile updates.
 
 ## Quick start
 
@@ -97,6 +117,8 @@ Local token coverage depends on service metrics or traffic through the optional 
 
 | Task | Command |
 |---|---|
+| Monthly card with PNG/SVG downloads | `computai recap` |
+| README usage card | `computai --card --card-style minimal --svg card.svg` |
 | Monthly usage | `computai --summary --month` |
 | Usage by project | `computai --summary --month --by project` |
 | Agent activity timeline | `computai --timeline` |
@@ -177,19 +199,6 @@ Cards use local aggregates and omit conversations, project paths and machine nam
 Monthly recaps show source date coverage, record counts and comparison with the adjacent calendar month;
 missing records remain unknown. Supported GUI logs and recorded local-model usage can share one recap;
 web-only chat is outside this first version. The creator also exports aggregates for just the selected period as JSON.
-
-<details>
-<summary>Preview the six designs (demo data)</summary>
-
-| Minimal · concise banner | Terminal · console banner |
-|---|---|
-| ![Minimal profile card](docs/images/card-minimal.svg) | ![Terminal profile card](docs/images/card-terminal.svg) |
-| **GitHub · activity dashboard** | **HUD · detailed agent profile** |
-| ![GitHub profile card](docs/images/card-github.svg) | ![HUD profile card](docs/images/card-netrunner.svg) |
-| **Paper · vertical summary** | **Web/TUI · social sharing** |
-| <img src="docs/images/card-paper.svg" width="240" alt="Paper card with serif typography and a vertical activity grid"> | <img src="docs/images/share-preview.png" width="240" alt="Web/TUI sharing card with usage totals and a daily activity chart"> |
-
-</details>
 
 ### Export a card
 

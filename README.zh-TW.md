@@ -5,7 +5,7 @@
 
 單一 Python 檔 · 只用標準函式庫 · Python 3.8+ · macOS、Linux、Windows
 
-[English](README.md) · [快速開始](#快速開始) · [使用手冊](docs/MANUAL.zh-TW.md) · [版本說明](docs/RELEASE-v0.1.0-beta.3.md)
+[English](README.md) · [快速開始](#快速開始) · [圖卡預覽](#用量圖卡) · [使用手冊](docs/MANUAL.zh-TW.md) · [版本說明](docs/RELEASE-v0.1.0-beta.3.md)
 
 **目前版本：** [v0.1.0-beta.3](https://github.com/Sean-Hawks/computai/releases/tag/v0.1.0-beta.3)。
 beta.3 新增功能選單、月報入口與本機圖卡下載。
@@ -32,6 +32,25 @@ beta.3 新增功能選單、月報入口與本機圖卡下載。
 兩張截圖均使用示範資料。加上 `--lang zh` 使用繁中介面，`--theme classic` 切換另一種監控主題。
 若已安裝並登入 Tailscale，`computai --tailscale` 可透過 HTTPS 在自己的 tailnet 查看 GUI；
 本機伺服器仍只監聽 `127.0.0.1`。
+
+## 用量圖卡
+
+把用量做成社群分享圖或 GitHub README 卡片。以下六種預覽使用示範資料。
+
+| Minimal · 簡潔橫幅 | Terminal · 終端機橫幅 |
+|---|---|
+| ![Minimal 個人頁卡片](docs/images/card-minimal.svg) | ![Terminal 個人頁卡片](docs/images/card-terminal.svg) |
+| **GitHub · 活動統計面板** | **HUD · 完整 agent 個人頁** |
+| ![GitHub 個人頁卡片](docs/images/card-github.svg) | ![HUD 個人頁卡片](docs/images/card-netrunner.svg) |
+| **Paper · 直式摘要** | **Web／TUI · 社群分享** |
+| <img src="docs/images/card-paper.svg" width="240" alt="Paper 圖卡，使用襯線字體與直式活動圖"> | <img src="docs/images/share-preview.png" width="240" alt="Web／TUI 分享卡，呈現用量總數與每日活動圖"> |
+
+```sh
+computai recap --lang zh                                    # 開月報製卡頁，下載 PNG／SVG
+computai --card --card-style minimal --svg card.svg --lang zh # 匯出 README 卡片
+```
+
+安裝方式見[快速開始](#快速開始)；設計比較、匯出與個人頁自動更新見[圖卡與分享](#圖卡與分享)。
 
 ## 快速開始
 
@@ -94,6 +113,8 @@ API 等值依設定價格估算，不是實際帳單。本地 token 的完整度
 
 | 用途 | 指令 |
 |---|---|
+| 月報製卡與 PNG／SVG 下載 | `computai recap --lang zh` |
+| README 用量卡片 | `computai --card --card-style minimal --svg card.svg --lang zh` |
 | 本月用量 | `computai --summary --month` |
 | 依專案統計 | `computai --summary --month --by project` |
 | Agent 活動時間軸 | `computai --timeline` |
@@ -174,19 +195,6 @@ computai recap
 月報會列出選定月份的來源日期、紀錄筆數和相鄰曆月比較，缺資料會提示而不冒充零用量。
 先支援留有本機用量 log 的 Codex GUI／T3、本地模型及混合使用者；純網頁聊天暫不涵蓋。
 也能從製卡頁下載只含所選區間的彙總 JSON。[月報來源與第一張圖卡](docs/MAKE-A-CARD.zh-TW.md#月報先確認什麼)。
-
-<details>
-<summary>查看六種設計的預覽（示範資料）</summary>
-
-| Minimal · 簡潔橫幅 | Terminal · 終端機橫幅 |
-|---|---|
-| ![Minimal 個人頁卡片](docs/images/card-minimal.svg) | ![Terminal 個人頁卡片](docs/images/card-terminal.svg) |
-| **GitHub · 活動統計面板** | **HUD · 完整 agent 個人頁** |
-| ![GitHub 個人頁卡片](docs/images/card-github.svg) | ![HUD 個人頁卡片](docs/images/card-netrunner.svg) |
-| **Paper · 直式摘要** | **Web／TUI · 社群分享** |
-| <img src="docs/images/card-paper.svg" width="240" alt="Paper 圖卡，使用襯線字體與直式活動圖"> | <img src="docs/images/share-preview.png" width="240" alt="Web／TUI 分享卡，呈現用量總數與每日活動圖"> |
-
-</details>
 
 ### 匯出圖卡
 
