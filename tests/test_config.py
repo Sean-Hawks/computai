@@ -93,6 +93,7 @@ class DefaultPrices(unittest.TestCase):
             ("claude-fable-5-2@fast", (16, 80, 0.4, 20)),
             ("claude-sonnet-5-5", (2, 10, 0.1, 2.5)),
             ("claude-haiku-5-5", (0.1, 0.5, 0.01, 0.125)),
+            ("gemini-4-neon-xhigh", (3, 15, 0.15, 3)),
             ("gpt-6.2-astra", (8, 40, 0.4, 10)),
             ("gpt-6.2-sol", (2, 10, 0.1, 2.5)),
             ("gpt-6.1-terra", (1, 5, 0.05, 1.25)),

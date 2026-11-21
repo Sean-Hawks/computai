@@ -422,6 +422,14 @@ cache_write_1h = 2
 checked = 2026-11-21
 source = https://platform.claude.com/docs/en/about-claude/pricing#model-pricing
 
+[gemini-4-neon]
+# Applies to thinking-level variants such as gemini-4-neon-xhigh.
+input = 3
+output = 15
+cache_read = 0.15
+checked = 2026-11-21
+source = https://ai.google.dev/gemini-api/docs/pricing#gemini-4-neon
+
 [gemini-3.1-pro-preview]
 # Paid tier, text, prompts up to 200K tokens. Cache storage is separate.
 input = 2
