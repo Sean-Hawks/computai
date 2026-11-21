@@ -88,6 +88,18 @@ class DefaultPrices(unittest.TestCase):
             self.assertEqual(m.price_for(model, prices)["input"], inp, model)
         self.assertEqual(m.price_for("claude-fable-5-1", prices)["cache_read"], 0.25)
         self.assertEqual(m.price_for("claude-fable-5", prices)["cache_read"], 1)
+        for model, expected in (
+            ("claude-fable-5-2", (8, 40, 0.2, 10)),
+            ("claude-fable-5-2@fast", (16, 80, 0.4, 20)),
+            ("claude-sonnet-5-5", (2, 10, 0.1, 2.5)),
+            ("claude-haiku-5-5", (0.1, 0.5, 0.01, 0.125)),
+            ("gpt-6.2-astra", (8, 40, 0.4, 10)),
+            ("gpt-6.2-sol", (2, 10, 0.1, 2.5)),
+            ("gpt-6.1-terra", (1, 5, 0.05, 1.25)),
+        ):
+            rate = m.price_for(model, prices)
+            self.assertEqual(tuple(rate[key] for key in ("input", "output", "cache_read", "cache_write_5m")),
+                             expected, model)
         self.assertEqual(m.price_for("gpt-5.5", prices)["cache_write_5m"], 5)  # 退回輸入價
 
 
